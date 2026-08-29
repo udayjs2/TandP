@@ -2,35 +2,43 @@
 
 A real, hosted version of your workshop management app: employees, orders (with
 multi-item + hourly production tracking), invoices (with print), attendance,
-payroll (with payslips), and sales team tracking. Has its own permanent URL, a
-real database, real login accounts, and updates live across everyone using it.
+payroll (with payslips), sales team tracking, and field expense claims. Has its
+own permanent URL, a real database, real login accounts, and updates live
+across everyone using it.
 
-## Updating an existing deployment (v2 features)
+## Updating an existing deployment
 
 If you already deployed the app and have live data, **don't re-run schema.sql**
-— it will conflict with tables you already have. Instead:
+— run only the migration file(s) you haven't run yet, in order:
 
 1. Open your Supabase project → **SQL Editor** → New query.
-2. Open `supabase/migration_2.sql` from this folder, copy all of it, paste it in, and **Run**.
-3. Replace your app code with this new version (re-deploy to Vercel, or `git push`
-   if you're using GitHub — Vercel redeploys automatically).
-4. That's it — your existing employees, invoices, and attendance data are untouched.
+2. Run `supabase/migration_2.sql` if you haven't already (orders items/progress, payroll linking).
+3. Run `supabase/migration_3.sql` (expense claims + receipt photo storage) — new query, paste, Run.
+4. Replace your app code with this new version and redeploy.
 
-### What's new in this version
-- **Orders now support multiple line items** (e.g. T-shirts × 200, Pants × 100) instead of one item.
-- **Order value/price has been removed** — orders track production quantities only; pricing lives on invoices.
-- **Hourly production tracking**: on each order, log how many of each item were completed in every hour block (9–10am through 5–6pm). The app keeps a running total against your daily target.
-- **Dashboard shows today's production progress** across all active orders.
-- **Payroll is now visible to Staff too — but scoped to their own record only** (their present days, leaves taken, and net pay). Admins still see everyone.
-- **Link a login account to an employee** from the Payroll tab (admin-only) so a staff member's login shows their own payroll.
-- **Payslip generation**: both admins (for any employee) and staff (for themselves) can generate a printable payslip for any month, showing attendance summary, earnings, and net pay.
+Your existing data is untouched by either migration.
 
-> Note on "automatic" month-end payslips: this app generates payslips on demand
-> (click the button anytime, including on the last day of the month) rather than
-> automatically at midnight, since that requires a scheduled server-side job.
-> If you want true automation later, Supabase supports scheduled Edge Functions
-> (`pg_cron`) that could email a payslip PDF to each employee on the 1st of every
-> month — ask if you'd like this built out.
+### What's new in this version (expense claims)
+- **Staff can submit expense claims** for Food, Petrol, Transport, or Other — with
+  amount, date, notes, and an optional **receipt photo upload** (works from a phone camera).
+- When category is Petrol or Transport, staff also pick a **mode of transport**
+  (Bus, Auto, Own Vehicle, Train, Other).
+- Claims appear under the **Sales Team** tab — staff see only their own; admins
+  see everyone's, with a "pending" count badge.
+- **Admin can review each claim**: view the receipt photo, add a note, and mark
+  it Approved, Rejected, or Reimbursed.
+- Receipt photos are stored privately in Supabase Storage — only the employee
+  who uploaded it and admins can view it (enforced by storage security rules,
+  not just the app's UI).
+- This reuses the same "linked employee account" system from Payroll — a staff
+  member needs their login linked to an employee record (Payroll tab → admin)
+  before they can submit claims, same as for viewing their own payroll.
+
+### What's new from before that (v2 — orders & payroll)
+- Orders now support multiple line items (e.g. T-shirts × 200, Pants × 100); order value/price was removed — orders track production quantities only.
+- Hourly production tracking on each order, with a "today's production progress" card on the Dashboard.
+- Staff can see their own Payroll (present days, leaves, net pay) without seeing anyone else's.
+- Admins can generate printable payslips for any employee, any month; staff can generate their own.
 
 
 

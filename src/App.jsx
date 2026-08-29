@@ -18,7 +18,7 @@ const TABS = [
   { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin", "user"] },
   { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin"] },
   { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
-  { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin"] },
+  { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin", "user"] },
 ];
 
 export default function App() {
@@ -88,7 +88,7 @@ export default function App() {
         {activeTab === "invoices" && <Invoices isAdmin={isAdmin} />}
         {activeTab === "attendance" && isAdmin && <Attendance profile={profile} />}
         {activeTab === "payroll" && <Payroll profile={profile} />}
-        {activeTab === "sales" && isAdmin && <SalesTeam />}
+        {activeTab === "sales" && <SalesTeam profile={profile} />}
       </main>
     </div>
   );

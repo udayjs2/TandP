@@ -29,3 +29,12 @@ export const HOUR_SLOTS = [
 // total items required across all line items of an order
 export const orderItemsRequired = (items = []) =>
   items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+
+export const EXPENSE_CATEGORIES = ["Food", "Petrol", "Transport", "Other"];
+export const TRANSPORT_MODES = ["Bus", "Auto", "Own Vehicle", "Train", "Other"];
+export const EXPENSE_STATUS_COLORS = {
+  Submitted: "bg-amber-100 text-amber-800",
+  Approved: "bg-sky-100 text-sky-800",
+  Rejected: "bg-rose-100 text-rose-800",
+  Reimbursed: "bg-emerald-100 text-emerald-800",
+};
