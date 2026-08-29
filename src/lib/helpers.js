@@ -38,3 +38,29 @@ export const EXPENSE_STATUS_COLORS = {
   Rejected: "bg-rose-100 text-rose-800",
   Reimbursed: "bg-emerald-100 text-emerald-800",
 };
+
+export const ORDER_STATUSES = ["Not Started", "Cutting", "Stitching", "Finishing", "Ironing", "Completed", "Shipped"];
+export const ORDER_STATUS_COLORS = {
+  "Not Started": "bg-stone-200 text-stone-700",
+  Cutting: "bg-amber-100 text-amber-800",
+  Stitching: "bg-sky-100 text-sky-800",
+  Finishing: "bg-violet-100 text-violet-800",
+  Ironing: "bg-fuchsia-100 text-fuchsia-800",
+  Completed: "bg-emerald-100 text-emerald-800",
+  Shipped: "bg-indigo-100 text-indigo-800",
+};
+
+// combine an order's item list with cumulative completed/delivered totals
+// (from order_progress and order_deliveries rows) into a per-item breakdown
+export const buildItemBreakdown = (items = [], progressRows = [], deliveryRows = []) => {
+  const completedByItem = {};
+  progressRows.forEach((p) => (completedByItem[p.item_description] = (completedByItem[p.item_description] || 0) + Number(p.quantity || 0)));
+  const deliveredByItem = {};
+  deliveryRows.forEach((d) => (deliveredByItem[d.item_description] = (deliveredByItem[d.item_description] || 0) + Number(d.quantity || 0)));
+  return items.map((it) => {
+    const required = Number(it.quantity) || 0;
+    const completed = completedByItem[it.description] || 0;
+    const delivered = deliveredByItem[it.description] || 0;
+    return { description: it.description, required, completed, delivered, pending: Math.max(0, required - delivered) };
+  });
+};

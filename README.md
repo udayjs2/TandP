@@ -1,44 +1,39 @@
 # T&P Textiles — Workshop Management
 
 A real, hosted version of your workshop management app: employees, orders (with
-multi-item + hourly production tracking), invoices (with print), attendance,
-payroll (with payslips), sales team tracking, and field expense claims. Has its
-own permanent URL, a real database, real login accounts, and updates live
+multi-item production tracking, planned dates, and partial deliveries), a
+public customer order-tracking page, invoices (with print), attendance,
+payroll (with payslips), sales team tracking, and field expense claims. Has
+its own permanent URL, a real database, real login accounts, and updates live
 across everyone using it.
 
 ## Updating an existing deployment
 
 If you already deployed the app and have live data, **don't re-run schema.sql**
-— run only the migration file(s) you haven't run yet, in order:
+— run only the migration file(s) you haven't run yet, in this order:
 
 1. Open your Supabase project → **SQL Editor** → New query.
 2. Run `supabase/migration_2.sql` if you haven't already (orders items/progress, payroll linking).
-3. Run `supabase/migration_3.sql` (expense claims + receipt photo storage) — new query, paste, Run.
-4. Replace your app code with this new version and redeploy.
+3. Run `supabase/migration_3.sql` if you haven't already (expense claims + receipt photo storage).
+4. Run `supabase/migration_4.sql` (planned dates, delivery tracking, customer tracking page) — new query, paste, Run.
+5. Replace your app code with this new version and redeploy.
 
-Your existing data is untouched by either migration.
+Your existing data is untouched by any of these.
 
-### What's new in this version (expense claims)
-- **Staff can submit expense claims** for Food, Petrol, Transport, or Other — with
-  amount, date, notes, and an optional **receipt photo upload** (works from a phone camera).
-- When category is Petrol or Transport, staff also pick a **mode of transport**
-  (Bus, Auto, Own Vehicle, Train, Other).
-- Claims appear under the **Sales Team** tab — staff see only their own; admins
-  see everyone's, with a "pending" count badge.
-- **Admin can review each claim**: view the receipt photo, add a note, and mark
-  it Approved, Rejected, or Reimbursed.
-- Receipt photos are stored privately in Supabase Storage — only the employee
-  who uploaded it and admins can view it (enforced by storage security rules,
-  not just the app's UI).
-- This reuses the same "linked employee account" system from Payroll — a staff
-  member needs their login linked to an employee record (Payroll tab → admin)
-  before they can submit claims, same as for viewing their own payroll.
+### What's new in this version
+- **Fuller status pipeline**: Not Started → Cutting → Stitching → Finishing → Ironing → Completed → Shipped.
+- **Planned start / end dates** on every order, shown alongside the customer's due date.
+- **Delivery tracking**: log partial deliveries per item (e.g. "delivered 40 of 60 T-shirts today, rest next week") from the truck icon on each order. The order card now shows, per item: how many are made, how many delivered, and how many are still pending — so you can keep a customer happy with a partial shipment without losing track of what's owed.
+- **Dashboard** "Orders in progress" card now shows each order's current stage and planned dates, not just due date.
+- **Public customer tracking page** — no login needed. Click the link icon on any order to get a shareable URL + short tracking code; send it to the customer (SMS/WhatsApp) and they can check status, current stage, and how many of each item are completed/delivered/pending, any time.
+  - The tracking page lives at `yourapp.com/?track=1` — if a customer opens it without a link they can still type in the order number and tracking code manually.
+  - This uses a locked-down database function: it only ever returns one order's summary, and only if both the order number AND its private tracking code match — it can't be used to browse or guess other orders.
 
-### What's new from before that (v2 — orders & payroll)
-- Orders now support multiple line items (e.g. T-shirts × 200, Pants × 100); order value/price was removed — orders track production quantities only.
-- Hourly production tracking on each order, with a "today's production progress" card on the Dashboard.
-- Staff can see their own Payroll (present days, leaves, net pay) without seeing anyone else's.
-- Admins can generate printable payslips for any employee, any month; staff can generate their own.
+### From earlier versions
+- Multiple line items per order; order value/price removed (orders track production, invoices carry price).
+- Hourly production tracking on each order.
+- Staff can see their own Payroll (present days, leaves, net pay) and generate their own payslip.
+- Staff can submit expense claims (Food/Petrol/Transport/Other) with a receipt photo; admin reviews and marks Approved/Rejected/Reimbursed.
 
 
 

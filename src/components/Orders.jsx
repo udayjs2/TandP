@@ -1,33 +1,47 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ClipboardList } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr, HOUR_SLOTS, orderItemsRequired } from "../lib/helpers";
-
-const ORDER_STATUSES = ["Pending", "Cutting", "Stitching", "Finishing", "Completed", "Shipped"];
-const ORDER_COLORS = {
-  Pending: "bg-stone-200 text-stone-700",
-  Cutting: "bg-amber-100 text-amber-800",
-  Stitching: "bg-sky-100 text-sky-800",
-  Finishing: "bg-violet-100 text-violet-800",
-  Completed: "bg-emerald-100 text-emerald-800",
-  Shipped: "bg-indigo-100 text-indigo-800",
-};
+import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown } from "../lib/helpers";
 
 export default function Orders({ profile }) {
   const [orders, setOrders] = useState([]);
   const [modal, setModal] = useState(null);
   const [progressOrder, setProgressOrder] = useState(null);
+  const [deliveryOrder, setDeliveryOrder] = useState(null);
+  const [trackOrder, setTrackOrder] = useState(null);
   const [todayTotals, setTodayTotals] = useState({});
+  const [progressByOrder, setProgressByOrder] = useState({});
+  const [deliveriesByOrder, setDeliveriesByOrder] = useState({});
 
   const load = async () => {
     const { data } = await supabase.from("orders").select("*").order("order_date", { ascending: false });
     setOrders(data || []);
+
     const today = todayStr();
-    const { data: prog } = await supabase.from("order_progress").select("order_id, quantity").eq("date", today);
+    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }] = await Promise.all([
+      supabase.from("order_progress").select("order_id, quantity").eq("date", today),
+      supabase.from("order_progress").select("order_id, item_description, quantity"),
+      supabase.from("order_deliveries").select("order_id, item_description, quantity"),
+    ]);
+
     const totals = {};
-    (prog || []).forEach((p) => (totals[p.order_id] = (totals[p.order_id] || 0) + Number(p.quantity || 0)));
+    (todayProg || []).forEach((p) => (totals[p.order_id] = (totals[p.order_id] || 0) + Number(p.quantity || 0)));
     setTodayTotals(totals);
+
+    const byOrderProg = {};
+    (allProg || []).forEach((p) => {
+      byOrderProg[p.order_id] = byOrderProg[p.order_id] || [];
+      byOrderProg[p.order_id].push(p);
+    });
+    setProgressByOrder(byOrderProg);
+
+    const byOrderDeliv = {};
+    (allDeliv || []).forEach((d) => {
+      byOrderDeliv[d.order_id] = byOrderDeliv[d.order_id] || [];
+      byOrderDeliv[d.order_id].push(d);
+    });
+    setDeliveriesByOrder(byOrderDeliv);
   };
 
   useEffect(() => {
@@ -36,6 +50,7 @@ export default function Orders({ profile }) {
       .channel("orders-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_progress" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_deliveries" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -53,7 +68,7 @@ export default function Orders({ profile }) {
   };
 
   const remove = async (id) => {
-    if (!confirm("Delete this order? This also removes its hourly progress log.")) return;
+    if (!confirm("Delete this order? This also removes its progress and delivery history.")) return;
     await supabase.from("orders").delete().eq("id", id);
     load();
   };
@@ -73,7 +88,10 @@ export default function Orders({ profile }) {
       </div>
       <div className="grid gap-3">
         {orders.map((o) => {
-          const required = orderItemsRequired(o.items);
+          const breakdown = buildItemBreakdown(o.items, progressByOrder[o.id] || [], deliveriesByOrder[o.id] || []);
+          const totalRequired = orderItemsRequired(o.items);
+          const totalDelivered = breakdown.reduce((s, b) => s + b.delivered, 0);
+          const totalPending = breakdown.reduce((s, b) => s + b.pending, 0);
           const todayDone = todayTotals[o.id] || 0;
           return (
             <Card key={o.id} className="p-4">
@@ -83,23 +101,31 @@ export default function Orders({ profile }) {
                   <div className="text-sm text-stone-500">
                     {(o.items || []).map((it) => `${it.description} × ${it.quantity}`).join(", ") || "No items"}
                   </div>
-                  <div className="text-xs text-stone-400 mt-1">Ordered {o.order_date} · Due {o.due_date || "—"}</div>
+                  <div className="text-xs text-stone-400 mt-1 flex flex-wrap gap-x-3">
+                    <span>Ordered {o.order_date}</span>
+                    <span>Planned {o.planned_start_date || "—"} → {o.planned_end_date || "—"}</span>
+                    <span>Due {o.due_date || "—"}</span>
+                  </div>
                   {o.daily_target > 0 && (
-                    <div className="text-xs text-stone-500 mt-1">
-                      Today: {todayDone}/{o.daily_target} items · target/day {o.daily_target}
-                    </div>
+                    <div className="text-xs text-stone-500 mt-1">Today: {todayDone}/{o.daily_target} items</div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <select
                     value={o.status}
                     onChange={(e) => setStatus(o.id, e.target.value)}
-                    className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${ORDER_COLORS[o.status]}`}
+                    className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${ORDER_STATUS_COLORS[o.status]}`}
                   >
                     {ORDER_STATUSES.map((s) => (
                       <option key={s}>{s}</option>
                     ))}
                   </select>
+                  <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
+                    <LinkIcon size={14} />
+                  </button>
+                  <button onClick={() => setDeliveryOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Deliveries">
+                    <Truck size={14} />
+                  </button>
                   <button onClick={() => setProgressOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Track progress">
                     <ClipboardList size={14} />
                   </button>
@@ -111,8 +137,23 @@ export default function Orders({ profile }) {
                   </button>
                 </div>
               </div>
-              {required > 0 && (
-                <div className="mt-2 text-xs text-stone-400">Total required: {required} items</div>
+
+              {breakdown.length > 0 && (
+                <div className="mt-3 border-t border-stone-100 pt-2 grid gap-1">
+                  {breakdown.map((b) => (
+                    <div key={b.description} className="flex items-center justify-between text-xs text-stone-500">
+                      <span className="w-28 truncate">{b.description}</span>
+                      <span className="font-mono">
+                        {b.completed}/{b.required} made · {b.delivered} delivered · <span className={b.pending > 0 ? "text-amber-700 font-medium" : ""}>{b.pending} pending</span>
+                      </span>
+                    </div>
+                  ))}
+                  {totalRequired > 0 && (
+                    <div className="text-xs text-stone-400 pt-0.5">
+                      Total: {totalDelivered}/{totalRequired} delivered, {totalPending} pending
+                    </div>
+                  )}
+                </div>
               )}
             </Card>
           );
@@ -120,9 +161,9 @@ export default function Orders({ profile }) {
         {orders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
       </div>
       {modal && <OrderModal order={modal} onClose={() => setModal(null)} onSave={save} count={orders.length} />}
-      {progressOrder && (
-        <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />
-      )}
+      {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
+      {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
+      {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
     </div>
   );
 }
@@ -133,8 +174,10 @@ function OrderModal({ order, onClose, onSave, count }) {
     order_number: order.order_number || `ORD-${String(count + 1).padStart(4, "0")}`,
     customer_name: order.customer_name || "",
     order_date: order.order_date || todayStr(),
+    planned_start_date: order.planned_start_date || "",
+    planned_end_date: order.planned_end_date || "",
     due_date: order.due_date || "",
-    status: order.status || "Pending",
+    status: order.status || "Not Started",
     daily_target: order.daily_target || "",
   });
   const [items, setItems] = useState(order.items && order.items.length ? order.items : [{ description: "", quantity: "" }]);
@@ -173,7 +216,7 @@ function OrderModal({ order, onClose, onSave, count }) {
             <div key={idx} className="grid grid-cols-[1fr_80px_28px] gap-1 px-2 py-1.5 border-t border-stone-100 items-center">
               <input
                 className="border border-stone-300 rounded px-2 py-1 text-sm"
-                placeholder="e.g. T-shirts, Pants"
+                placeholder="e.g. T-shirts, Skirts"
                 value={it.description}
                 onChange={(e) => updateItem(idx, { description: e.target.value })}
               />
@@ -206,6 +249,14 @@ function OrderModal({ order, onClose, onSave, count }) {
             <input type="date" className={inputCls} value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Planned start date">
+            <input type="date" className={inputCls} value={f.planned_start_date} onChange={(e) => setF({ ...f, planned_start_date: e.target.value })} />
+          </Field>
+          <Field label="Planned end date">
+            <input type="date" className={inputCls} value={f.planned_end_date} onChange={(e) => setF({ ...f, planned_end_date: e.target.value })} />
+          </Field>
+        </div>
         <Field label="Status">
           <select className={inputCls} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
             {ORDER_STATUSES.map((s) => (
@@ -214,9 +265,7 @@ function OrderModal({ order, onClose, onSave, count }) {
           </select>
         </Field>
         <div className="flex justify-end gap-2 mt-4">
-          <Btn variant="ghost" onClick={onClose}>
-            Cancel
-          </Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn type="submit">Save</Btn>
         </div>
       </form>
@@ -226,7 +275,7 @@ function OrderModal({ order, onClose, onSave, count }) {
 
 function ProgressModal({ order, onClose, profile }) {
   const [date, setDate] = useState(todayStr());
-  const [rows, setRows] = useState({}); // { "hourKey|itemDesc": quantity }
+  const [rows, setRows] = useState({});
   const [allProgress, setAllProgress] = useState([]);
   const items = order.items || [];
   const required = orderItemsRequired(items);
@@ -243,35 +292,22 @@ function ProgressModal({ order, onClose, profile }) {
 
   useEffect(() => {
     const r = {};
-    allProgress
-      .filter((p) => p.date === date)
-      .forEach((p) => (r[`${p.hour_slot}|${p.item_description}`] = p.quantity));
+    allProgress.filter((p) => p.date === date).forEach((p) => (r[`${p.hour_slot}|${p.item_description}`] = p.quantity));
     setRows(r);
   }, [allProgress, date]);
 
   const saveCell = async (hourKey, itemDesc, value) => {
     const quantity = Number(value) || 0;
     await supabase.from("order_progress").upsert(
-      {
-        order_id: order.id,
-        date,
-        hour_slot: hourKey,
-        item_description: itemDesc,
-        quantity,
-        updated_by: profile?.name || null,
-      },
+      { order_id: order.id, date, hour_slot: hourKey, item_description: itemDesc, quantity, updated_by: profile?.name || null },
       { onConflict: "order_id,date,hour_slot,item_description" }
     );
     load();
   };
 
-  // cumulative totals per item across all dates
   const cumulativeByItem = {};
-  allProgress.forEach((p) => {
-    cumulativeByItem[p.item_description] = (cumulativeByItem[p.item_description] || 0) + Number(p.quantity || 0);
-  });
+  allProgress.forEach((p) => (cumulativeByItem[p.item_description] = (cumulativeByItem[p.item_description] || 0) + Number(p.quantity || 0)));
   const cumulativeTotal = Object.values(cumulativeByItem).reduce((s, v) => s + v, 0);
-
   const todayTotal = Object.entries(rows).reduce((s, [, v]) => s + (Number(v) || 0), 0);
 
   return (
@@ -282,11 +318,7 @@ function ProgressModal({ order, onClose, profile }) {
         <>
           <div className="flex items-center justify-between mb-3">
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls + " w-auto"} />
-            {order.daily_target > 0 && (
-              <span className="text-xs text-stone-500 font-mono">
-                {todayTotal} / {order.daily_target} today
-              </span>
-            )}
+            {order.daily_target > 0 && <span className="text-xs text-stone-500 font-mono">{todayTotal} / {order.daily_target} today</span>}
           </div>
 
           <div className="border border-stone-200 rounded-lg overflow-x-auto mb-4">
@@ -295,9 +327,7 @@ function ProgressModal({ order, onClose, profile }) {
                 <tr>
                   <th className="text-left px-2 py-1.5">Hour</th>
                   {items.map((it) => (
-                    <th key={it.description} className="text-right px-2 py-1.5">
-                      {it.description}
-                    </th>
+                    <th key={it.description} className="text-right px-2 py-1.5">{it.description}</th>
                   ))}
                 </tr>
               </thead>
@@ -341,17 +371,153 @@ function ProgressModal({ order, onClose, profile }) {
                 </div>
               );
             })}
-            {required > 0 && (
-              <div className="text-xs text-stone-400 pt-1">Total completed: {cumulativeTotal} / {required} items</div>
-            )}
+            {required > 0 && <div className="text-xs text-stone-400 pt-1">Total completed: {cumulativeTotal} / {required} items</div>}
           </div>
         </>
       )}
       <div className="flex justify-end mt-4">
-        <Btn variant="ghost" onClick={onClose}>
-          Close
-        </Btn>
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
+    </Modal>
+  );
+}
+
+function DeliveryModal({ order, onClose, profile }) {
+  const [deliveries, setDeliveries] = useState([]);
+  const [date, setDate] = useState(todayStr());
+  const [itemDesc, setItemDesc] = useState(order.items?.[0]?.description || "");
+  const [quantity, setQuantity] = useState("");
+  const [deliveredTo, setDeliveredTo] = useState("");
+  const [notes, setNotes] = useState("");
+  const items = order.items || [];
+
+  const load = async () => {
+    const { data } = await supabase.from("order_deliveries").select("*").eq("order_id", order.id).order("date", { ascending: false });
+    setDeliveries(data || []);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id]);
+
+  const breakdown = buildItemBreakdown(items, [], deliveries);
+
+  const addDelivery = async (e) => {
+    e.preventDefault();
+    if (!itemDesc || !quantity) return;
+    await supabase.from("order_deliveries").insert({
+      order_id: order.id,
+      date,
+      item_description: itemDesc,
+      quantity: Number(quantity) || 0,
+      delivered_to: deliveredTo || null,
+      notes: notes || null,
+      updated_by: profile?.name || null,
+    });
+    setQuantity("");
+    setDeliveredTo("");
+    setNotes("");
+    load();
+  };
+
+  const removeDelivery = async (id) => {
+    if (!confirm("Remove this delivery entry?")) return;
+    await supabase.from("order_deliveries").delete().eq("id", id);
+    load();
+  };
+
+  return (
+    <Modal title={`Deliveries — ${order.order_number}`} onClose={onClose}>
+      {items.length === 0 ? (
+        <p className="text-sm text-stone-500">This order has no items yet. Edit the order to add items first.</p>
+      ) : (
+        <>
+          <div className="space-y-1.5 mb-4">
+            {breakdown.map((b) => {
+              const pct = b.required ? Math.min(100, (b.delivered / b.required) * 100) : 0;
+              return (
+                <div key={b.description}>
+                  <div className="flex justify-between text-xs text-stone-500 mb-0.5">
+                    <span>{b.description}</span>
+                    <span>{b.delivered} / {b.required} delivered · {b.pending} pending</span>
+                  </div>
+                  <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-600" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <form onSubmit={addDelivery} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
+            <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a delivery</div>
+            <div className="grid grid-cols-2 gap-2">
+              <select className={inputCls} value={itemDesc} onChange={(e) => setItemDesc(e.target.value)}>
+                {items.map((it) => (
+                  <option key={it.description} value={it.description}>{it.description}</option>
+                ))}
+              </select>
+              <input type="number" min="0" placeholder="Quantity" className={inputCls} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+              <input placeholder="Delivered to (optional)" className={inputCls} value={deliveredTo} onChange={(e) => setDeliveredTo(e.target.value)} />
+            </div>
+            <input placeholder="Notes (optional)" className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Btn type="submit" className="w-full justify-center">Add delivery</Btn>
+          </form>
+
+          <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {deliveries.map((d) => (
+              <div key={d.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
+                <div>
+                  <span className="font-medium">{d.item_description}</span> × {d.quantity}
+                  <div className="text-xs text-stone-400">{d.date}{d.delivered_to ? ` · ${d.delivered_to}` : ""}</div>
+                </div>
+                <button onClick={() => removeDelivery(d.id)} className="text-stone-400 hover:text-rose-700 p-1">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            {deliveries.length === 0 && <p className="text-xs text-stone-400">No deliveries logged yet.</p>}
+          </div>
+        </>
+      )}
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function TrackingLinkModal({ order, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/?track=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard may be unavailable — link is still shown for manual copy */
+    }
+  };
+
+  return (
+    <Modal title="Customer tracking link" onClose={onClose}>
+      <p className="text-sm text-stone-600 mb-3">
+        Share this link with the customer so they can check order status themselves — no login needed.
+      </p>
+      <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-xs break-all font-mono mb-3">{url}</div>
+      <Btn onClick={copy} className="w-full justify-center">
+        {copied ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy link</>}
+      </Btn>
+      <p className="text-xs text-stone-400 mt-3">
+        Order number: <span className="font-mono">{order.order_number}</span> · Tracking code: <span className="font-mono">{order.tracking_code}</span>
+      </p>
     </Modal>
   );
 }

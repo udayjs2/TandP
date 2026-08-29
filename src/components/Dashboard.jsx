@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Users, CalendarCheck, Package, Receipt, AlertTriangle, Activity } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
-import { fmtMoney, monthKey, todayStr, orderItemsRequired } from "../lib/helpers";
+import { fmtMoney, monthKey, todayStr, orderItemsRequired, ORDER_STATUS_COLORS } from "../lib/helpers";
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -183,23 +183,28 @@ export default function Dashboard() {
       </Card>
 
       <Card className="p-4">
-        <h3 className="font-semibold text-sm mb-3">Recent orders</h3>
+        <h3 className="font-semibold text-sm mb-3">Orders in progress</h3>
         {stats.recentOrders.length === 0 ? (
           <p className="text-sm text-stone-500">No orders logged yet.</p>
         ) : (
           <div className="divide-y divide-stone-100">
             {stats.recentOrders.map((o) => (
-              <div key={o.id} className="py-2 flex items-center justify-between text-sm">
+              <div key={o.id} className="py-2 flex items-center justify-between text-sm gap-3">
                 <div>
                   <div className="font-medium">{o.order_number} — {o.customer_name}</div>
-                  <div className="text-xs text-stone-500">{o.order_date} · due {o.due_date || "—"}</div>
+                  <div className="text-xs text-stone-500">
+                    Planned {o.planned_start_date || "—"} → {o.planned_end_date || "—"} · Due {o.due_date || "—"}
+                  </div>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-stone-100 text-stone-700">{o.status}</span>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${ORDER_STATUS_COLORS[o.status] || "bg-stone-100 text-stone-700"}`}>
+                  {o.status}
+                </span>
               </div>
             ))}
           </div>
         )}
       </Card>
+
     </div>
   );
 }
