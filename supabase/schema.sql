@@ -1,11 +1,25 @@
 -- T&P Textiles — Workshop Management
 -- Run this entire file once in Supabase Dashboard -> SQL Editor -> New query -> Run
 
--- 1. Profiles (one row per login, links to Supabase Auth users)
+-- 1. Employees (created first since profiles links to it)
+create table if not exists employees (
+  id uuid primary key default gen_random_uuid(),
+  employee_number text,
+  name text not null,
+  role text not null default 'Production',
+  department text,
+  phone text,
+  join_date date,
+  base_salary numeric default 0,
+  created_at timestamptz default now()
+);
+
+-- 2. Profiles (one row per login, links to Supabase Auth users)
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null default '',
   role text not null default 'user' check (role in ('admin','user')),
+  employee_id uuid references employees(id) on delete set null,
   created_at timestamptz default now()
 );
 
@@ -32,31 +46,52 @@ returns boolean as $$
   );
 $$ language sql security definer stable;
 
--- 2. Employees
-create table if not exists employees (
-  id uuid primary key default gen_random_uuid(),
-  employee_number text,
-  name text not null,
-  role text not null default 'Production',
-  department text,
-  phone text,
-  join_date date,
-  base_salary numeric default 0,
-  created_at timestamptz default now()
-);
+-- Prevent a non-admin from changing their own role or employee_id, even though
+-- they're otherwise allowed to update their own profile row (e.g. to change their name).
+create or replace function protect_profile_privileged_fields()
+returns trigger as $$
+begin
+  if not is_admin() then
+    if new.role is distinct from old.role then
+      raise exception 'Only an admin can change account roles';
+    end if;
+    if new.employee_id is distinct from old.employee_id then
+      raise exception 'Only an admin can link an account to an employee record';
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
 
--- 3. Orders
+drop trigger if exists protect_profile_fields on profiles;
+create trigger protect_profile_fields
+  before update on profiles
+  for each row execute procedure protect_profile_privileged_fields();
+
+-- 3. Orders (line items stored as jsonb: [{description, quantity}])
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
   order_number text,
   customer_name text not null,
-  item_description text,
-  quantity numeric default 0,
+  items jsonb default '[]',
+  daily_target numeric default 0,
   order_date date,
   due_date date,
-  amount numeric default 0,
   status text default 'Pending',
   created_at timestamptz default now()
+);
+
+-- 3b. Hourly production progress log (one row per order + date + hour slot + item)
+create table if not exists order_progress (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders(id) on delete cascade,
+  date date not null,
+  hour_slot text not null,
+  item_description text not null,
+  quantity numeric not null default 0,
+  updated_by text,
+  created_at timestamptz default now(),
+  unique (order_id, date, hour_slot, item_description)
 );
 
 -- 4. Invoices (line items stored as jsonb: [{description, quantity, price}])
@@ -125,6 +160,7 @@ insert into settings (id) values (1) on conflict (id) do nothing;
 alter table profiles enable row level security;
 alter table employees enable row level security;
 alter table orders enable row level security;
+alter table order_progress enable row level security;
 alter table invoices enable row level security;
 alter table attendance enable row level security;
 alter table payroll enable row level security;
@@ -147,6 +183,11 @@ create policy "orders_select" on orders for select using (auth.role() = 'authent
 create policy "orders_admin_write" on orders for insert with check (is_admin());
 create policy "orders_admin_update" on orders for update using (is_admin());
 create policy "orders_admin_delete" on orders for delete using (is_admin());
+
+create policy "order_progress_select" on order_progress for select using (auth.role() = 'authenticated');
+create policy "order_progress_admin_write" on order_progress for insert with check (is_admin());
+create policy "order_progress_admin_update" on order_progress for update using (is_admin());
+create policy "order_progress_admin_delete" on order_progress for delete using (is_admin());
 
 create policy "attendance_select" on attendance for select using (auth.role() = 'authenticated');
 create policy "attendance_admin_write" on attendance for insert with check (is_admin());
@@ -174,4 +215,4 @@ create policy "invoices_delete" on invoices for delete using (is_admin());
 
 -- ===================== REALTIME =====================
 -- Lets the app receive live updates when another manager changes data
-alter publication supabase_realtime add table employees, orders, invoices, attendance, payroll, sales_targets, settings;
+alter publication supabase_realtime add table employees, orders, order_progress, invoices, attendance, payroll, sales_targets, settings;

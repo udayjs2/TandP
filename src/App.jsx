@@ -17,7 +17,7 @@ const TABS = [
   { id: "orders", label: "Orders", icon: Package, roles: ["admin"] },
   { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin", "user"] },
   { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin"] },
-  { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin"] },
+  { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
   { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin"] },
 ];
 
@@ -84,10 +84,10 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === "dashboard" && <Dashboard />}
         {activeTab === "employees" && isAdmin && <Employees />}
-        {activeTab === "orders" && isAdmin && <Orders />}
+        {activeTab === "orders" && isAdmin && <Orders profile={profile} />}
         {activeTab === "invoices" && <Invoices isAdmin={isAdmin} />}
         {activeTab === "attendance" && isAdmin && <Attendance profile={profile} />}
-        {activeTab === "payroll" && isAdmin && <Payroll />}
+        {activeTab === "payroll" && <Payroll profile={profile} />}
         {activeTab === "sales" && isAdmin && <SalesTeam />}
       </main>
     </div>

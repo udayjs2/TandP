@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Users, CalendarCheck, Package, Receipt, AlertTriangle } from "lucide-react";
+import { Users, CalendarCheck, Package, Receipt, AlertTriangle, Activity } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
-import { fmtMoney, monthKey, todayStr } from "../lib/helpers";
+import { fmtMoney, monthKey, todayStr, orderItemsRequired } from "../lib/helpers";
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -12,15 +12,23 @@ export default function Dashboard() {
     const today = todayStr();
     const mk = monthKey();
 
-    const [{ data: employees }, { data: todaysAtt }, { data: orders }, { data: invoices }, { data: sales }, { data: recentOrders }] =
-      await Promise.all([
-        supabase.from("employees").select("id, role"),
-        supabase.from("attendance").select("employee_id, status").eq("date", today),
-        supabase.from("orders").select("id, status"),
-        supabase.from("invoices").select("id, amount, status, due_date, invoice_number, customer_name"),
-        supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
-        supabase.from("orders").select("*").order("order_date", { ascending: false }).limit(5),
-      ]);
+    const [
+      { data: employees },
+      { data: todaysAtt },
+      { data: orders },
+      { data: invoices },
+      { data: sales },
+      { data: recentOrders },
+      { data: todaysProgress },
+    ] = await Promise.all([
+      supabase.from("employees").select("id, role"),
+      supabase.from("attendance").select("employee_id, status").eq("date", today),
+      supabase.from("orders").select("id, status, order_number, customer_name, daily_target, items"),
+      supabase.from("invoices").select("id, amount, status, due_date, invoice_number, customer_name"),
+      supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
+      supabase.from("orders").select("*").order("order_date", { ascending: false }).limit(5),
+      supabase.from("order_progress").select("order_id, quantity").eq("date", today),
+    ]);
 
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
     const pendingOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped").length;
@@ -29,6 +37,20 @@ export default function Dashboard() {
     const overdue = unpaid.filter((i) => i.due_date && i.due_date < today);
     const totalTarget = (sales || []).reduce((s, r) => s + Number(r.target || 0), 0);
     const totalAchieved = (sales || []).reduce((s, r) => s + Number(r.achieved || 0), 0);
+
+    const doneByOrder = {};
+    (todaysProgress || []).forEach((p) => (doneByOrder[p.order_id] = (doneByOrder[p.order_id] || 0) + Number(p.quantity || 0)));
+
+    const activeOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped" && (o.daily_target > 0 || orderItemsRequired(o.items) > 0));
+    const orderProgressToday = activeOrders.map((o) => ({
+      id: o.id,
+      order_number: o.order_number,
+      customer_name: o.customer_name,
+      done: doneByOrder[o.id] || 0,
+      target: o.daily_target || 0,
+    }));
+    const todayTotalDone = orderProgressToday.reduce((s, o) => s + o.done, 0);
+    const todayTotalTarget = orderProgressToday.reduce((s, o) => s + o.target, 0);
 
     setStats({
       employeeCount: (employees || []).length,
@@ -41,6 +63,9 @@ export default function Dashboard() {
       totalAchieved,
       recentOrders: recentOrders || [],
       salesCount: (employees || []).filter((e) => e.role === "Sales").length,
+      orderProgressToday,
+      todayTotalDone,
+      todayTotalTarget,
     });
     setLoading(false);
   };
@@ -116,6 +141,46 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
+
+      <Card className="p-4">
+        <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
+          <Activity size={14} className="text-indigo-700" />
+          Today's production progress
+        </h3>
+        {stats.orderProgressToday.length === 0 ? (
+          <p className="text-sm text-stone-500">No active orders with a daily target set.</p>
+        ) : (
+          <div className="space-y-3">
+            {stats.todayTotalTarget > 0 && (
+              <div>
+                <div className="flex justify-between text-xs text-stone-500 mb-1">
+                  <span>{stats.todayTotalDone} items completed</span>
+                  <span>Target {stats.todayTotalTarget}</span>
+                </div>
+                <div className="h-2.5 bg-stone-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-700"
+                    style={{ width: `${Math.min(100, (stats.todayTotalDone / stats.todayTotalTarget) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="divide-y divide-stone-100">
+              {stats.orderProgressToday.map((o) => {
+                const pct = o.target ? Math.min(100, (o.done / o.target) * 100) : 0;
+                return (
+                  <div key={o.id} className="py-1.5 flex items-center justify-between text-sm gap-3">
+                    <span className="truncate">{o.order_number} — {o.customer_name}</span>
+                    <span className="font-mono text-xs text-stone-500 whitespace-nowrap">
+                      {o.done}{o.target ? `/${o.target}` : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
 
       <Card className="p-4">
         <h3 className="font-semibold text-sm mb-3">Recent orders</h3>

@@ -1,9 +1,38 @@
 # T&P Textiles — Workshop Management
 
-A real, hosted version of your workshop management app: employees, orders, invoices
-(with print), attendance, payroll, and sales team tracking. Unlike the Claude artifact
-version, this has its own permanent URL, a real database, real login accounts, and
-updates live across everyone using it at once.
+A real, hosted version of your workshop management app: employees, orders (with
+multi-item + hourly production tracking), invoices (with print), attendance,
+payroll (with payslips), and sales team tracking. Has its own permanent URL, a
+real database, real login accounts, and updates live across everyone using it.
+
+## Updating an existing deployment (v2 features)
+
+If you already deployed the app and have live data, **don't re-run schema.sql**
+— it will conflict with tables you already have. Instead:
+
+1. Open your Supabase project → **SQL Editor** → New query.
+2. Open `supabase/migration_2.sql` from this folder, copy all of it, paste it in, and **Run**.
+3. Replace your app code with this new version (re-deploy to Vercel, or `git push`
+   if you're using GitHub — Vercel redeploys automatically).
+4. That's it — your existing employees, invoices, and attendance data are untouched.
+
+### What's new in this version
+- **Orders now support multiple line items** (e.g. T-shirts × 200, Pants × 100) instead of one item.
+- **Order value/price has been removed** — orders track production quantities only; pricing lives on invoices.
+- **Hourly production tracking**: on each order, log how many of each item were completed in every hour block (9–10am through 5–6pm). The app keeps a running total against your daily target.
+- **Dashboard shows today's production progress** across all active orders.
+- **Payroll is now visible to Staff too — but scoped to their own record only** (their present days, leaves taken, and net pay). Admins still see everyone.
+- **Link a login account to an employee** from the Payroll tab (admin-only) so a staff member's login shows their own payroll.
+- **Payslip generation**: both admins (for any employee) and staff (for themselves) can generate a printable payslip for any month, showing attendance summary, earnings, and net pay.
+
+> Note on "automatic" month-end payslips: this app generates payslips on demand
+> (click the button anytime, including on the last day of the month) rather than
+> automatically at midnight, since that requires a scheduled server-side job.
+> If you want true automation later, Supabase supports scheduled Edge Functions
+> (`pg_cron`) that could email a payslip PDF to each employee on the 1st of every
+> month — ask if you'd like this built out.
+
+
 
 ## What you get
 - **Its own web address** you can bookmark and open from any browser/phone — no Claude needed

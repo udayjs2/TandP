@@ -247,14 +247,8 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
   const applyOrder = (orderId) => {
     const o = orders.find((x) => x.id === orderId);
     setF({ ...f, linked_order_id: orderId || null, customer_name: o ? o.customer_name : f.customer_name });
-    if (o) {
-      setItems([
-        {
-          description: o.item_description || "Order",
-          quantity: o.quantity || 1,
-          price: o.quantity ? o.amount / o.quantity : o.amount,
-        },
-      ]);
+    if (o && o.items?.length) {
+      setItems(o.items.map((it) => ({ description: it.description, quantity: it.quantity || 1, price: "" })));
     }
   };
 
