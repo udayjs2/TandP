@@ -6,9 +6,9 @@ export default function Header({ tabs, tab, setTab, profile, onLogout, saving })
       <div className="max-w-6xl mx-auto px-4 pt-3 pb-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <img src="/logo-mark.png" alt="" className="h-8 w-auto" />
+            <img src="/logo-mark-white.png" alt="T&P Textiles" className="h-7 w-auto" />
             <div>
-              <div className="font-semibold leading-tight">T&amp;P Textiles</div>
+              <div className="text-[11px] text-indigo-300 leading-tight">Girls &amp; Women's Wear</div>
               <div className="text-[11px] text-indigo-300 leading-tight">Workshop management</div>
             </div>
           </div>

@@ -4,8 +4,10 @@ A real, hosted version of your workshop management app: employees, orders (with
 multi-item production tracking, planned dates, and partial deliveries), a
 public customer order-tracking page, invoices (with print), attendance,
 payroll (with payslips), sales team tracking, and field expense claims. Has
-its own permanent URL, a real database, real login accounts, and updates live
-across everyone using it.
+its own permanent URL, a real database, real login accounts, updates live
+across everyone using it, and can now be installed like an app on phones —
+including, with a few more steps, listed on the Apple App Store and Google
+Play Store.
 
 ## Updating an existing deployment
 
@@ -15,10 +17,55 @@ If you already deployed the app and have live data, **don't re-run schema.sql**
 1. Open your Supabase project → **SQL Editor** → New query.
 2. Run `supabase/migration_2.sql` if you haven't already (orders items/progress, payroll linking).
 3. Run `supabase/migration_3.sql` if you haven't already (expense claims + receipt photo storage).
-4. Run `supabase/migration_4.sql` (planned dates, delivery tracking, customer tracking page) — new query, paste, Run.
-5. Replace your app code with this new version and redeploy.
+4. Run `supabase/migration_4.sql` if you haven't already (planned dates, delivery tracking, customer tracking page).
+5. Replace your app code with this new version and redeploy — no new migration needed for this version (icons/app-install support are frontend-only).
 
 Your existing data is untouched by any of these.
+
+---
+
+## Installing it like an app (works today, no store needed)
+
+This version adds a proper app icon, name, and "Add to Home Screen" support.
+Once redeployed:
+
+**On Android (Chrome):** open your app URL → tap the ⋮ menu → **Install app** (or you'll see an automatic "Add T&P Textiles to Home screen" banner). It installs with your logo, opens full-screen without browser address bars, and behaves like a normal app.
+
+**On iPhone (Safari):** open your app URL → tap the Share icon → **Add to Home Screen**. Same result — real app icon, full-screen, no Safari UI.
+
+This costs nothing, needs no approval process, and updates instantly whenever you redeploy — most small businesses stop here.
+
+---
+
+## Getting listed on the Apple App Store & Google Play Store
+
+I can't submit apps to either store myself — both require the store account to
+be owned and paid for by you (or T&P Textiles as a business), since Apple and
+Google tie every listing to a verified developer identity and payment method.
+Here's the real path, using **PWABuilder** (a free Microsoft tool built exactly
+for turning a web app like this into store-ready app packages):
+
+### Google Play Store
+1. Create a [Google Play Console](https://play.google.com/console) account — **$25 one-time fee**.
+2. Go to [pwabuilder.com](https://www.pwabuilder.com), enter your live app URL, and click **Package for stores → Android**.
+3. It generates a signed `.aab` file (Android App Bundle) ready to upload.
+4. In Play Console: create a new app, fill in the store listing (description, screenshots, privacy policy URL), upload the `.aab`, and submit for review.
+5. Google's review is usually quick (hours to a couple of days) for straightforward business apps like this.
+
+### Apple App Store
+1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/) — **$99/year**. You'll need a Mac to complete the final build step.
+2. On [pwabuilder.com](https://www.pwabuilder.com), enter your app URL and click **Package for stores → iOS**. It generates an Xcode project.
+3. Open that project in Xcode (Mac required), sign it with your Apple Developer account, and build the archive.
+4. Submit through **App Store Connect** with your listing details, screenshots, and privacy policy URL.
+5. **Be aware:** Apple's review guideline 4.2 ("Minimum Functionality") sometimes rejects apps that are thin wrappers around a website. This app has enough real functionality (offline shell, native install, camera access for receipt photos, etc.) to have a reasonable case, but Apple's review is subjective — if rejected the first time, they'll tell you exactly why and you can usually address it and resubmit.
+
+### Before submitting to either store, you'll also need
+- A **privacy policy page** (required by both stores) — I can draft one for T&P Textiles if you'd like, covering what data is collected (employee records, attendance, payroll, expense receipts) and that it's for internal business use.
+- **App screenshots** — a few screenshots of the Dashboard, Orders, and Invoices screens on a phone.
+- A short **app description** for the store listing.
+
+If you'd like, I can prepare the privacy policy, store description text, and screenshots next — just say so.
+
 
 ### What's new in this version
 - **Fuller status pipeline**: Not Started → Cutting → Stitching → Finishing → Ironing → Completed → Shipped.

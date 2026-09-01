@@ -1,0 +1,16 @@
+{
+  "name": "T&P Textiles — Workshop Management",
+  "short_name": "T&P Textiles",
+  "description": "Employees, orders, invoices, attendance, payroll, sales, and expense claims for T&P Textiles.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F3EF",
+  "theme_color": "#1F2A44",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

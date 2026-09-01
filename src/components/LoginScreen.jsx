@@ -47,7 +47,7 @@ export default function LoginScreen() {
     <div className="min-h-screen bg-indigo-950 text-stone-100 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
-          <img src="/logo-full.png" alt="T&P Textiles" className="h-24 w-auto mb-2" />
+          <img src="/logo-full-white.png" alt="T&P Textiles" className="h-20 w-auto mb-2" />
           <p className="text-indigo-300 text-sm mt-0.5">Workshop management sign in</p>
         </div>
 

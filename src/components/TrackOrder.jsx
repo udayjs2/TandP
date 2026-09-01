@@ -46,7 +46,7 @@ export default function TrackOrder() {
     <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col items-center px-4 py-10">
       <div className="w-full max-w-lg">
         <div className="flex flex-col items-center mb-6">
-          <img src="/logo-full.png" alt="T&P Textiles" className="h-20 w-auto mb-1" />
+          <img src="/logo-full-navy.png" alt="T&P Textiles" className="h-16 w-auto mb-1" />
           <p className="text-stone-500 text-sm">Track your order</p>
         </div>
 
