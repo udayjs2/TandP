@@ -52,6 +52,29 @@ export const ORDER_STATUS_COLORS = {
 
 export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Other"];
 
+export const ROLE_LABELS = { admin: "Admin", hr: "HR", user: "Staff" };
+
+// Given order_labor rows (order_id, employee_id, work_date) and a lookup of
+// employees by id (must include base_salary), compute manpower count,
+// total man-days, and total labor cost using each employee's daily wage
+// (monthly base salary ÷ days in that assignment's month).
+export const computeLaborCost = (laborRows = [], employeesById = {}) => {
+  const employeeSet = new Set();
+  let manDays = 0;
+  let laborCost = 0;
+  laborRows.forEach((row) => {
+    employeeSet.add(row.employee_id);
+    manDays += 1;
+    const emp = employeesById[row.employee_id];
+    if (emp) {
+      const mk = row.work_date.slice(0, 7);
+      const dailyWage = (Number(emp.base_salary) || 0) / daysInMonth(mk);
+      laborCost += dailyWage;
+    }
+  });
+  return { manpowerCount: employeeSet.size, manDays, laborCost };
+};
+
 // combine an order's item list with cumulative completed/delivered totals
 // (from order_progress and order_deliveries rows) into a per-item breakdown
 export const buildItemBreakdown = (items = [], progressRows = [], deliveryRows = []) => {

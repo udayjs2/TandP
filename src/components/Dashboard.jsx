@@ -4,9 +4,10 @@ import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
 import { fmtMoney, monthKey, todayStr, orderItemsRequired, ORDER_STATUS_COLORS } from "../lib/helpers";
 
-export default function Dashboard() {
+export default function Dashboard({ profile }) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
+  const isAdmin = profile?.role === "admin";
 
   const load = async () => {
     const today = todayStr();
@@ -16,7 +17,7 @@ export default function Dashboard() {
       { data: employees },
       { data: todaysAtt },
       { data: orders },
-      { data: invoices },
+      invoicesResult,
       { data: sales },
       { data: recentOrders },
       { data: todaysProgress },
@@ -24,11 +25,15 @@ export default function Dashboard() {
       supabase.from("employees").select("id, role"),
       supabase.from("attendance").select("employee_id, status").eq("date", today),
       supabase.from("orders").select("id, status, order_number, customer_name, daily_target, items"),
-      supabase.from("invoices").select("id, amount, status, due_date, invoice_number, customer_name"),
+      // Unpaid/overdue invoice figures are financial data — only fetch for admins.
+      isAdmin
+        ? supabase.from("invoices").select("id, amount, status, due_date, invoice_number, customer_name")
+        : Promise.resolve({ data: [] }),
       supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
       supabase.from("orders").select("*").order("order_date", { ascending: false }).limit(5),
       supabase.from("order_progress").select("order_id, quantity").eq("date", today),
     ]);
+    const invoices = invoicesResult.data;
 
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
     const pendingOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped").length;
@@ -92,13 +97,17 @@ export default function Dashboard() {
           tone={stats.employeeCount && stats.presentToday / stats.employeeCount < 0.7 ? "warn" : "good"}
         />
         <StatCard label="Orders in progress" value={stats.pendingOrders} icon={Package} />
-        <StatCard
-          label="Unpaid invoices"
-          value={fmtMoney(stats.unpaidAmount)}
-          sub={`${stats.unpaid.length} invoice(s)`}
-          icon={Receipt}
-          tone={stats.overdue.length ? "bad" : "slate"}
-        />
+        {isAdmin ? (
+          <StatCard
+            label="Unpaid invoices"
+            value={fmtMoney(stats.unpaidAmount)}
+            sub={`${stats.unpaid.length} invoice(s)`}
+            icon={Receipt}
+            tone={stats.overdue.length ? "bad" : "slate"}
+          />
+        ) : (
+          <StatCard label="Sales team" value={stats.salesCount} icon={Receipt} />
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -122,24 +131,26 @@ export default function Dashboard() {
           )}
         </Card>
 
-        <Card className="p-4">
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
-            {stats.overdue.length > 0 && <AlertTriangle size={14} className="text-rose-600" />}
-            Overdue invoices
-          </h3>
-          {stats.overdue.length === 0 ? (
-            <p className="text-sm text-stone-500">Nothing overdue. All caught up.</p>
-          ) : (
-            <ul className="text-sm space-y-1.5">
-              {stats.overdue.slice(0, 5).map((i) => (
-                <li key={i.id} className="flex justify-between">
-                  <span>{i.invoice_number} — {i.customer_name}</span>
-                  <span className="font-mono text-rose-700">{fmtMoney(i.amount)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        {isAdmin && (
+          <Card className="p-4">
+            <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
+              {stats.overdue.length > 0 && <AlertTriangle size={14} className="text-rose-600" />}
+              Overdue invoices
+            </h3>
+            {stats.overdue.length === 0 ? (
+              <p className="text-sm text-stone-500">Nothing overdue. All caught up.</p>
+            ) : (
+              <ul className="text-sm space-y-1.5">
+                {stats.overdue.slice(0, 5).map((i) => (
+                  <li key={i.id} className="flex justify-between">
+                    <span>{i.invoice_number} — {i.customer_name}</span>
+                    <span className="font-mono text-rose-700">{fmtMoney(i.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
       </div>
 
       <Card className="p-4">

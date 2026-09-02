@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown } from "../lib/helpers";
+import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney } from "../lib/helpers";
 
 export default function Orders({ profile }) {
   const [orders, setOrders] = useState([]);
@@ -10,6 +10,7 @@ export default function Orders({ profile }) {
   const [progressOrder, setProgressOrder] = useState(null);
   const [deliveryOrder, setDeliveryOrder] = useState(null);
   const [trackOrder, setTrackOrder] = useState(null);
+  const [laborOrder, setLaborOrder] = useState(null);
   const [todayTotals, setTodayTotals] = useState({});
   const [progressByOrder, setProgressByOrder] = useState({});
   const [deliveriesByOrder, setDeliveriesByOrder] = useState({});
@@ -126,6 +127,9 @@ export default function Orders({ profile }) {
                   <button onClick={() => setDeliveryOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Deliveries">
                     <Truck size={14} />
                   </button>
+                  <button onClick={() => setLaborOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Manpower / labor cost">
+                    <Users size={14} />
+                  </button>
                   <button onClick={() => setProgressOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Track progress">
                     <ClipboardList size={14} />
                   </button>
@@ -164,6 +168,7 @@ export default function Orders({ profile }) {
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
+      {laborOrder && <LaborModal order={laborOrder} onClose={() => setLaborOrder(null)} />}
     </div>
   );
 }
@@ -518,6 +523,118 @@ function TrackingLinkModal({ order, onClose }) {
       <p className="text-xs text-stone-400 mt-3">
         Order number: <span className="font-mono">{order.order_number}</span> · Tracking code: <span className="font-mono">{order.tracking_code}</span>
       </p>
+    </Modal>
+  );
+}
+
+function LaborModal({ order, onClose }) {
+  const [employees, setEmployees] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [date, setDate] = useState(todayStr());
+  const [selected, setSelected] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const [{ data: emp }, { data: assign }] = await Promise.all([
+      supabase.from("employees").select("id, name, department, base_salary").order("name", { ascending: true }),
+      supabase.from("order_labor").select("*").eq("order_id", order.id).order("work_date", { ascending: false }),
+    ]);
+    setEmployees(emp || []);
+    setAssignments(assign || []);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id]);
+
+  const employeesById = {};
+  employees.forEach((e) => (employeesById[e.id] = e));
+  const { manpowerCount, manDays, laborCost } = computeLaborCost(assignments, employeesById);
+
+  const toggleSelected = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const assign = async () => {
+    if (selected.length === 0) return;
+    setSaving(true);
+    const rows = selected.map((employee_id) => ({ order_id: order.id, employee_id, work_date: date }));
+    await supabase.from("order_labor").upsert(rows, { onConflict: "order_id,employee_id,work_date", ignoreDuplicates: true });
+    setSelected([]);
+    setSaving(false);
+    load();
+  };
+
+  const removeAssignment = async (id) => {
+    await supabase.from("order_labor").delete().eq("id", id);
+    load();
+  };
+
+  // group assignments by date for a readable history list
+  const byDate = {};
+  assignments.forEach((a) => {
+    byDate[a.work_date] = byDate[a.work_date] || [];
+    byDate[a.work_date].push(a);
+  });
+
+  return (
+    <Modal title={`Manpower — ${order.order_number}`} onClose={onClose}>
+      <div className="grid grid-cols-3 gap-2 mb-4 text-center">
+        <div className="bg-stone-50 rounded-lg p-2.5">
+          <div className="text-lg font-mono font-semibold">{manpowerCount}</div>
+          <div className="text-[11px] text-stone-500">Employees</div>
+        </div>
+        <div className="bg-stone-50 rounded-lg p-2.5">
+          <div className="text-lg font-mono font-semibold">{manDays}</div>
+          <div className="text-[11px] text-stone-500">Man-days</div>
+        </div>
+        <div className="bg-stone-50 rounded-lg p-2.5">
+          <div className="text-lg font-mono font-semibold">{fmtMoney(laborCost)}</div>
+          <div className="text-[11px] text-stone-500">Est. labor cost</div>
+        </div>
+      </div>
+      <p className="text-xs text-stone-400 mb-3">
+        This estimate feeds automatically into Finance → Order Profitability once at least one assignment is logged.
+      </p>
+
+      <div className="border border-stone-200 rounded-lg p-3 mb-4">
+        <div className="text-xs font-semibold text-stone-600 uppercase mb-2">Assign staff for a date</div>
+        <input type="date" className={inputCls + " mb-2"} value={date} onChange={(e) => setDate(e.target.value)} />
+        <div className="max-h-40 overflow-y-auto border border-stone-100 rounded mb-2 divide-y divide-stone-100">
+          {employees.map((e) => (
+            <label key={e.id} className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-stone-50">
+              <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggleSelected(e.id)} />
+              <span>{e.name}</span>
+              {e.department && <span className="text-xs text-stone-400">· {e.department}</span>}
+            </label>
+          ))}
+          {employees.length === 0 && <p className="text-xs text-stone-400 px-2 py-2">Add employees first.</p>}
+        </div>
+        <Btn onClick={assign} disabled={saving || selected.length === 0} className="w-full justify-center">
+          {saving ? "Assigning…" : `Assign ${selected.length || ""} for ${date}`}
+        </Btn>
+      </div>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
+      <div className="space-y-2 max-h-56 overflow-y-auto">
+        {Object.entries(byDate).map(([d, rows]) => (
+          <div key={d} className="text-sm">
+            <div className="text-xs text-stone-400 mb-1">{d}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {rows.map((r) => (
+                <span key={r.id} className="inline-flex items-center gap-1 bg-stone-100 rounded-full pl-2 pr-1 py-0.5 text-xs">
+                  {employeesById[r.employee_id]?.name || "—"}
+                  <button onClick={() => removeAssignment(r.id)} className="text-stone-400 hover:text-rose-700"><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+        {assignments.length === 0 && <p className="text-xs text-stone-400">No assignments logged yet.</p>}
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
     </Modal>
   );
 }

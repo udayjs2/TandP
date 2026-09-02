@@ -13,11 +13,11 @@ import SalesTeam from "./components/SalesTeam";
 import Finance from "./components/Finance";
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user"] },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user", "hr"] },
   { id: "employees", label: "Employees", icon: Users, roles: ["admin"] },
   { id: "orders", label: "Orders", icon: Package, roles: ["admin"] },
   { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin", "user"] },
-  { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin"] },
+  { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin", "hr"] },
   { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
   { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin", "user"] },
   { id: "finance", label: "Finance", icon: Landmark, roles: ["admin"] },
@@ -77,6 +77,7 @@ export default function App() {
   }
 
   const isAdmin = profile.role === "admin";
+  const isHr = profile.role === "hr";
   const visibleTabs = TABS.filter((t) => t.roles.includes(profile.role));
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0]?.id;
 
@@ -84,11 +85,11 @@ export default function App() {
     <div className="min-h-screen bg-stone-50 text-stone-900">
       <Header tabs={visibleTabs} tab={activeTab} setTab={setTab} profile={profile} onLogout={logout} saving={false} />
       <main className="max-w-6xl mx-auto px-4 py-6">
-        {activeTab === "dashboard" && <Dashboard />}
+        {activeTab === "dashboard" && <Dashboard profile={profile} />}
         {activeTab === "employees" && isAdmin && <Employees />}
         {activeTab === "orders" && isAdmin && <Orders profile={profile} />}
         {activeTab === "invoices" && <Invoices isAdmin={isAdmin} />}
-        {activeTab === "attendance" && isAdmin && <Attendance profile={profile} />}
+        {activeTab === "attendance" && (isAdmin || isHr) && <Attendance profile={profile} />}
         {activeTab === "payroll" && <Payroll profile={profile} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
         {activeTab === "finance" && isAdmin && <Finance />}

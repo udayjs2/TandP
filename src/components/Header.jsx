@@ -1,4 +1,5 @@
 import { Loader2 } from "lucide-react";
+import { ROLE_LABELS } from "../lib/helpers";
 
 export default function Header({ tabs, tab, setTab, profile, onLogout, saving }) {
   return (
@@ -19,7 +20,7 @@ export default function Header({ tabs, tab, setTab, profile, onLogout, saving })
               </span>
             )}
             <span className="text-stone-100">
-              {profile?.name} <span className="text-indigo-400">· {profile?.role === "admin" ? "Admin" : "Staff"}</span>
+              {profile?.name} <span className="text-indigo-400">· {ROLE_LABELS[profile?.role] || "Staff"}</span>
             </span>
             <button onClick={onLogout} className="hover:text-white underline underline-offset-2">
               Log out

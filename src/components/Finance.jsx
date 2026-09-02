@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
-import { fmtMoney, todayStr, monthKey, EXPENDITURE_CATEGORIES } from "../lib/helpers";
+import { fmtMoney, todayStr, monthKey, EXPENDITURE_CATEGORIES, computeLaborCost } from "../lib/helpers";
 
 const SUB_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -396,12 +396,16 @@ function OrderProfitability() {
   const [orders, setOrders] = useState([]);
   const [financeByOrder, setFinanceByOrder] = useState({});
   const [revenueByOrder, setRevenueByOrder] = useState({});
+  const [laborByOrder, setLaborByOrder] = useState({});
+  const [employeesById, setEmployeesById] = useState({});
 
   const load = async () => {
-    const [{ data: ord }, { data: finance }, { data: invoices }] = await Promise.all([
+    const [{ data: ord }, { data: finance }, { data: invoices }, { data: labor }, { data: employees }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, status").order("order_date", { ascending: false }),
       supabase.from("order_finance").select("*"),
       supabase.from("invoices").select("linked_order_id, amount").not("linked_order_id", "is", null),
+      supabase.from("order_labor").select("*"),
+      supabase.from("employees").select("id, base_salary"),
     ]);
     setOrders(ord || []);
     const fin = {};
@@ -410,6 +414,15 @@ function OrderProfitability() {
     const rev = {};
     (invoices || []).forEach((i) => (rev[i.linked_order_id] = (rev[i.linked_order_id] || 0) + Number(i.amount || 0)));
     setRevenueByOrder(rev);
+    const laborByOrd = {};
+    (labor || []).forEach((r) => {
+      laborByOrd[r.order_id] = laborByOrd[r.order_id] || [];
+      laborByOrd[r.order_id].push(r);
+    });
+    setLaborByOrder(laborByOrd);
+    const empById = {};
+    (employees || []).forEach((e) => (empById[e.id] = e));
+    setEmployeesById(empById);
   };
 
   useEffect(() => {
@@ -418,6 +431,7 @@ function OrderProfitability() {
       .channel("order-finance-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "order_finance" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_labor" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -431,11 +445,14 @@ function OrderProfitability() {
 
   const rows = orders.map((o) => {
     const fin = financeByOrder[o.id] || { raw_material_cost: 0, labor_cost: 0, overhead_cost: 0, manpower_count: 0, man_days: 0 };
+    const laborRows = laborByOrder[o.id] || [];
+    const autoLabor = laborRows.length > 0 ? computeLaborCost(laborRows, employeesById) : null;
+    const laborCost = autoLabor ? autoLabor.laborCost : Number(fin.labor_cost || 0);
     const revenue = revenueByOrder[o.id] || 0;
-    const totalCost = Number(fin.raw_material_cost || 0) + Number(fin.labor_cost || 0) + Number(fin.overhead_cost || 0);
+    const totalCost = Number(fin.raw_material_cost || 0) + laborCost + Number(fin.overhead_cost || 0);
     const profit = revenue - totalCost;
     const margin = revenue ? (profit / revenue) * 100 : null;
-    return { order: o, fin, revenue, totalCost, profit, margin };
+    return { order: o, fin, autoLabor, laborCost, revenue, totalCost, profit, margin };
   });
   const totals = rows.reduce(
     (acc, r) => ({
@@ -454,10 +471,10 @@ function OrderProfitability() {
         <StatCard label="Total profit" value={fmtMoney(totals.profit)} tone={totals.profit >= 0 ? "good" : "bad"} />
       </div>
       <p className="text-xs text-stone-400">
-        Revenue is pulled automatically from invoices linked to each order. Enter raw material cost, labor cost, overhead, manpower and days — they save when you click away from the field.
+        Revenue is pulled automatically from invoices linked to each order. Labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon) — if none are logged for an order, you can type the numbers in manually instead. Raw material and overhead are always manual.
       </p>
       <div className="grid gap-3">
-        {rows.map(({ order, fin, revenue, totalCost, profit, margin }) => (
+        {rows.map(({ order, fin, autoLabor, laborCost, revenue, totalCost, profit, margin }) => (
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="font-semibold text-sm">{order.order_number} — {order.customer_name}</div>
@@ -475,18 +492,37 @@ function OrderProfitability() {
               <Field label="Raw material (₹)">
                 <input type="number" min="0" className={inputCls} defaultValue={fin.raw_material_cost} key={`rm-${order.id}`} onBlur={(e) => updateFinance(order.id, { raw_material_cost: Number(e.target.value) || 0 })} />
               </Field>
-              <Field label="Labor (₹)">
-                <input type="number" min="0" className={inputCls} defaultValue={fin.labor_cost} key={`lc-${order.id}`} onBlur={(e) => updateFinance(order.id, { labor_cost: Number(e.target.value) || 0 })} />
-              </Field>
-              <Field label="Overhead (₹)">
-                <input type="number" min="0" className={inputCls} defaultValue={fin.overhead_cost} key={`oh-${order.id}`} onBlur={(e) => updateFinance(order.id, { overhead_cost: Number(e.target.value) || 0 })} />
-              </Field>
-              <Field label="Manpower (people)">
-                <input type="number" min="0" className={inputCls} defaultValue={fin.manpower_count} key={`mp-${order.id}`} onBlur={(e) => updateFinance(order.id, { manpower_count: Number(e.target.value) || 0 })} />
-              </Field>
-              <Field label="Days">
-                <input type="number" min="0" className={inputCls} defaultValue={fin.man_days} key={`md-${order.id}`} onBlur={(e) => updateFinance(order.id, { man_days: Number(e.target.value) || 0 })} />
-              </Field>
+              {autoLabor ? (
+                <>
+                  <Field label="Labor (₹) — auto">
+                    <div className="text-sm font-mono py-2 text-stone-600">{fmtMoney(autoLabor.laborCost)}</div>
+                  </Field>
+                  <Field label="Overhead (₹)">
+                    <input type="number" min="0" className={inputCls} defaultValue={fin.overhead_cost} key={`oh-${order.id}`} onBlur={(e) => updateFinance(order.id, { overhead_cost: Number(e.target.value) || 0 })} />
+                  </Field>
+                  <Field label="Manpower — auto">
+                    <div className="text-sm font-mono py-2 text-stone-600">{autoLabor.manpowerCount}</div>
+                  </Field>
+                  <Field label="Man-days — auto">
+                    <div className="text-sm font-mono py-2 text-stone-600">{autoLabor.manDays}</div>
+                  </Field>
+                </>
+              ) : (
+                <>
+                  <Field label="Labor (₹)">
+                    <input type="number" min="0" className={inputCls} defaultValue={fin.labor_cost} key={`lc-${order.id}`} onBlur={(e) => updateFinance(order.id, { labor_cost: Number(e.target.value) || 0 })} />
+                  </Field>
+                  <Field label="Overhead (₹)">
+                    <input type="number" min="0" className={inputCls} defaultValue={fin.overhead_cost} key={`oh-${order.id}`} onBlur={(e) => updateFinance(order.id, { overhead_cost: Number(e.target.value) || 0 })} />
+                  </Field>
+                  <Field label="Manpower (people)">
+                    <input type="number" min="0" className={inputCls} defaultValue={fin.manpower_count} key={`mp-${order.id}`} onBlur={(e) => updateFinance(order.id, { manpower_count: Number(e.target.value) || 0 })} />
+                  </Field>
+                  <Field label="Days">
+                    <input type="number" min="0" className={inputCls} defaultValue={fin.man_days} key={`md-${order.id}`} onBlur={(e) => updateFinance(order.id, { man_days: Number(e.target.value) || 0 })} />
+                  </Field>
+                </>
+              )}
             </div>
             <div className="text-xs text-stone-400 mt-2">Total cost: {fmtMoney(totalCost)}</div>
           </Card>
