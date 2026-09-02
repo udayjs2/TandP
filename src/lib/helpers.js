@@ -50,6 +50,8 @@ export const ORDER_STATUS_COLORS = {
   Shipped: "bg-indigo-100 text-indigo-800",
 };
 
+export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Other"];
+
 // combine an order's item list with cumulative completed/delivered totals
 // (from order_progress and order_deliveries rows) into a per-item breakdown
 export const buildItemBreakdown = (items = [], progressRows = [], deliveryRows = []) => {

@@ -3,11 +3,10 @@
 A real, hosted version of your workshop management app: employees, orders (with
 multi-item production tracking, planned dates, and partial deliveries), a
 public customer order-tracking page, invoices (with print), attendance,
-payroll (with payslips), sales team tracking, and field expense claims. Has
-its own permanent URL, a real database, real login accounts, updates live
-across everyone using it, and can now be installed like an app on phones —
-including, with a few more steps, listed on the Apple App Store and Google
-Play Store.
+payroll (with payslips), sales team tracking, field expense claims, and a
+Finance module (investors, business expenditures, per-order profit & loss).
+Has its own permanent URL, a real database, real login accounts, updates live
+across everyone using it, and installs like a real app on phones.
 
 ## Updating an existing deployment
 
@@ -18,9 +17,21 @@ If you already deployed the app and have live data, **don't re-run schema.sql**
 2. Run `supabase/migration_2.sql` if you haven't already (orders items/progress, payroll linking).
 3. Run `supabase/migration_3.sql` if you haven't already (expense claims + receipt photo storage).
 4. Run `supabase/migration_4.sql` if you haven't already (planned dates, delivery tracking, customer tracking page).
-5. Replace your app code with this new version and redeploy — no new migration needed for this version (icons/app-install support are frontend-only).
+5. Run `supabase/migration_5.sql` (investors, expenditures, order profitability) — new query, paste, Run.
+6. Replace your app code with this new version and redeploy.
 
 Your existing data is untouched by any of these.
+
+### What's new in this version — Finance module (admin-only)
+A new **Finance** tab, visible only to Admin accounts, with four sections:
+
+- **Overview** — total invested, total expenditure, total revenue (from invoices), and a rough cash position estimate.
+- **Investors** — add investors (name, phone, email, notes); each investor can have **multiple investment entries** over time (amount + date + notes), with running totals per investor and overall.
+- **Expenditures** — a general ledger for business purchases: Raw Material (fabric, buttons, trims), Machinery, Utilities, Rent, Maintenance, Other. Filterable by month, with a category breakdown.
+- **Order Profitability** — for every order: revenue is pulled automatically from any invoices linked to it; you fill in raw material cost, labor cost, overhead, manpower count, and man-days. The app calculates total cost, profit, and profit margin % per order, plus totals across all orders.
+
+**Security note on this module:** investor money and per-order profit margins are the most sensitive numbers in the business, so this data is locked down at the *database* level, not just hidden from the Staff role in the menu. A Staff-role login has zero access to investors, investments, expenditures, or order cost/profit data even if they tried to query it directly — this is stricter than every other module in the app (e.g. Staff can already see invoice amounts, since that's needed for their job).
+
 
 ---
 
