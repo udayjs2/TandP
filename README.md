@@ -4,10 +4,11 @@ A real, hosted version of your workshop management app: employees, orders (with
 multi-item production tracking, planned dates, partial deliveries, and manpower
 assignments), a public customer order-tracking page, invoices (with print),
 attendance, payroll (with payslips), sales team tracking, field expense claims,
-and a Finance module (investors, business expenditures, per-order profit &
-loss with automatic labor cost calculation). Has its own permanent URL, a
-real database, real login accounts, updates live across everyone using it,
-and installs like a real app on phones.
+a Finance module (investors, business expenditures, per-order profit & loss
+with automatic labor and raw-material cost calculation), and a dedicated User
+Management area. Has its own permanent URL, a real database, real login
+accounts, updates live across everyone using it, and installs like a real app
+on phones.
 
 ## Updating an existing deployment
 
@@ -15,19 +16,41 @@ If you already deployed the app and have live data, **don't re-run schema.sql**
 — run only the migration file(s) you haven't run yet, in this order:
 
 1. Open your Supabase project → **SQL Editor** → New query.
-2. Run `supabase/migration_2.sql` if you haven't already (orders items/progress, payroll linking).
-3. Run `supabase/migration_3.sql` if you haven't already (expense claims + receipt photo storage).
-4. Run `supabase/migration_4.sql` if you haven't already (planned dates, delivery tracking, customer tracking page).
-5. Run `supabase/migration_5.sql` if you haven't already (investors, expenditures, order profitability).
-6. Run `supabase/migration_6.sql` (HR role, automatic labor cost tracking) — new query, paste, Run.
-7. Replace your app code with this new version and redeploy.
+2. Run `supabase/migration_2.sql` if you haven't already.
+3. Run `supabase/migration_3.sql` if you haven't already.
+4. Run `supabase/migration_4.sql` if you haven't already.
+5. Run `supabase/migration_5.sql` if you haven't already.
+6. Run `supabase/migration_6.sql` if you haven't already.
+7. Run `supabase/migration_7.sql` (role invitations / User Management) — new query, paste, Run.
+8. Run `supabase/migration_8.sql` (link expenditures to orders) — new query, paste, Run.
+9. Replace your app code with this new version and redeploy.
 
-Your existing data is untouched by any of these.
+**If you're not sure which migrations you've already run**, run them in order
+starting from the first one you haven't — running one twice is safe (they all
+use `if not exists` / `if exists` guards), it just does nothing the second time.
 
 ### What's new in this version
 
-**New role: HR**
-- Access to **Dashboard** and **Attendance** only — nothing else (no Orders, Invoices, Payroll, Employees, Finance, Sales).
+**Dedicated "User Management" tab (admin-only)**
+- Moved out of Employees — admins are logins, not necessarily employees, so these are now clearly separate concepts.
+- **Existing accounts**: change anyone's role (Admin / HR / Staff) from a dropdown.
+- **Invite with a specific role**: since this app can't set someone's password for them directly (that needs a Supabase Edge Function with a service-role key — extra server infrastructure beyond what's here; ask if you want that built), you can instead pre-assign a role to an email address. Share the app link, they use "Create account" with that exact email, and they land with the role you chose instead of the default Staff role.
+
+**Expenditures can now be linked to a specific order**
+- When adding an expenditure, there's a new "Is this for a specific order?" dropdown — pick the order it was for (e.g. fabric bought specifically for Order ORD-0012), or leave it as "Other."
+- The Expenditures list now shows which order (if any) each entry belongs to.
+- In Finance → Order Profitability, an order's **raw material cost now auto-totals** from any expenditures linked to it — same pattern as the automatic labor cost. If nothing's linked, the manual entry field is still there.
+
+**Errors are no longer silent**
+- Previously, if saving an order or expenditure failed (e.g. a permissions issue or a migration not yet run), the app would fail quietly with no explanation. Now you'll get a clear on-screen message with the actual database error, and failed loads are logged to the browser console (F12 → Console) so problems are diagnosable instead of just "nothing happens."
+
+---
+
+## Feature history (previous versions)
+
+### v8 — HR role, automatic labor cost
+
+
 - Can mark/edit attendance for any employee, same as Admin could before.
 - Assign the HR role (or promote/demote anyone) from **Employees → Login accounts** — no more needing to edit the Supabase table editor by hand for role changes.
 - This is enforced at the database level: a new `is_admin_or_hr()` check controls attendance write access specifically; every other admin-only table (Employees, Orders, Payroll, Finance, etc.) still requires the `admin` role exactly, so HR can't accidentally get broader access.
@@ -98,7 +121,7 @@ for turning a web app like this into store-ready app packages):
 If you'd like, I can prepare the privacy policy, store description text, and screenshots next — just say so.
 
 
-### What's new in this version
+### v4 — order tracking, deliveries, customer page
 - **Fuller status pipeline**: Not Started → Cutting → Stitching → Finishing → Ironing → Completed → Shipped.
 - **Planned start / end dates** on every order, shown alongside the customer's due date.
 - **Delivery tracking**: log partial deliveries per item (e.g. "delivered 40 of 60 T-shirts today, rest next week") from the truck icon on each order. The order card now shows, per item: how many are made, how many delivered, and how many are still pending — so you can keep a customer happy with a partial shipment without losing track of what's owed.

@@ -265,13 +265,19 @@ function InvestmentHistoryModal({ investor, entries, onClose, onChanged }) {
 function Expenditures() {
   const [mk, setMk] = useState(monthKey());
   const [items, setItems] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [modal, setModal] = useState(null);
 
   const load = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-31`;
-    const { data } = await supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false });
+    const [{ data, error }, { data: ord }] = await Promise.all([
+      supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false }),
+      supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
+    ]);
+    if (error) console.error("Failed to load expenditures:", error.message);
     setItems(data || []);
+    setOrders(ord || []);
   };
 
   useEffect(() => {
@@ -287,10 +293,12 @@ function Expenditures() {
   const save = async (exp) => {
     if (exp.id) {
       const { id, ...rest } = exp;
-      await supabase.from("expenditures").update(rest).eq("id", id);
+      const { error } = await supabase.from("expenditures").update(rest).eq("id", id);
+      if (error) { alert(error.message); return; }
     } else {
       const { id, ...rest } = exp;
-      await supabase.from("expenditures").insert(rest);
+      const { error } = await supabase.from("expenditures").insert(rest);
+      if (error) { alert(error.message); return; }
     }
     setModal(null);
     load();
@@ -300,6 +308,11 @@ function Expenditures() {
     if (!confirm("Delete this expenditure entry?")) return;
     await supabase.from("expenditures").delete().eq("id", id);
     load();
+  };
+
+  const orderLabel = (id) => {
+    const o = orders.find((x) => x.id === id);
+    return o ? `${o.order_number} — ${o.customer_name}` : "—";
   };
 
   const total = items.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -330,6 +343,7 @@ function Expenditures() {
               <th className="text-left px-4 py-2.5">Category</th>
               <th className="text-left px-4 py-2.5">Item</th>
               <th className="text-left px-4 py-2.5">Vendor</th>
+              <th className="text-left px-4 py-2.5">Order</th>
               <th className="text-right px-4 py-2.5">Amount</th>
               <th className="px-4 py-2.5"></th>
             </tr>
@@ -341,6 +355,7 @@ function Expenditures() {
                 <td className="px-4 py-2.5">{r.category}</td>
                 <td className="px-4 py-2.5">{r.item || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{r.vendor || "—"}</td>
+                <td className="px-4 py-2.5 text-stone-500">{r.linked_order_id ? orderLabel(r.linked_order_id) : <span className="text-stone-300">Other</span>}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-1">
@@ -350,16 +365,16 @@ function Expenditures() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-400">No expenditures logged this month.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">No expenditures logged this month.</td></tr>}
           </tbody>
         </table>
       </Card>
-      {modal && <ExpenditureModal exp={modal} onClose={() => setModal(null)} onSave={save} />}
+      {modal && <ExpenditureModal exp={modal} orders={orders} onClose={() => setModal(null)} onSave={save} />}
     </div>
   );
 }
 
-function ExpenditureModal({ exp, onClose, onSave }) {
+function ExpenditureModal({ exp, orders, onClose, onSave }) {
   const [f, setF] = useState({
     id: exp.id || null,
     category: exp.category || "Raw Material",
@@ -368,10 +383,11 @@ function ExpenditureModal({ exp, onClose, onSave }) {
     amount: exp.amount || "",
     expense_date: exp.expense_date || todayStr(),
     notes: exp.notes || "",
+    linked_order_id: exp.linked_order_id || "",
   });
   return (
     <Modal title={exp.id ? "Edit expenditure" : "Add expenditure"} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); if (!f.amount) return; onSave({ ...f, amount: Number(f.amount) || 0 }); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (!f.amount) return; onSave({ ...f, amount: Number(f.amount) || 0, linked_order_id: f.linked_order_id || null }); }}>
         <Field label="Category">
           <select className={inputCls} value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
             {EXPENDITURE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
@@ -381,6 +397,14 @@ function ExpenditureModal({ exp, onClose, onSave }) {
         <Field label="Vendor / supplier"><input className={inputCls} value={f.vendor} onChange={(e) => setF({ ...f, vendor: e.target.value })} /></Field>
         <Field label="Amount (₹)"><input type="number" min="0" required className={inputCls} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         <Field label="Date"><input type="date" className={inputCls} value={f.expense_date} onChange={(e) => setF({ ...f, expense_date: e.target.value })} /></Field>
+        <Field label="Is this for a specific order?">
+          <select className={inputCls} value={f.linked_order_id} onChange={(e) => setF({ ...f, linked_order_id: e.target.value })}>
+            <option value="">Other (not tied to a specific order)</option>
+            {orders.map((o) => (
+              <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>
+            ))}
+          </select>
+        </Field>
         <Field label="Notes"><textarea rows={2} className={inputCls} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
@@ -398,14 +422,16 @@ function OrderProfitability() {
   const [revenueByOrder, setRevenueByOrder] = useState({});
   const [laborByOrder, setLaborByOrder] = useState({});
   const [employeesById, setEmployeesById] = useState({});
+  const [materialByOrder, setMaterialByOrder] = useState({});
 
   const load = async () => {
-    const [{ data: ord }, { data: finance }, { data: invoices }, { data: labor }, { data: employees }] = await Promise.all([
+    const [{ data: ord }, { data: finance }, { data: invoices }, { data: labor }, { data: employees }, { data: linkedExpenditures }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, status").order("order_date", { ascending: false }),
       supabase.from("order_finance").select("*"),
       supabase.from("invoices").select("linked_order_id, amount").not("linked_order_id", "is", null),
       supabase.from("order_labor").select("*"),
       supabase.from("employees").select("id, base_salary"),
+      supabase.from("expenditures").select("linked_order_id, amount").not("linked_order_id", "is", null),
     ]);
     setOrders(ord || []);
     const fin = {};
@@ -423,6 +449,9 @@ function OrderProfitability() {
     const empById = {};
     (employees || []).forEach((e) => (empById[e.id] = e));
     setEmployeesById(empById);
+    const matByOrd = {};
+    (linkedExpenditures || []).forEach((e) => (matByOrd[e.linked_order_id] = (matByOrd[e.linked_order_id] || 0) + Number(e.amount || 0)));
+    setMaterialByOrder(matByOrd);
   };
 
   useEffect(() => {
@@ -432,6 +461,7 @@ function OrderProfitability() {
       .on("postgres_changes", { event: "*", schema: "public", table: "order_finance" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_labor" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenditures" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -448,11 +478,13 @@ function OrderProfitability() {
     const laborRows = laborByOrder[o.id] || [];
     const autoLabor = laborRows.length > 0 ? computeLaborCost(laborRows, employeesById) : null;
     const laborCost = autoLabor ? autoLabor.laborCost : Number(fin.labor_cost || 0);
+    const autoMaterial = materialByOrder[o.id] || null;
+    const materialCost = autoMaterial !== null ? autoMaterial : Number(fin.raw_material_cost || 0);
     const revenue = revenueByOrder[o.id] || 0;
-    const totalCost = Number(fin.raw_material_cost || 0) + laborCost + Number(fin.overhead_cost || 0);
+    const totalCost = materialCost + laborCost + Number(fin.overhead_cost || 0);
     const profit = revenue - totalCost;
     const margin = revenue ? (profit / revenue) * 100 : null;
-    return { order: o, fin, autoLabor, laborCost, revenue, totalCost, profit, margin };
+    return { order: o, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, totalCost, profit, margin };
   });
   const totals = rows.reduce(
     (acc, r) => ({
@@ -471,10 +503,10 @@ function OrderProfitability() {
         <StatCard label="Total profit" value={fmtMoney(totals.profit)} tone={totals.profit >= 0 ? "good" : "bad"} />
       </div>
       <p className="text-xs text-stone-400">
-        Revenue is pulled automatically from invoices linked to each order. Labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon) — if none are logged for an order, you can type the numbers in manually instead. Raw material and overhead are always manual.
+        Revenue is pulled automatically from invoices linked to each order. Raw material cost auto-totals from any Expenditures tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
       </p>
       <div className="grid gap-3">
-        {rows.map(({ order, fin, autoLabor, laborCost, revenue, totalCost, profit, margin }) => (
+        {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, totalCost, profit, margin }) => (
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="font-semibold text-sm">{order.order_number} — {order.customer_name}</div>
@@ -489,9 +521,15 @@ function OrderProfitability() {
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-              <Field label="Raw material (₹)">
-                <input type="number" min="0" className={inputCls} defaultValue={fin.raw_material_cost} key={`rm-${order.id}`} onBlur={(e) => updateFinance(order.id, { raw_material_cost: Number(e.target.value) || 0 })} />
-              </Field>
+              {autoMaterial !== null ? (
+                <Field label="Raw material (₹) — auto">
+                  <div className="text-sm font-mono py-2 text-stone-600">{fmtMoney(autoMaterial)}</div>
+                </Field>
+              ) : (
+                <Field label="Raw material (₹)">
+                  <input type="number" min="0" className={inputCls} defaultValue={fin.raw_material_cost} key={`rm-${order.id}`} onBlur={(e) => updateFinance(order.id, { raw_material_cost: Number(e.target.value) || 0 })} />
+                </Field>
+              )}
               {autoLabor ? (
                 <>
                   <Field label="Labor (₹) — auto">

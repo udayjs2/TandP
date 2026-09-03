@@ -16,7 +16,8 @@ export default function Orders({ profile }) {
   const [deliveriesByOrder, setDeliveriesByOrder] = useState({});
 
   const load = async () => {
-    const { data } = await supabase.from("orders").select("*").order("order_date", { ascending: false });
+    const { data, error } = await supabase.from("orders").select("*").order("order_date", { ascending: false });
+    if (error) console.error("Failed to load orders:", error.message);
     setOrders(data || []);
 
     const today = todayStr();
@@ -59,10 +60,12 @@ export default function Orders({ profile }) {
   const save = async (order) => {
     if (order.id) {
       const { id, ...rest } = order;
-      await supabase.from("orders").update(rest).eq("id", id);
+      const { error } = await supabase.from("orders").update(rest).eq("id", id);
+      if (error) { alert(`Couldn't save this order:\n${error.message}`); return; }
     } else {
       const { id, ...rest } = order;
-      await supabase.from("orders").insert(rest);
+      const { error } = await supabase.from("orders").insert(rest);
+      if (error) { alert(`Couldn't save this order:\n${error.message}`); return; }
     }
     setModal(null);
     load();

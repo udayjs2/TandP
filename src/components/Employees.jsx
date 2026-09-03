@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { fmtMoney, todayStr, ROLE_LABELS } from "../lib/helpers";
+import { fmtMoney, todayStr } from "../lib/helpers";
 
 const ROLES = ["Production", "Sales", "Manager", "Admin"];
-const LOGIN_ROLES = ["admin", "hr", "user"];
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -101,72 +100,6 @@ export default function Employees() {
       {modal && (
         <EmployeeModal emp={modal} onClose={() => setModal(null)} onSave={save} count={employees.length} />
       )}
-
-      <LoginAccounts />
-    </div>
-  );
-}
-
-function LoginAccounts() {
-  const [profiles, setProfiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = async () => {
-    const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: true });
-    setProfiles(data || []);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    load();
-    const ch = supabase
-      .channel("profiles-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, load)
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, []);
-
-  const setRole = async (id, role) => {
-    const { error } = await supabase.from("profiles").update({ role }).eq("id", id);
-    if (error) alert(error.message);
-    load();
-  };
-
-  return (
-    <div className="pt-2">
-      <h2 className="text-lg font-semibold mb-1">Login accounts</h2>
-      <p className="text-xs text-stone-500 mb-3">
-        Assign each login as Admin (full access), HR (Dashboard + Attendance only), or Staff (Invoices, own Payroll, own Sales expenses).
-      </p>
-      <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
-            <tr>
-              <th className="text-left px-4 py-2.5">Name</th>
-              <th className="text-left px-4 py-2.5">Role</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-stone-100">
-            {profiles.map((p) => (
-              <tr key={p.id} className="hover:bg-stone-50">
-                <td className="px-4 py-2.5 font-medium">{p.name}</td>
-                <td className="px-4 py-2.5">
-                  <select className="text-xs border border-stone-300 rounded px-2 py-1" value={p.role} onChange={(e) => setRole(p.id, e.target.value)}>
-                    {LOGIN_ROLES.map((r) => (
-                      <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
-            ))}
-            {!loading && profiles.length === 0 && (
-              <tr>
-                <td colSpan={2} className="px-4 py-8 text-center text-stone-400">No login accounts yet.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </Card>
     </div>
   );
 }

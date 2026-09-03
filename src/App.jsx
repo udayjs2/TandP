@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, Loader2 } from "lucide-react";
+import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, Loader2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
 import Header from "./components/Header";
@@ -11,6 +11,7 @@ import Attendance from "./components/Attendance";
 import Payroll from "./components/Payroll";
 import SalesTeam from "./components/SalesTeam";
 import Finance from "./components/Finance";
+import UserManagement from "./components/UserManagement";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user", "hr"] },
@@ -21,6 +22,7 @@ const TABS = [
   { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
   { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin", "user"] },
   { id: "finance", label: "Finance", icon: Landmark, roles: ["admin"] },
+  { id: "users", label: "User Management", icon: ShieldCheck, roles: ["admin"] },
 ];
 
 export default function App() {
@@ -93,6 +95,7 @@ export default function App() {
         {activeTab === "payroll" && <Payroll profile={profile} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
         {activeTab === "finance" && isAdmin && <Finance />}
+        {activeTab === "users" && isAdmin && <UserManagement />}
       </main>
     </div>
   );
