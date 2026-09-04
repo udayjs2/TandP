@@ -50,10 +50,11 @@ function Overview() {
   const [stats, setStats] = useState(null);
 
   const load = async () => {
-    const [{ data: investments }, { data: expenditures }, { data: invoices }, { data: finance }, { data: loans }, { data: loanPayments }] = await Promise.all([
+    const [{ data: investments }, { data: expenditures }, { data: invoices }, { data: orderPayments }, { data: finance }, { data: loans }, { data: loanPayments }] = await Promise.all([
       supabase.from("investments").select("amount"),
       supabase.from("expenditures").select("amount, investor_id"),
       supabase.from("invoices").select("amount"),
+      supabase.from("order_payments").select("amount"),
       supabase.from("order_finance").select("*"),
       supabase.from("loans").select("*"),
       supabase.from("loan_payments").select("loan_id, amount"),
@@ -61,7 +62,9 @@ function Overview() {
     const totalCashInvestments = (investments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
     const investorFundedExpenditure = (expenditures || []).filter((r) => r.investor_id).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalExpenditure = (expenditures || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-    const totalRevenue = (invoices || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const invoicedRevenue = (invoices || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const advanceRevenue = (orderPayments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalRevenue = invoicedRevenue + advanceRevenue;
     const totalOrderCosts = (finance || []).reduce(
       (s, r) => s + Number(r.raw_material_cost || 0) + Number(r.labor_cost || 0) + Number(r.overhead_cost || 0),
       0
@@ -77,6 +80,8 @@ function Overview() {
       // tracked separately, matching how an established, running business works.
       totalInvested: totalCashInvestments + investorFundedExpenditure,
       totalExpenditure,
+      invoicedRevenue,
+      advanceRevenue,
       totalRevenue,
       totalOrderCosts,
       totalLoanOutstanding,
@@ -99,7 +104,13 @@ function Overview() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total invested" value={fmtMoney(stats.totalInvested)} icon={Landmark} sub="Includes investor-funded purchases" />
-        <StatCard label="Total revenue (invoices)" value={fmtMoney(stats.totalRevenue)} icon={TrendingUp} tone="good" />
+        <StatCard
+          label="Total revenue"
+          value={fmtMoney(stats.totalRevenue)}
+          icon={TrendingUp}
+          tone="good"
+          sub={`${fmtMoney(stats.invoicedRevenue)} invoiced + ${fmtMoney(stats.advanceRevenue)} advances`}
+        />
         <StatCard label="Total expenditure" value={fmtMoney(stats.totalExpenditure)} icon={Wallet} />
         <StatCard label="Raw material + labor costs" value={fmtMoney(stats.totalOrderCosts)} />
       </div>
@@ -496,15 +507,17 @@ function OrderProfitability() {
   const [orders, setOrders] = useState([]);
   const [financeByOrder, setFinanceByOrder] = useState({});
   const [revenueByOrder, setRevenueByOrder] = useState({});
+  const [advanceByOrder, setAdvanceByOrder] = useState({});
   const [laborByOrder, setLaborByOrder] = useState({});
   const [employeesById, setEmployeesById] = useState({});
   const [materialByOrder, setMaterialByOrder] = useState({});
 
   const load = async () => {
-    const [{ data: ord }, { data: finance }, { data: invoices }, { data: labor }, { data: employees }, { data: linkedExpenditures }] = await Promise.all([
+    const [{ data: ord }, { data: finance }, { data: invoices }, { data: payments }, { data: labor }, { data: employees }, { data: linkedExpenditures }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, status").order("order_date", { ascending: false }),
       supabase.from("order_finance").select("*"),
       supabase.from("invoices").select("linked_order_id, amount").not("linked_order_id", "is", null),
+      supabase.from("order_payments").select("order_id, amount"),
       supabase.from("order_labor").select("*"),
       supabase.from("employees").select("id, base_salary"),
       supabase.from("expenditures").select("linked_order_id, amount").not("linked_order_id", "is", null),
@@ -516,6 +529,9 @@ function OrderProfitability() {
     const rev = {};
     (invoices || []).forEach((i) => (rev[i.linked_order_id] = (rev[i.linked_order_id] || 0) + Number(i.amount || 0)));
     setRevenueByOrder(rev);
+    const adv = {};
+    (payments || []).forEach((p) => (adv[p.order_id] = (adv[p.order_id] || 0) + Number(p.amount || 0)));
+    setAdvanceByOrder(adv);
     const laborByOrd = {};
     (labor || []).forEach((r) => {
       laborByOrd[r.order_id] = laborByOrd[r.order_id] || [];
@@ -536,6 +552,7 @@ function OrderProfitability() {
       .channel("order-finance-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "order_finance" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_payments" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_labor" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "expenditures" }, load)
       .subscribe();
@@ -556,11 +573,13 @@ function OrderProfitability() {
     const laborCost = autoLabor ? autoLabor.laborCost : Number(fin.labor_cost || 0);
     const autoMaterial = materialByOrder[o.id] || null;
     const materialCost = autoMaterial !== null ? autoMaterial : Number(fin.raw_material_cost || 0);
-    const revenue = revenueByOrder[o.id] || 0;
+    const invoicedRevenue = revenueByOrder[o.id] || 0;
+    const advanceRevenue = advanceByOrder[o.id] || 0;
+    const revenue = invoicedRevenue + advanceRevenue;
     const totalCost = materialCost + laborCost + Number(fin.overhead_cost || 0);
     const profit = revenue - totalCost;
     const margin = revenue ? (profit / revenue) * 100 : null;
-    return { order: o, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, totalCost, profit, margin };
+    return { order: o, fin, autoLabor, laborCost, autoMaterial, materialCost, invoicedRevenue, advanceRevenue, revenue, totalCost, profit, margin };
   });
   const totals = rows.reduce(
     (acc, r) => ({
@@ -579,16 +598,19 @@ function OrderProfitability() {
         <StatCard label="Total profit" value={fmtMoney(totals.profit)} tone={totals.profit >= 0 ? "good" : "bad"} />
       </div>
       <p className="text-xs text-stone-400">
-        Revenue is pulled automatically from invoices linked to each order. Raw material cost auto-totals from any Expenditures tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
+        Revenue = invoiced amount (linked invoices) + advance payments received (logged on the order in the Orders tab). Raw material cost auto-totals from any Expenditures tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
       </p>
       <div className="grid gap-3">
-        {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, totalCost, profit, margin }) => (
+        {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, invoicedRevenue, advanceRevenue, revenue, totalCost, profit, margin }) => (
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="font-semibold text-sm">{order.order_number} — {order.customer_name}</div>
               <div className="text-sm">
                 <span className="text-stone-500">Revenue </span>
                 <span className="font-mono">{fmtMoney(revenue)}</span>
+                {advanceRevenue > 0 && (
+                  <span className="text-xs text-stone-400"> ({fmtMoney(invoicedRevenue)} invoiced + {fmtMoney(advanceRevenue)} advance)</span>
+                )}
                 <span className="mx-2 text-stone-300">·</span>
                 <span className="text-stone-500">Profit </span>
                 <span className={`font-mono font-semibold ${profit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>

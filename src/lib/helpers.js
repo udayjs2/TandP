@@ -53,6 +53,42 @@ export const ORDER_STATUS_COLORS = {
 export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Other"];
 export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Card", "Other"];
 
+// Standard shift rules: 9 AM to 6 PM, must be present at least 9 hours to
+// count as a full day. Used to auto-flag late arrivals and overtime from
+// check-in/check-out times (entered manually, or imported from a biometric
+// device's exported log).
+export const SHIFT_START_MIN = 9 * 60; // 9:00 AM in minutes-from-midnight
+export const SHIFT_END_MIN = 18 * 60; // 6:00 PM
+export const MIN_FULL_DAY_HOURS = 9;
+export const LATE_GRACE_MIN = 10; // small grace window before flagging "late"
+
+const timeToMinutes = (t) => {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + (m || 0);
+};
+
+// Given "HH:MM" check-in/check-out strings, compute hours worked, whether
+// the person was late, and any overtime beyond the 9-hour shift.
+export const computeShiftStats = (checkIn, checkOut) => {
+  const inMin = timeToMinutes(checkIn);
+  const outMin = timeToMinutes(checkOut);
+  if (inMin === null || outMin === null) return { hoursWorked: null, isLate: false, overtimeHours: 0, meetsFullDay: false };
+  const hoursWorked = Math.max(0, (outMin - inMin) / 60);
+  const isLate = inMin > SHIFT_START_MIN + LATE_GRACE_MIN;
+  const overtimeHours = outMin > SHIFT_END_MIN ? (outMin - SHIFT_END_MIN) / 60 : 0;
+  const meetsFullDay = hoursWorked >= MIN_FULL_DAY_HOURS;
+  return { hoursWorked, isLate, overtimeHours, meetsFullDay };
+};
+
+// Suggest a status from computed hours (still manually overridable)
+export const suggestStatusFromHours = (hoursWorked) => {
+  if (hoursWorked === null) return null;
+  if (hoursWorked >= MIN_FULL_DAY_HOURS) return "Present";
+  if (hoursWorked >= MIN_FULL_DAY_HOURS / 2) return "Half Day";
+  return "Absent";
+};
+
 export const ROLE_LABELS = { admin: "Admin", hr: "HR", user: "Staff" };
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of

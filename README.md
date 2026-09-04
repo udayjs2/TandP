@@ -1,3 +1,19 @@
+## v11 — advance-in-revenue, attendance shift rules, biometric CSV import
+
+### Migration
+Run `supabase/migration_12.sql` (adds check-in/check-out columns to attendance).
+
+### What's new
+- **Advance payments now count as revenue.** Finance → Overview and Order Profitability both show Revenue as invoiced amount + advance payments received. Each order card shows the breakdown (e.g. "₹8,000 invoiced + ₹2,000 advance"). One thing to keep in mind yourself: if you later raise a formal invoice for money that was already logged as an advance, that same amount would count twice unless you account for it (e.g. show the invoice as the advance amount less what's already been paid). This app doesn't auto-reconcile that for you.
+- **Attendance now tracks check-in/check-out times** against a 9:00 AM – 6:00 PM shift, with a 9-hour minimum for a full Present day. Enter times in the Attendance tab and it auto-flags **Late** arrivals and **Overtime** hours, and suggests a status (still fully overridable).
+- **CSV import for biometric attendance** — "Import from device" button on the Attendance tab. Export your biometric software's log to CSV (employee number/name, date, check-in, check-out) and paste it in; the app matches employees and bulk-imports.
+
+### About live biometric device integration
+Direct real-time connection from this cloud app to a physical device on your factory's local network isn't something that can be built generically — it depends entirely on your specific device brand/model:
+- Some newer devices (many ZKTeco models, for example) support pushing data straight to a cloud URL. If yours does, a small receiving endpoint could be built to accept it automatically.
+- Most devices don't support that, and instead need a small always-on helper program running on a PC on the same local network as the device, which reads the punches (via the device's SDK) and uploads them to this app on a schedule.
+- The CSV import above works **today**, with any device, since virtually all biometric attendance software can export to Excel/CSV — this is the practical way to get your data in while a live-sync option (if wanted) is scoped separately once the device's brand/model is known.
+
 # T&P Textiles — Workshop Management
 
 A real, hosted version of your workshop management app: employees, orders (with
