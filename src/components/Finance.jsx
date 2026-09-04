@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
-import { fmtMoney, todayStr, monthKey, EXPENDITURE_CATEGORIES, computeLaborCost } from "../lib/helpers";
+import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, computeLaborCost } from "../lib/helpers";
 
 const SUB_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -331,7 +331,7 @@ function Expenditures() {
 
   const load = async () => {
     const start = `${mk}-01`;
-    const end = `${mk}-31`;
+    const end = `${mk}-${String(daysInMonth(mk)).padStart(2, "0")}`;
     const [{ data, error }, { data: ord }, { data: inv }] = await Promise.all([
       supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false }),
       supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
@@ -644,5 +644,224 @@ function OrderProfitability() {
         {rows.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
       </div>
     </div>
+  );
+}
+
+// ==================== LOANS ====================
+function Loans() {
+  const [loans, setLoans] = useState([]);
+  const [paymentsByLoan, setPaymentsByLoan] = useState({});
+  const [modal, setModal] = useState(null);
+  const [paymentLoan, setPaymentLoan] = useState(null);
+
+  const load = async () => {
+    const [{ data: ln, error }, { data: payments }] = await Promise.all([
+      supabase.from("loans").select("*").order("created_at", { ascending: true }),
+      supabase.from("loan_payments").select("*").order("payment_date", { ascending: false }),
+    ]);
+    if (error) console.error("Failed to load loans:", error.message);
+    setLoans(ln || []);
+    const byLoan = {};
+    (payments || []).forEach((p) => {
+      byLoan[p.loan_id] = byLoan[p.loan_id] || [];
+      byLoan[p.loan_id].push(p);
+    });
+    setPaymentsByLoan(byLoan);
+  };
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("loans-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "loans" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "loan_payments" }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  const saveLoan = async (loan) => {
+    if (loan.id) {
+      const { id, ...rest } = loan;
+      const { error } = await supabase.from("loans").update(rest).eq("id", id);
+      if (error) { alert(`Couldn't save this loan:\n${error.message}`); return; }
+    } else {
+      const { id, ...rest } = loan;
+      const { error } = await supabase.from("loans").insert(rest);
+      if (error) { alert(`Couldn't save this loan:\n${error.message}`); return; }
+    }
+    setModal(null);
+    load();
+  };
+
+  const removeLoan = async (id) => {
+    if (!confirm("Remove this loan? This also removes its payment history.")) return;
+    await supabase.from("loans").delete().eq("id", id);
+    load();
+  };
+
+  const totalOutstanding = loans.reduce((s, l) => {
+    const paid = (paymentsByLoan[l.id] || []).reduce((s2, p) => s2 + Number(p.amount || 0), 0);
+    return s + Math.max(0, Number(l.loan_amount || 0) - paid);
+  }, 0);
+  const totalEmi = loans.reduce((s, l) => s + Number(l.emi_amount || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2">
+        <StatCard label="Total outstanding" value={fmtMoney(totalOutstanding)} icon={Banknote} tone={totalOutstanding > 0 ? "warn" : "good"} />
+        <StatCard label="Total monthly EMI" value={fmtMoney(totalEmi)} icon={Banknote} />
+      </div>
+      <div className="flex justify-end">
+        <Btn onClick={() => setModal({})}>
+          <Plus size={15} /> Add loan
+        </Btn>
+      </div>
+      <div className="grid gap-3">
+        {loans.map((l) => {
+          const payments = paymentsByLoan[l.id] || [];
+          const paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+          const outstanding = Math.max(0, Number(l.loan_amount || 0) - paid);
+          const pct = l.loan_amount ? Math.min(100, (paid / l.loan_amount) * 100) : 0;
+          return (
+            <Card key={l.id} className="p-4">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <div className="font-semibold">{l.lender}</div>
+                  <div className="text-xs text-stone-500">
+                    {fmtMoney(l.loan_amount)} loan
+                    {l.interest_rate ? ` · ${l.interest_rate}% interest` : ""}
+                    {l.emi_amount ? ` · EMI ${fmtMoney(l.emi_amount)}/mo` : ""}
+                    {l.start_date ? ` · started ${l.start_date}` : ""}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => setModal(l)} className="text-stone-400 hover:text-indigo-700 p-1"><Pencil size={14} /></button>
+                  <button onClick={() => removeLoan(l.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={14} /></button>
+                </div>
+              </div>
+              <div className="flex justify-between text-xs text-stone-500 mb-1">
+                <span>{fmtMoney(paid)} paid</span>
+                <span>{fmtMoney(outstanding)} outstanding</span>
+              </div>
+              <div className="h-2 bg-stone-100 rounded-full overflow-hidden mb-3">
+                <div className="h-full bg-indigo-700" style={{ width: `${pct}%` }} />
+              </div>
+              <Btn variant="ghost" onClick={() => setPaymentLoan(l)}>View / log payments</Btn>
+            </Card>
+          );
+        })}
+        {loans.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No loans added yet.</Card>}
+      </div>
+      {modal && <LoanModal loan={modal} onClose={() => setModal(null)} onSave={saveLoan} />}
+      {paymentLoan && (
+        <LoanPaymentModal loan={paymentLoan} payments={paymentsByLoan[paymentLoan.id] || []} onClose={() => setPaymentLoan(null)} onChanged={load} />
+      )}
+    </div>
+  );
+}
+
+function LoanModal({ loan, onClose, onSave }) {
+  const [f, setF] = useState({
+    id: loan.id || null,
+    lender: loan.lender || "",
+    loan_amount: loan.loan_amount || "",
+    interest_rate: loan.interest_rate || "",
+    emi_amount: loan.emi_amount || "",
+    start_date: loan.start_date || todayStr(),
+    tenure_months: loan.tenure_months || "",
+    notes: loan.notes || "",
+  });
+  return (
+    <Modal title={loan.id ? "Edit loan" : "Add loan"} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!f.lender) return;
+          onSave({
+            ...f,
+            loan_amount: Number(f.loan_amount) || 0,
+            interest_rate: f.interest_rate === "" ? null : Number(f.interest_rate),
+            emi_amount: Number(f.emi_amount) || 0,
+            tenure_months: f.tenure_months === "" ? null : Number(f.tenure_months),
+          });
+        }}
+      >
+        <Field label="Lender / bank"><input required className={inputCls} value={f.lender} onChange={(e) => setF({ ...f, lender: e.target.value })} /></Field>
+        <Field label="Loan amount (₹)"><input type="number" min="0" required className={inputCls} value={f.loan_amount} onChange={(e) => setF({ ...f, loan_amount: e.target.value })} /></Field>
+        <Field label="Interest rate (% per year, optional)"><input type="number" min="0" step="0.01" className={inputCls} value={f.interest_rate} onChange={(e) => setF({ ...f, interest_rate: e.target.value })} /></Field>
+        <Field label="Monthly EMI (₹)"><input type="number" min="0" className={inputCls} value={f.emi_amount} onChange={(e) => setF({ ...f, emi_amount: e.target.value })} /></Field>
+        <Field label="Start date"><input type="date" className={inputCls} value={f.start_date} onChange={(e) => setF({ ...f, start_date: e.target.value })} /></Field>
+        <Field label="Tenure (months, optional)"><input type="number" min="0" className={inputCls} value={f.tenure_months} onChange={(e) => setF({ ...f, tenure_months: e.target.value })} /></Field>
+        <Field label="Notes"><textarea rows={2} className={inputCls} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
+        <div className="flex justify-end gap-2 mt-4">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit">Save</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function LoanPaymentModal({ loan, payments, onClose, onChanged }) {
+  const [month, setMonth] = useState(monthKey());
+  const [amount, setAmount] = useState(loan.emi_amount || "");
+  const [date, setDate] = useState(todayStr());
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const addPayment = async (e) => {
+    e.preventDefault();
+    if (!amount) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from("loan_payments")
+      .upsert(
+        { loan_id: loan.id, payment_month: month, amount: Number(amount), payment_date: date, notes: notes || null },
+        { onConflict: "loan_id,payment_month" }
+      );
+    setSaving(false);
+    if (error) { alert(`Couldn't save this payment:\n${error.message}`); return; }
+    setNotes("");
+    onChanged();
+  };
+
+  const removePayment = async (id) => {
+    if (!confirm("Remove this payment entry?")) return;
+    await supabase.from("loan_payments").delete().eq("id", id);
+    onChanged();
+  };
+
+  return (
+    <Modal title={`${loan.lender} — payments`} onClose={onClose}>
+      <form onSubmit={addPayment} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
+        <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a monthly payment</div>
+        <div className="grid grid-cols-2 gap-2">
+          <input type="month" className={inputCls} value={month} onChange={(e) => setMonth(e.target.value)} />
+          <input type="number" min="0" placeholder="Amount (₹)" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </div>
+        <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+        <input placeholder="Notes (optional)" className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Btn type="submit" disabled={saving} className="w-full justify-center">{saving ? "Saving…" : "Save payment (updates if that month already has one)"}</Btn>
+      </form>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
+      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+        {payments.map((p) => (
+          <div key={p.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
+            <div>
+              <span className="font-mono font-medium">{fmtMoney(p.amount)}</span>
+              <span className="text-xs text-stone-400"> · {p.payment_month}</span>
+              <div className="text-xs text-stone-400">{p.payment_date}{p.notes ? ` · ${p.notes}` : ""}</div>
+            </div>
+            <button onClick={() => removePayment(p.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={13} /></button>
+          </div>
+        ))}
+        {payments.length === 0 && <p className="text-xs text-stone-400">No payments logged yet.</p>}
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
   );
 }
