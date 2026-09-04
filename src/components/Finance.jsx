@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard } from "lucide-react";
+import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
 import { fmtMoney, todayStr, monthKey, EXPENDITURE_CATEGORIES, computeLaborCost } from "../lib/helpers";
@@ -9,6 +9,7 @@ const SUB_TABS = [
   { id: "investors", label: "Investors", icon: Landmark },
   { id: "expenditures", label: "Expenditures", icon: Wallet },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
+  { id: "loans", label: "Loans", icon: Banknote },
 ];
 
 export default function Finance() {
@@ -39,6 +40,7 @@ export default function Finance() {
       {sub === "investors" && <Investors />}
       {sub === "expenditures" && <Expenditures />}
       {sub === "profitability" && <OrderProfitability />}
+      {sub === "loans" && <Loans />}
     </div>
   );
 }
@@ -48,20 +50,38 @@ function Overview() {
   const [stats, setStats] = useState(null);
 
   const load = async () => {
-    const [{ data: investments }, { data: expenditures }, { data: invoices }, { data: finance }] = await Promise.all([
+    const [{ data: investments }, { data: expenditures }, { data: invoices }, { data: finance }, { data: loans }, { data: loanPayments }] = await Promise.all([
       supabase.from("investments").select("amount"),
-      supabase.from("expenditures").select("amount"),
+      supabase.from("expenditures").select("amount, investor_id"),
       supabase.from("invoices").select("amount"),
       supabase.from("order_finance").select("*"),
+      supabase.from("loans").select("*"),
+      supabase.from("loan_payments").select("loan_id, amount"),
     ]);
-    const totalInvested = (investments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalCashInvestments = (investments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const investorFundedExpenditure = (expenditures || []).filter((r) => r.investor_id).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalExpenditure = (expenditures || []).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalRevenue = (invoices || []).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalOrderCosts = (finance || []).reduce(
       (s, r) => s + Number(r.raw_material_cost || 0) + Number(r.labor_cost || 0) + Number(r.overhead_cost || 0),
       0
     );
-    setStats({ totalInvested, totalExpenditure, totalRevenue, totalOrderCosts, netPosition: totalInvested + totalRevenue - totalExpenditure });
+    const paidByLoan = {};
+    (loanPayments || []).forEach((p) => (paidByLoan[p.loan_id] = (paidByLoan[p.loan_id] || 0) + Number(p.amount || 0)));
+    const totalLoanOutstanding = (loans || []).reduce((s, l) => s + Math.max(0, Number(l.loan_amount || 0) - (paidByLoan[l.id] || 0)), 0);
+    const monthlyLoanCommitment = (loans || []).reduce((s, l) => s + Number(l.emi_amount || 0), 0);
+
+    setStats({
+      // Total invested = cash contributions + purchases an investor funded directly.
+      // Nothing here is subtracted for expenditure — investing and spending are
+      // tracked separately, matching how an established, running business works.
+      totalInvested: totalCashInvestments + investorFundedExpenditure,
+      totalExpenditure,
+      totalRevenue,
+      totalOrderCosts,
+      totalLoanOutstanding,
+      monthlyLoanCommitment,
+    });
   };
 
   useEffect(() => {
@@ -78,16 +98,15 @@ function Overview() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total invested" value={fmtMoney(stats.totalInvested)} icon={Landmark} />
-        <StatCard label="Total expenditure" value={fmtMoney(stats.totalExpenditure)} icon={Wallet} tone="warn" />
+        <StatCard label="Total invested" value={fmtMoney(stats.totalInvested)} icon={Landmark} sub="Includes investor-funded purchases" />
         <StatCard label="Total revenue (invoices)" value={fmtMoney(stats.totalRevenue)} icon={TrendingUp} tone="good" />
+        <StatCard label="Total expenditure" value={fmtMoney(stats.totalExpenditure)} icon={Wallet} />
         <StatCard label="Raw material + labor costs" value={fmtMoney(stats.totalOrderCosts)} />
       </div>
-      <Card className="p-4">
-        <h3 className="font-semibold text-sm mb-2">Cash position (rough)</h3>
-        <div className="text-2xl font-mono font-semibold">{fmtMoney(stats.netPosition)}</div>
-        <p className="text-xs text-stone-400 mt-1">Invested capital + revenue received − business expenditures. Doesn't include unpaid invoices, payroll paid out, or bank balances — a directional estimate, not an accounting statement.</p>
-      </Card>
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard label="Loan outstanding" value={fmtMoney(stats.totalLoanOutstanding)} icon={Banknote} tone={stats.totalLoanOutstanding > 0 ? "warn" : "good"} />
+        <StatCard label="Monthly EMI commitment" value={fmtMoney(stats.monthlyLoanCommitment)} icon={Banknote} />
+      </div>
     </div>
   );
 }
@@ -96,13 +115,15 @@ function Overview() {
 function Investors() {
   const [investors, setInvestors] = useState([]);
   const [investmentsByInvestor, setInvestmentsByInvestor] = useState({});
+  const [fundedExpByInvestor, setFundedExpByInvestor] = useState({});
   const [modal, setModal] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
 
   const load = async () => {
-    const [{ data: inv }, { data: allInvestments }] = await Promise.all([
+    const [{ data: inv }, { data: allInvestments }, { data: fundedExp }] = await Promise.all([
       supabase.from("investors").select("*").order("created_at", { ascending: true }),
       supabase.from("investments").select("*").order("invested_date", { ascending: false }),
+      supabase.from("expenditures").select("*").not("investor_id", "is", null).order("expense_date", { ascending: false }),
     ]);
     setInvestors(inv || []);
     const byInvestor = {};
@@ -111,6 +132,12 @@ function Investors() {
       byInvestor[r.investor_id].push(r);
     });
     setInvestmentsByInvestor(byInvestor);
+    const fundedBy = {};
+    (fundedExp || []).forEach((r) => {
+      fundedBy[r.investor_id] = fundedBy[r.investor_id] || [];
+      fundedBy[r.investor_id].push(r);
+    });
+    setFundedExpByInvestor(fundedBy);
   };
 
   useEffect(() => {
@@ -119,6 +146,7 @@ function Investors() {
       .channel("investors-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "investors" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "investments" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenditures" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -136,25 +164,33 @@ function Investors() {
   };
 
   const removeInvestor = async (id) => {
-    if (!confirm("Remove this investor? This also removes their investment history.")) return;
+    if (!confirm("Remove this investor? This also removes their investment history. Any expenditures funded by them will stay, just unlinked.")) return;
     await supabase.from("investors").delete().eq("id", id);
     load();
   };
 
-  const totalInvested = Object.values(investmentsByInvestor).flat().reduce((s, r) => s + Number(r.amount || 0), 0);
+  const cashTotal = Object.values(investmentsByInvestor).flat().reduce((s, r) => s + Number(r.amount || 0), 0);
+  const fundedTotal = Object.values(fundedExpByInvestor).flat().reduce((s, r) => s + Number(r.amount || 0), 0);
+  const totalInvested = cashTotal + fundedTotal;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="text-sm text-stone-500">Total invested: <span className="font-mono font-semibold text-stone-800">{fmtMoney(totalInvested)}</span></span>
+        <span className="text-sm text-stone-500">
+          Total invested: <span className="font-mono font-semibold text-stone-800">{fmtMoney(totalInvested)}</span>
+          {fundedTotal > 0 && <span className="text-xs text-stone-400 ml-1">(incl. {fmtMoney(fundedTotal)} funded purchases)</span>}
+        </span>
         <Btn onClick={() => setModal({})}>
           <Plus size={15} /> Add investor
         </Btn>
       </div>
       <div className="grid md:grid-cols-2 gap-3">
         {investors.map((inv) => {
-          const entries = investmentsByInvestor[inv.id] || [];
-          const total = entries.reduce((s, r) => s + Number(r.amount || 0), 0);
+          const cashEntries = investmentsByInvestor[inv.id] || [];
+          const fundedEntries = fundedExpByInvestor[inv.id] || [];
+          const cash = cashEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
+          const funded = fundedEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
+          const total = cash + funded;
           return (
             <Card key={inv.id} className="p-4">
               <div className="flex items-start justify-between gap-2 mb-1">
@@ -168,7 +204,10 @@ function Investors() {
                 </div>
               </div>
               <div className="text-xl font-mono font-semibold mt-2">{fmtMoney(total)}</div>
-              <div className="text-xs text-stone-400 mb-3">{entries.length} investment{entries.length === 1 ? "" : "s"}</div>
+              <div className="text-xs text-stone-400 mb-3">
+                {cashEntries.length} cash investment{cashEntries.length === 1 ? "" : "s"}
+                {funded > 0 && <> · {fmtMoney(funded)} funded purchases ({fundedEntries.length})</>}
+              </div>
               <Btn variant="ghost" onClick={() => setHistoryFor(inv)}>View / add investments</Btn>
             </Card>
           );
@@ -177,7 +216,13 @@ function Investors() {
       </div>
       {modal && <InvestorModal investor={modal} onClose={() => setModal(null)} onSave={saveInvestor} />}
       {historyFor && (
-        <InvestmentHistoryModal investor={historyFor} entries={investmentsByInvestor[historyFor.id] || []} onClose={() => setHistoryFor(null)} onChanged={load} />
+        <InvestmentHistoryModal
+          investor={historyFor}
+          entries={investmentsByInvestor[historyFor.id] || []}
+          fundedEntries={fundedExpByInvestor[historyFor.id] || []}
+          onClose={() => setHistoryFor(null)}
+          onChanged={load}
+        />
       )}
     </div>
   );
@@ -207,7 +252,7 @@ function InvestorModal({ investor, onClose, onSave }) {
   );
 }
 
-function InvestmentHistoryModal({ investor, entries, onClose, onChanged }) {
+function InvestmentHistoryModal({ investor, entries, fundedEntries, onClose, onChanged }) {
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayStr());
   const [notes, setNotes] = useState("");
@@ -227,12 +272,13 @@ function InvestmentHistoryModal({ investor, entries, onClose, onChanged }) {
     onChanged();
   };
 
-  const total = entries.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const cashTotal = entries.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const fundedTotal = (fundedEntries || []).reduce((s, r) => s + Number(r.amount || 0), 0);
 
   return (
     <Modal title={`${investor.name} — investments`} onClose={onClose}>
       <form onSubmit={addEntry} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
-        <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Add investment entry</div>
+        <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Add cash investment</div>
         <div className="grid grid-cols-2 gap-2">
           <input type="number" min="0" placeholder="Amount (₹)" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
           <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
@@ -241,8 +287,8 @@ function InvestmentHistoryModal({ investor, entries, onClose, onChanged }) {
         <Btn type="submit" className="w-full justify-center">Add entry</Btn>
       </form>
 
-      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History — total {fmtMoney(total)}</div>
-      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">Cash investments — total {fmtMoney(cashTotal)}</div>
+      <div className="space-y-1.5 max-h-40 overflow-y-auto mb-4">
         {entries.map((r) => (
           <div key={r.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
             <div>
@@ -252,8 +298,22 @@ function InvestmentHistoryModal({ investor, entries, onClose, onChanged }) {
             <button onClick={() => removeEntry(r.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={13} /></button>
           </div>
         ))}
-        {entries.length === 0 && <p className="text-xs text-stone-400">No investments logged yet.</p>}
+        {entries.length === 0 && <p className="text-xs text-stone-400">No cash investments logged yet.</p>}
       </div>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">Purchases funded — total {fmtMoney(fundedTotal)}</div>
+      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+        {(fundedEntries || []).map((r) => (
+          <div key={r.id} className="text-sm border-b border-stone-100 pb-1.5">
+            <span className="font-mono font-medium">{fmtMoney(r.amount)}</span>
+            <div className="text-xs text-stone-400">{r.expense_date} · {r.category}{r.item ? ` — ${r.item}` : ""}</div>
+          </div>
+        ))}
+        {(!fundedEntries || fundedEntries.length === 0) && (
+          <p className="text-xs text-stone-400">No purchases attributed to this investor yet — link one from the Expenditures tab.</p>
+        )}
+      </div>
+
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
@@ -266,18 +326,21 @@ function Expenditures() {
   const [mk, setMk] = useState(monthKey());
   const [items, setItems] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [investors, setInvestors] = useState([]);
   const [modal, setModal] = useState(null);
 
   const load = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-31`;
-    const [{ data, error }, { data: ord }] = await Promise.all([
+    const [{ data, error }, { data: ord }, { data: inv }] = await Promise.all([
       supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false }),
       supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
+      supabase.from("investors").select("id, name").order("name", { ascending: true }),
     ]);
     if (error) console.error("Failed to load expenditures:", error.message);
     setItems(data || []);
     setOrders(ord || []);
+    setInvestors(inv || []);
   };
 
   useEffect(() => {
@@ -314,6 +377,7 @@ function Expenditures() {
     const o = orders.find((x) => x.id === id);
     return o ? `${o.order_number} — ${o.customer_name}` : "—";
   };
+  const investorLabel = (id) => investors.find((x) => x.id === id)?.name || "—";
 
   const total = items.reduce((s, r) => s + Number(r.amount || 0), 0);
   const byCategory = {};
@@ -344,6 +408,7 @@ function Expenditures() {
               <th className="text-left px-4 py-2.5">Item</th>
               <th className="text-left px-4 py-2.5">Vendor</th>
               <th className="text-left px-4 py-2.5">Order</th>
+              <th className="text-left px-4 py-2.5">Funded by</th>
               <th className="text-right px-4 py-2.5">Amount</th>
               <th className="px-4 py-2.5"></th>
             </tr>
@@ -356,6 +421,7 @@ function Expenditures() {
                 <td className="px-4 py-2.5">{r.item || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{r.vendor || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{r.linked_order_id ? orderLabel(r.linked_order_id) : <span className="text-stone-300">Other</span>}</td>
+                <td className="px-4 py-2.5 text-stone-500">{r.investor_id ? investorLabel(r.investor_id) : <span className="text-stone-300">—</span>}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-1">
@@ -365,16 +431,16 @@ function Expenditures() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">No expenditures logged this month.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">No expenditures logged this month.</td></tr>}
           </tbody>
         </table>
       </Card>
-      {modal && <ExpenditureModal exp={modal} orders={orders} onClose={() => setModal(null)} onSave={save} />}
+      {modal && <ExpenditureModal exp={modal} orders={orders} investors={investors} onClose={() => setModal(null)} onSave={save} />}
     </div>
   );
 }
 
-function ExpenditureModal({ exp, orders, onClose, onSave }) {
+function ExpenditureModal({ exp, orders, investors, onClose, onSave }) {
   const [f, setF] = useState({
     id: exp.id || null,
     category: exp.category || "Raw Material",
@@ -384,10 +450,11 @@ function ExpenditureModal({ exp, orders, onClose, onSave }) {
     expense_date: exp.expense_date || todayStr(),
     notes: exp.notes || "",
     linked_order_id: exp.linked_order_id || "",
+    investor_id: exp.investor_id || "",
   });
   return (
     <Modal title={exp.id ? "Edit expenditure" : "Add expenditure"} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); if (!f.amount) return; onSave({ ...f, amount: Number(f.amount) || 0, linked_order_id: f.linked_order_id || null }); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (!f.amount) return; onSave({ ...f, amount: Number(f.amount) || 0, linked_order_id: f.linked_order_id || null, investor_id: f.investor_id || null }); }}>
         <Field label="Category">
           <select className={inputCls} value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>
             {EXPENDITURE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
@@ -405,6 +472,15 @@ function ExpenditureModal({ exp, orders, onClose, onSave }) {
             ))}
           </select>
         </Field>
+        <Field label="Funded by an investor? (optional)">
+          <select className={inputCls} value={f.investor_id} onChange={(e) => setF({ ...f, investor_id: e.target.value })}>
+            <option value="">Not investor-funded</option>
+            {investors.map((inv) => (
+              <option key={inv.id} value={inv.id}>{inv.name}</option>
+            ))}
+          </select>
+        </Field>
+        <p className="text-xs text-stone-400 -mt-2 mb-3">If set, this amount counts toward that investor's total invested — nothing is deducted anywhere.</p>
         <Field label="Notes"><textarea rows={2} className={inputCls} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>

@@ -1,8 +1,11 @@
-// Minimal service worker — caches the app shell so the app opens instantly
-// and shows something even with a flaky connection. Data itself always comes
-// live from Supabase, so this does not affect data freshness.
-const CACHE_NAME = "tp-textiles-shell-v1";
-const SHELL_FILES = ["/", "/index.html", "/manifest.json", "/icon-192.png", "/icon-512.png"];
+// Service worker — caches static assets for offline/installed-app use, but
+// NEVER caches the HTML page itself in a stale way. Every new deploy renames
+// the JS bundle (e.g. index-abc123.js -> index-xyz789.js); if the HTML were
+// served from an old cache it would request a JS file that no longer exists
+// on the server (404), breaking the whole app. Network-first for navigation
+// requests prevents that permanently.
+const CACHE_NAME = "tp-textiles-shell-v2";
+const SHELL_FILES = ["/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -19,9 +22,27 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Never cache API/data calls to Supabase — only the static app shell.
-  if (event.request.method !== "GET" || event.request.url.includes("supabase.co")) return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
-  );
+  const req = event.request;
+  if (req.method !== "GET" || req.url.includes("supabase.co")) return;
+
+  // Page loads: always try the network first so the HTML (and the JS bundle
+  // hash it references) is always current. Only fall back to a cached copy
+  // if there's genuinely no network connection.
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  // Everything else (icons, manifest, hashed JS/CSS assets): cache-first is
+  // safe here because Vite content-hashes these filenames — an old cached
+  // entry simply won't match a new build's URL, so it never goes stale.
+  event.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
 });

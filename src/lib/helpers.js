@@ -51,6 +51,7 @@ export const ORDER_STATUS_COLORS = {
 };
 
 export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Other"];
+export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Card", "Other"];
 
 export const ROLE_LABELS = { admin: "Admin", hr: "HR", user: "Staff" };
 

@@ -15,11 +15,13 @@ export default function Invoices({ isAdmin }) {
   const today = todayStr();
 
   const load = async () => {
-    const [{ data: inv }, { data: ord }, { data: set }] = await Promise.all([
+    const [{ data: inv, error: invErr }, { data: ord }, { data: set, error: setErr }] = await Promise.all([
       supabase.from("invoices").select("*").order("issue_date", { ascending: false }),
       supabase.from("orders").select("*"),
       supabase.from("settings").select("*").eq("id", 1).single(),
     ]);
+    if (invErr) console.error("Failed to load invoices:", invErr.message);
+    if (setErr) console.error("Failed to load business settings:", setErr.message);
     setInvoices(inv || []);
     setOrders(ord || []);
     setSettings(set || {});
@@ -38,17 +40,20 @@ export default function Invoices({ isAdmin }) {
   const save = async (inv) => {
     if (inv.id) {
       const { id, ...rest } = inv;
-      await supabase.from("invoices").update(rest).eq("id", id);
+      const { error } = await supabase.from("invoices").update(rest).eq("id", id);
+      if (error) { alert(`Couldn't save this invoice:\n${error.message}`); return; }
     } else {
       const { id, ...rest } = inv;
-      await supabase.from("invoices").insert(rest);
+      const { error } = await supabase.from("invoices").insert(rest);
+      if (error) { alert(`Couldn't save this invoice:\n${error.message}`); return; }
     }
     setModal(null);
     load();
   };
 
   const saveSettings = async (s) => {
-    await supabase.from("settings").update(s).eq("id", 1);
+    const { error } = await supabase.from("settings").update(s).eq("id", 1);
+    if (error) { alert(`Couldn't save business details:\n${error.message}`); return; }
     setSettingsOpen(false);
     load();
   };

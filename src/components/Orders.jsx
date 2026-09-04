@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users, Wallet } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney } from "../lib/helpers";
+import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, PAYMENT_MODES } from "../lib/helpers";
 
 export default function Orders({ profile }) {
   const [orders, setOrders] = useState([]);
@@ -11,6 +11,8 @@ export default function Orders({ profile }) {
   const [deliveryOrder, setDeliveryOrder] = useState(null);
   const [trackOrder, setTrackOrder] = useState(null);
   const [laborOrder, setLaborOrder] = useState(null);
+  const [paymentOrder, setPaymentOrder] = useState(null);
+  const [paymentsByOrder, setPaymentsByOrder] = useState({});
   const [todayTotals, setTodayTotals] = useState({});
   const [progressByOrder, setProgressByOrder] = useState({});
   const [deliveriesByOrder, setDeliveriesByOrder] = useState({});
@@ -21,10 +23,11 @@ export default function Orders({ profile }) {
     setOrders(data || []);
 
     const today = todayStr();
-    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }] = await Promise.all([
+    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }, { data: allPayments }] = await Promise.all([
       supabase.from("order_progress").select("order_id, quantity").eq("date", today),
       supabase.from("order_progress").select("order_id, item_description, quantity"),
       supabase.from("order_deliveries").select("order_id, item_description, quantity"),
+      supabase.from("order_payments").select("order_id, amount"),
     ]);
 
     const totals = {};
@@ -44,6 +47,10 @@ export default function Orders({ profile }) {
       byOrderDeliv[d.order_id].push(d);
     });
     setDeliveriesByOrder(byOrderDeliv);
+
+    const paymentTotals = {};
+    (allPayments || []).forEach((p) => (paymentTotals[p.order_id] = (paymentTotals[p.order_id] || 0) + Number(p.amount || 0)));
+    setPaymentsByOrder(paymentTotals);
   };
 
   useEffect(() => {
@@ -53,6 +60,7 @@ export default function Orders({ profile }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_progress" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_deliveries" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_payments" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -113,6 +121,9 @@ export default function Orders({ profile }) {
                   {o.daily_target > 0 && (
                     <div className="text-xs text-stone-500 mt-1">Today: {todayDone}/{o.daily_target} items</div>
                   )}
+                  {paymentsByOrder[o.id] > 0 && (
+                    <div className="text-xs text-emerald-700 mt-1">Advance received: {fmtMoney(paymentsByOrder[o.id])}</div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <select
@@ -126,6 +137,9 @@ export default function Orders({ profile }) {
                   </select>
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
                     <LinkIcon size={14} />
+                  </button>
+                  <button onClick={() => setPaymentOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Advance / payments received">
+                    <Wallet size={14} />
                   </button>
                   <button onClick={() => setDeliveryOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Deliveries">
                     <Truck size={14} />
@@ -172,6 +186,7 @@ export default function Orders({ profile }) {
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
       {laborOrder && <LaborModal order={laborOrder} onClose={() => setLaborOrder(null)} />}
+      {paymentOrder && <PaymentModal order={paymentOrder} profile={profile} onClose={() => setPaymentOrder(null)} />}
     </div>
   );
 }
@@ -637,6 +652,106 @@ function LaborModal({ order, onClose }) {
 
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function PaymentModal({ order, profile, onClose }) {
+  const [payments, setPayments] = useState([]);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [mode, setMode] = useState("Cash");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from("order_payments").select("*").eq("order_id", order.id).order("payment_date", { ascending: false });
+    setPayments(data || []);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id]);
+
+  const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  const addPayment = async (e) => {
+    e.preventDefault();
+    if (!amount) return;
+    setSaving(true);
+    const { error } = await supabase.from("order_payments").insert({
+      order_id: order.id,
+      amount: Number(amount),
+      payment_date: date,
+      mode,
+      notes: notes || null,
+      updated_by: profile?.name || null,
+    });
+    setSaving(false);
+    if (error) { alert(`Couldn't save this payment:\n${error.message}`); return; }
+    setAmount("");
+    setNotes("");
+    load();
+  };
+
+  const removePayment = async (id) => {
+    if (!confirm("Remove this payment entry?")) return;
+    await supabase.from("order_payments").delete().eq("id", id);
+    load();
+  };
+
+  return (
+    <Modal title={`Advance / payments — ${order.order_number}`} onClose={onClose}>
+      <div className="bg-stone-50 rounded-lg p-3 mb-4 text-center">
+        <div className="text-lg font-mono font-semibold">{fmtMoney(total)}</div>
+        <div className="text-[11px] text-stone-500">Total received so far</div>
+      </div>
+
+      <form onSubmit={addPayment} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
+        <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a payment received</div>
+        <div className="grid grid-cols-2 gap-2">
+          <input type="number" min="0" placeholder="Amount (₹)" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value)}>
+          {PAYMENT_MODES.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+        <input placeholder="Notes (optional)" className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Btn type="submit" disabled={saving} className="w-full justify-center">
+          {saving ? "Saving…" : "Add payment"}
+        </Btn>
+      </form>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
+      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+        {payments.map((p) => (
+          <div key={p.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
+            <div>
+              <span className="font-mono font-medium">{fmtMoney(p.amount)}</span>
+              <span className="text-xs text-stone-400"> · {p.mode}</span>
+              <div className="text-xs text-stone-400">{p.payment_date}{p.notes ? ` · ${p.notes}` : ""}</div>
+            </div>
+            <button onClick={() => removePayment(p.id)} className="text-stone-400 hover:text-rose-700 p-1">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        {payments.length === 0 && <p className="text-xs text-stone-400">No payments logged yet.</p>}
+      </div>
+
+      <p className="text-xs text-stone-400 mt-3">
+        This tracks money received directly against the order (e.g. an advance before production). It's separate from
+        invoiced revenue in Finance — an amount here doesn't automatically appear on an invoice unless you add it there too.
+      </p>
+
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>
+          Close
+        </Btn>
       </div>
     </Modal>
   );
