@@ -1,3 +1,25 @@
+## v12 — ZKTeco live sync, invoice advance deduction fix
+
+### Migrations
+Run, in order, any of these you haven't yet: `migration_13.sql` (device sync keys), `migration_14.sql` (invoice advance field).
+
+### Fixed: advance was inflating revenue
+Corrected per your feedback — advance payments no longer get ADDED on top of invoice revenue (that was double-counting). Now:
+- **Invoices**: add "Advance already received" — auto-filled from payments logged against the linked order, editable. The invoice shows Subtotal, minus Advance Received, equals **Balance Due** — both on-screen and on the printed invoice. The invoice list also shows a Balance Due column.
+- **Finance revenue**: reverted to counting each invoice's full (gross) amount only — the advance is part of that same amount, not extra. Advance payments still show as their own informational figure ("Advance payments received") so you can see cash collected, without it inflating revenue.
+
+### ZKTeco live device sync
+Since your device is ZKTeco, real live sync is genuinely buildable — here's what's included:
+
+- **In the app**: Attendance tab → "Live device sync setup" (admin only) — generate a secret sync key here. This key can only ever do one thing: upsert one attendance punch. It cannot read or touch anything else in your database, unlike your full Supabase credentials would be able to — safe to keep on a factory PC.
+- **`device-sync/` folder** in this project: a ready-to-run Python script (`zk_sync.py`) using the widely-used `pyzk` library, which connects to your ZKTeco device over your factory's local network, reads today's punches, groups them into check-in/check-out per employee per day, and pushes them to the app using the sync key above. Full setup instructions are in `device-sync/README.md`.
+
+**Important — this script runs on a local PC, not in the cloud.** Your ZKTeco device lives on your factory's local network and isn't reachable from the internet (completely normal). So this script needs an always-on computer on the *same* network as the device — an office PC, a small mini-PC, or a Raspberry Pi — to bridge the two. Once set up, schedule it to run every 5–15 minutes (Windows Task Scheduler or cron — instructions included) and attendance will flow in automatically all day.
+
+One more requirement: each employee's **Employee Number** in the app must match their **User ID as enrolled on the ZKTeco device**, so the script knows who's who. Set this once per employee in the Employees tab.
+
+`pyzk` supports most common ZKTeco models. If the script can't connect once you try it, send me your exact device model number (usually on a label on the unit) and I'll help troubleshoot.
+
 ## v11 — advance-in-revenue, attendance shift rules, biometric CSV import
 
 ### Migration

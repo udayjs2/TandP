@@ -62,9 +62,13 @@ function Overview() {
     const totalCashInvestments = (investments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
     const investorFundedExpenditure = (expenditures || []).filter((r) => r.investor_id).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalExpenditure = (expenditures || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-    const invoicedRevenue = (invoices || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-    const advanceRevenue = (orderPayments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
-    const totalRevenue = invoicedRevenue + advanceRevenue;
+    // Revenue = the full (gross) value of what's been invoiced. Advance
+    // payments are a partial payment TOWARD that same amount, not extra
+    // revenue on top of it — an invoice's amount already represents the
+    // full order value, with the advance simply deducted to show what's
+    // still owed (Balance Due).
+    const totalRevenue = (invoices || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+    const totalAdvancePending = (orderPayments || []).reduce((s, r) => s + Number(r.amount || 0), 0);
     const totalOrderCosts = (finance || []).reduce(
       (s, r) => s + Number(r.raw_material_cost || 0) + Number(r.labor_cost || 0) + Number(r.overhead_cost || 0),
       0
@@ -80,9 +84,8 @@ function Overview() {
       // tracked separately, matching how an established, running business works.
       totalInvested: totalCashInvestments + investorFundedExpenditure,
       totalExpenditure,
-      invoicedRevenue,
-      advanceRevenue,
       totalRevenue,
+      totalAdvancePending,
       totalOrderCosts,
       totalLoanOutstanding,
       monthlyLoanCommitment,
@@ -104,19 +107,14 @@ function Overview() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total invested" value={fmtMoney(stats.totalInvested)} icon={Landmark} sub="Includes investor-funded purchases" />
-        <StatCard
-          label="Total revenue"
-          value={fmtMoney(stats.totalRevenue)}
-          icon={TrendingUp}
-          tone="good"
-          sub={`${fmtMoney(stats.invoicedRevenue)} invoiced + ${fmtMoney(stats.advanceRevenue)} advances`}
-        />
+        <StatCard label="Total revenue (invoiced)" value={fmtMoney(stats.totalRevenue)} icon={TrendingUp} tone="good" />
         <StatCard label="Total expenditure" value={fmtMoney(stats.totalExpenditure)} icon={Wallet} />
         <StatCard label="Raw material + labor costs" value={fmtMoney(stats.totalOrderCosts)} />
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <StatCard label="Loan outstanding" value={fmtMoney(stats.totalLoanOutstanding)} icon={Banknote} tone={stats.totalLoanOutstanding > 0 ? "warn" : "good"} />
         <StatCard label="Monthly EMI commitment" value={fmtMoney(stats.monthlyLoanCommitment)} icon={Banknote} />
+        <StatCard label="Advance payments received" value={fmtMoney(stats.totalAdvancePending)} sub="Cash collected — see each invoice for balance due" />
       </div>
     </div>
   );
@@ -573,13 +571,15 @@ function OrderProfitability() {
     const laborCost = autoLabor ? autoLabor.laborCost : Number(fin.labor_cost || 0);
     const autoMaterial = materialByOrder[o.id] || null;
     const materialCost = autoMaterial !== null ? autoMaterial : Number(fin.raw_material_cost || 0);
-    const invoicedRevenue = revenueByOrder[o.id] || 0;
-    const advanceRevenue = advanceByOrder[o.id] || 0;
-    const revenue = invoicedRevenue + advanceRevenue;
+    // Revenue is the invoice's full (gross) amount — advance payments are a
+    // partial payment toward that same amount, shown as a deduction on the
+    // invoice itself (Balance Due), not counted a second time here.
+    const revenue = revenueByOrder[o.id] || 0;
+    const advancePending = advanceByOrder[o.id] || 0;
     const totalCost = materialCost + laborCost + Number(fin.overhead_cost || 0);
     const profit = revenue - totalCost;
     const margin = revenue ? (profit / revenue) * 100 : null;
-    return { order: o, fin, autoLabor, laborCost, autoMaterial, materialCost, invoicedRevenue, advanceRevenue, revenue, totalCost, profit, margin };
+    return { order: o, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, advancePending, totalCost, profit, margin };
   });
   const totals = rows.reduce(
     (acc, r) => ({
@@ -598,18 +598,21 @@ function OrderProfitability() {
         <StatCard label="Total profit" value={fmtMoney(totals.profit)} tone={totals.profit >= 0 ? "good" : "bad"} />
       </div>
       <p className="text-xs text-stone-400">
-        Revenue = invoiced amount (linked invoices) + advance payments received (logged on the order in the Orders tab). Raw material cost auto-totals from any Expenditures tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
+        Revenue is each order's full invoiced amount (not increased by advance payments — an advance is part of that same
+        amount, deducted on the invoice itself as a Balance Due). Raw material cost auto-totals from any Expenditures
+        tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders
+        tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
       </p>
       <div className="grid gap-3">
-        {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, invoicedRevenue, advanceRevenue, revenue, totalCost, profit, margin }) => (
+        {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, advancePending, totalCost, profit, margin }) => (
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="font-semibold text-sm">{order.order_number} — {order.customer_name}</div>
               <div className="text-sm">
                 <span className="text-stone-500">Revenue </span>
                 <span className="font-mono">{fmtMoney(revenue)}</span>
-                {advanceRevenue > 0 && (
-                  <span className="text-xs text-stone-400"> ({fmtMoney(invoicedRevenue)} invoiced + {fmtMoney(advanceRevenue)} advance)</span>
+                {advancePending > 0 && (
+                  <span className="text-xs text-stone-400"> ({fmtMoney(advancePending)} advance received so far)</span>
                 )}
                 <span className="mx-2 text-stone-300">·</span>
                 <span className="text-stone-500">Profit </span>

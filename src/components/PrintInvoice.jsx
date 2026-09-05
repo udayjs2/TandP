@@ -5,6 +5,8 @@ import { fmtMoney, itemsTotal } from "../lib/helpers";
 export default function PrintInvoice({ invoice, settings, onClose }) {
   const items = invoice.items?.length ? invoice.items : [{ description: "Invoice amount", quantity: 1, price: invoice.amount }];
   const total = itemsTotal(items);
+  const advanceReceived = Number(invoice.advance_received) || 0;
+  const balanceDue = total - advanceReceived;
   const businessName = settings.business_name || "T&P Textiles";
 
   return (
@@ -89,8 +91,18 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
               </tr>
             ))}
             <tr>
-              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">Total</td>
-              <td className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{fmtMoney(total)}</td>
+              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-semibold">Subtotal</td>
+              <td className="border border-stone-800 text-right py-2 px-2 font-semibold">{fmtMoney(total)}</td>
+            </tr>
+            {advanceReceived > 0 && (
+              <tr>
+                <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-semibold">Advance Received</td>
+                <td className="border border-stone-800 text-right py-2 px-2 font-semibold">−{fmtMoney(advanceReceived)}</td>
+              </tr>
+            )}
+            <tr>
+              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">Balance Due</td>
+              <td className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{fmtMoney(balanceDue)}</td>
             </tr>
           </tbody>
         </table>

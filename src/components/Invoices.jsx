@@ -93,6 +93,7 @@ export default function Invoices({ isAdmin }) {
               <th className="text-left px-4 py-2.5">Issued</th>
               <th className="text-left px-4 py-2.5">Due</th>
               <th className="text-right px-4 py-2.5">Amount</th>
+              <th className="text-right px-4 py-2.5">Balance Due</th>
               <th className="text-left px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5"></th>
             </tr>
@@ -101,6 +102,7 @@ export default function Invoices({ isAdmin }) {
             {invoices.map((i) => {
               const overdue = i.status !== "Paid" && i.due_date && i.due_date < today;
               const amount = i.items?.length ? itemsTotal(i.items) : Number(i.amount) || 0;
+              const balanceDue = amount - Number(i.advance_received || 0);
               return (
                 <tr key={i.id} className="hover:bg-stone-50">
                   <td className="px-4 py-2.5 font-medium">{i.invoice_number}</td>
@@ -108,6 +110,7 @@ export default function Invoices({ isAdmin }) {
                   <td className="px-4 py-2.5 text-stone-500">{i.issue_date}</td>
                   <td className="px-4 py-2.5 text-stone-500">{i.due_date || "—"}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(amount)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmtMoney(balanceDue)}</td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -140,7 +143,7 @@ export default function Invoices({ isAdmin }) {
             })}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-stone-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-stone-400">
                   No invoices yet.
                 </td>
               </tr>
@@ -246,14 +249,23 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
     issue_date: inv.issue_date || todayStr(),
     due_date: inv.due_date || "",
     status: inv.status || "Unpaid",
+    advance_received: inv.advance_received || "",
   });
   const [items, setItems] = useState(initialItems);
+  const [loadingAdvance, setLoadingAdvance] = useState(false);
 
-  const applyOrder = (orderId) => {
+  const applyOrder = async (orderId) => {
     const o = orders.find((x) => x.id === orderId);
-    setF({ ...f, linked_order_id: orderId || null, customer_name: o ? o.customer_name : f.customer_name });
+    setF((prev) => ({ ...prev, linked_order_id: orderId || null, customer_name: o ? o.customer_name : prev.customer_name }));
     if (o && o.items?.length) {
       setItems(o.items.map((it) => ({ description: it.description, quantity: it.quantity || 1, price: "" })));
+    }
+    if (orderId) {
+      setLoadingAdvance(true);
+      const { data } = await supabase.from("order_payments").select("amount").eq("order_id", orderId);
+      const advanceTotal = (data || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+      setLoadingAdvance(false);
+      setF((prev) => ({ ...prev, advance_received: advanceTotal || "" }));
     }
   };
 
@@ -262,6 +274,8 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
   const updateItem = (idx, patch) => setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
 
   const total = itemsTotal(items);
+  const advance = Number(f.advance_received) || 0;
+  const balanceDue = total - advance;
 
   return (
     <Modal title={inv.id ? "Edit invoice" : "New invoice"} onClose={onClose}>
@@ -272,7 +286,7 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
           const cleanItems = items
             .filter((it) => it.description || it.quantity || it.price)
             .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, price: Number(it.price) || 0 }));
-          onSave({ ...f, items: cleanItems, amount: itemsTotal(cleanItems) });
+          onSave({ ...f, items: cleanItems, amount: itemsTotal(cleanItems), advance_received: Number(f.advance_received) || 0 });
         }}
       >
         <Field label="Invoice number">
@@ -332,8 +346,28 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
           <Plus size={13} /> Add another line
         </button>
 
-        <div className="text-right text-sm font-semibold mb-3">
-          Total: <span className="font-mono">{fmtMoney(total)}</span>
+        <div className="text-right text-sm mb-1">
+          Subtotal: <span className="font-mono">{fmtMoney(total)}</span>
+        </div>
+
+        <Field label="Advance already received (₹)">
+          <input
+            type="number"
+            min="0"
+            className={inputCls}
+            value={f.advance_received}
+            placeholder={loadingAdvance ? "Loading from order…" : "0"}
+            onChange={(e) => setF({ ...f, advance_received: e.target.value })}
+          />
+        </Field>
+        <p className="text-xs text-stone-400 -mt-2 mb-3">
+          {f.linked_order_id
+            ? "Auto-filled from payments logged against this order — edit if needed."
+            : "Enter manually if an advance was collected outside the Orders tab."}
+        </p>
+
+        <div className="text-right text-base font-bold mb-3 border-t border-stone-200 pt-2">
+          Balance Due: <span className="font-mono">{fmtMoney(balanceDue)}</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Upload, AlertTriangle, Clock } from "lucide-react";
+import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
 import { daysInMonth, todayStr, computeShiftStats, suggestStatusFromHours } from "../lib/helpers";
@@ -18,6 +18,7 @@ export default function Attendance({ profile }) {
   const [dayRecord, setDayRecord] = useState({});
   const [monthCounts, setMonthCounts] = useState({});
   const [importOpen, setImportOpen] = useState(false);
+  const [deviceSyncOpen, setDeviceSyncOpen] = useState(false);
 
   const mk = date.slice(0, 7);
   const totalDays = daysInMonth(mk);
@@ -106,6 +107,11 @@ export default function Attendance({ profile }) {
           <Btn variant="ghost" onClick={() => setImportOpen(true)}>
             <Upload size={14} /> Import from device
           </Btn>
+          {profile?.role === "admin" && (
+            <Btn variant="ghost" onClick={() => setDeviceSyncOpen(true)}>
+              <KeyRound size={14} /> Live device sync setup
+            </Btn>
+          )}
         </div>
       </div>
 
@@ -206,6 +212,7 @@ export default function Attendance({ profile }) {
       {profile?.name && <p className="text-xs text-stone-400">Marking as {profile.name}</p>}
 
       {importOpen && <ImportModal employees={employees} onClose={() => setImportOpen(false)} onDone={() => { loadDay(); loadMonth(); }} />}
+      {deviceSyncOpen && <DeviceSyncModal onClose={() => setDeviceSyncOpen(false)} />}
     </div>
   );
 }
@@ -337,6 +344,114 @@ function ImportModal({ employees, onClose, onDone }) {
       {result && (
         <p className={`text-xs mt-3 ${result.ok ? "text-emerald-700" : "text-rose-600"}`}>{result.message}</p>
       )}
+
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>
+          Close
+        </Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function DeviceSyncModal({ onClose }) {
+  const [keys, setKeys] = useState([]);
+  const [newKeyLabel, setNewKeyLabel] = useState("");
+  const [justCreated, setJustCreated] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from("device_sync_keys").select("*").order("created_at", { ascending: false });
+    setKeys(data || []);
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const generateKey = async (e) => {
+    e.preventDefault();
+    const raw = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const { error } = await supabase.from("device_sync_keys").insert({ key: raw, label: newKeyLabel || "ZKTeco sync" });
+    if (error) { alert(`Couldn't create key:\n${error.message}`); return; }
+    setJustCreated(raw);
+    setNewKeyLabel("");
+    load();
+  };
+
+  const toggleActive = async (id, active) => {
+    await supabase.from("device_sync_keys").update({ active: !active }).eq("id", id);
+    load();
+  };
+
+  const removeKey = async (id) => {
+    if (!confirm("Revoke this key? Any script using it will stop working immediately.")) return;
+    await supabase.from("device_sync_keys").delete().eq("id", id);
+    load();
+  };
+
+  const copyKey = async () => {
+    try {
+      await navigator.clipboard.writeText(justCreated);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard may be unavailable */
+    }
+  };
+
+  return (
+    <Modal title="Live device sync setup" onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Generate a key here, then paste it into the <code>zk_sync.py</code> script's config (see the
+        <code> device-sync/</code> folder in your project files) running on a PC on the same network as your ZKTeco
+        device. That script reads punches from the device and pushes them here automatically on a schedule.
+      </p>
+
+      {justCreated && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+          <p className="text-xs font-semibold text-emerald-800 mb-1">New key created — copy it now, it won't be shown again in full:</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs bg-white border border-emerald-200 rounded px-2 py-1.5 break-all">{justCreated}</code>
+            <Btn variant="ghost" onClick={copyKey}>
+              {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+            </Btn>
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={generateKey} className="flex gap-2 mb-4">
+        <input className={inputCls} placeholder="Label (e.g. Factory floor device)" value={newKeyLabel} onChange={(e) => setNewKeyLabel(e.target.value)} />
+        <Btn type="submit" className="whitespace-nowrap">
+          <KeyRound size={14} /> Generate key
+        </Btn>
+      </form>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">Existing keys</div>
+      <div className="space-y-1.5">
+        {keys.map((k) => (
+          <div key={k.id} className="flex items-center justify-between text-sm bg-stone-50 rounded-lg px-3 py-2">
+            <div>
+              <span className="font-medium">{k.label || "Unnamed key"}</span>
+              <div className="text-xs text-stone-400">
+                {k.active ? "Active" : "Revoked"}
+                {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : " · never used yet"}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => toggleActive(k.id, k.active)} className="text-xs text-indigo-700 hover:underline">
+                {k.active ? "Deactivate" : "Reactivate"}
+              </button>
+              <button onClick={() => removeKey(k.id)} className="text-stone-400 hover:text-rose-700 p-1">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {keys.length === 0 && <p className="text-xs text-stone-400">No sync keys yet — generate one above to get started.</p>}
+      </div>
 
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>
