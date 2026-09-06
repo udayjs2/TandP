@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2 } from "lucide-react";
+import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
 import { daysInMonth, todayStr, computeShiftStats, suggestStatusFromHours } from "../lib/helpers";
@@ -19,6 +19,7 @@ export default function Attendance({ profile }) {
   const [monthCounts, setMonthCounts] = useState({});
   const [importOpen, setImportOpen] = useState(false);
   const [deviceSyncOpen, setDeviceSyncOpen] = useState(false);
+  const [geofenceOpen, setGeofenceOpen] = useState(false);
 
   const mk = date.slice(0, 7);
   const totalDays = daysInMonth(mk);
@@ -110,6 +111,11 @@ export default function Attendance({ profile }) {
           {profile?.role === "admin" && (
             <Btn variant="ghost" onClick={() => setDeviceSyncOpen(true)}>
               <KeyRound size={14} /> Live device sync setup
+            </Btn>
+          )}
+          {profile?.role === "admin" && (
+            <Btn variant="ghost" onClick={() => setGeofenceOpen(true)}>
+              <MapPin size={14} /> Geofence settings
             </Btn>
           )}
         </div>
@@ -213,6 +219,7 @@ export default function Attendance({ profile }) {
 
       {importOpen && <ImportModal employees={employees} onClose={() => setImportOpen(false)} onDone={() => { loadDay(); loadMonth(); }} />}
       {deviceSyncOpen && <DeviceSyncModal onClose={() => setDeviceSyncOpen(false)} />}
+      {geofenceOpen && <GeofenceModal onClose={() => setGeofenceOpen(false)} />}
     </div>
   );
 }
@@ -458,6 +465,92 @@ function DeviceSyncModal({ onClose }) {
           Close
         </Btn>
       </div>
+    </Modal>
+  );
+}
+
+function GeofenceModal({ onClose }) {
+  const [lat, setLat] = useState("");
+  const [lng, setLng] = useState("");
+  const [radius, setRadius] = useState(200);
+  const [loading, setLoading] = useState(true);
+  const [locating, setLocating] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from("settings").select("factory_lat, factory_lng, geofence_radius_meters").eq("id", 1).single();
+    setLat(data?.factory_lat ?? "");
+    setLng(data?.factory_lng ?? "");
+    setRadius(data?.geofence_radius_meters ?? 200);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const useMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Your browser doesn't support location.");
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLat(pos.coords.latitude.toFixed(6));
+        setLng(pos.coords.longitude.toFixed(6));
+        setLocating(false);
+      },
+      () => {
+        alert("Couldn't get your location. Make sure location access is allowed.");
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
+  const save = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase
+      .from("settings")
+      .update({ factory_lat: lat === "" ? null : Number(lat), factory_lng: lng === "" ? null : Number(lng), geofence_radius_meters: Number(radius) || 200 })
+      .eq("id", 1);
+    if (error) { alert(`Couldn't save:\n${error.message}`); return; }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  if (loading) return null;
+
+  return (
+    <Modal title="Geofence settings" onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Sets the factory's location so employee phone check-ins can show how far away they were. Outside-the-radius
+        check-ins are never blocked (indoor GPS can be unreliable) — just flagged for you to see.
+      </p>
+      <form onSubmit={save}>
+        <Btn type="button" variant="ghost" onClick={useMyLocation} disabled={locating} className="w-full justify-center mb-3">
+          <MapPin size={14} /> {locating ? "Getting location…" : "Use my current location (stand at the factory first)"}
+        </Btn>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div>
+            <span className="block text-xs font-medium text-stone-600 mb-1">Latitude</span>
+            <input type="number" step="any" className={inputCls} value={lat} onChange={(e) => setLat(e.target.value)} />
+          </div>
+          <div>
+            <span className="block text-xs font-medium text-stone-600 mb-1">Longitude</span>
+            <input type="number" step="any" className={inputCls} value={lng} onChange={(e) => setLng(e.target.value)} />
+          </div>
+        </div>
+        <div className="mb-3">
+          <span className="block text-xs font-medium text-stone-600 mb-1">Radius considered "at the factory" (meters)</span>
+          <input type="number" min="0" className={inputCls} value={radius} onChange={(e) => setRadius(e.target.value)} />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Btn variant="ghost" type="button" onClick={onClose}>Close</Btn>
+          <Btn type="submit">{saved ? <><Check size={14} /> Saved</> : "Save"}</Btn>
+        </div>
+      </form>
     </Modal>
   );
 }

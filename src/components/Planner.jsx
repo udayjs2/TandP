@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, AlertTriangle, CheckCircle2, Users } from "lucide-react";
+import { Plus, Pencil, Trash2, AlertTriangle, CheckCircle2, Users, RefreshCw, Sparkles } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr, orderItemsRequired, computeOrderProjection } from "../lib/helpers";
+import { todayStr, orderItemsRequired, computeOrderProjection, estimateRateFromOperations, STANDARD_GARMENT_OPERATIONS } from "../lib/helpers";
 
 export default function Planner() {
   const [orders, setOrders] = useState([]);
@@ -12,13 +12,16 @@ export default function Planner() {
   const [rateModal, setRateModal] = useState(null);
   const [workforceEditing, setWorkforceEditing] = useState(false);
   const [workforceDraft, setWorkforceDraft] = useState("");
+  const [lineSettings, setLineSettings] = useState({ avg_seconds_per_operation: 30, line_efficiency_pct: 50 });
+  const [lineSettingsDraft, setLineSettingsDraft] = useState(null);
+  const [seeding, setSeeding] = useState(false);
 
   const load = async () => {
     const [{ data: ord }, { data: prog }, { data: rateRows }, { data: settings }] = await Promise.all([
       supabase.from("orders").select("*").not("status", "in", "(Completed,Shipped)").order("due_date", { ascending: true, nullsFirst: false }),
       supabase.from("order_progress").select("order_id, item_description, quantity"),
       supabase.from("garment_rates").select("*").order("garment_type", { ascending: true }),
-      supabase.from("settings").select("total_workforce").eq("id", 1).single(),
+      supabase.from("settings").select("total_workforce, avg_seconds_per_operation, line_efficiency_pct").eq("id", 1).single(),
     ]);
     setOrders(ord || []);
     const byOrder = {};
@@ -29,6 +32,10 @@ export default function Planner() {
     setProgressByOrder(byOrder);
     setRates(rateRows || []);
     setTotalWorkforce(Number(settings?.total_workforce) || 0);
+    setLineSettings({
+      avg_seconds_per_operation: Number(settings?.avg_seconds_per_operation) || 30,
+      line_efficiency_pct: Number(settings?.line_efficiency_pct) || 50,
+    });
   };
 
   useEffect(() => {
@@ -69,6 +76,42 @@ export default function Planner() {
   const saveWorkforce = async () => {
     await supabase.from("settings").update({ total_workforce: Number(workforceDraft) || 0 }).eq("id", 1);
     setWorkforceEditing(false);
+    load();
+  };
+
+  const saveLineSettings = async () => {
+    await supabase
+      .from("settings")
+      .update({
+        avg_seconds_per_operation: Number(lineSettingsDraft.avg_seconds_per_operation) || 30,
+        line_efficiency_pct: Number(lineSettingsDraft.line_efficiency_pct) || 50,
+      })
+      .eq("id", 1);
+    setLineSettingsDraft(null);
+    load();
+  };
+
+  const recalculateRate = async (rate) => {
+    if (!rate.operations) return;
+    const estimated = estimateRateFromOperations(rate.operations, lineSettings.avg_seconds_per_operation, lineSettings.line_efficiency_pct);
+    await supabase.from("garment_rates").update({ pieces_per_day_per_person: Math.round(estimated * 10) / 10 }).eq("id", rate.id);
+    load();
+  };
+
+  const seedStandardRates = async () => {
+    setSeeding(true);
+    const existingTypes = new Set(rates.map((r) => r.garment_type.trim().toLowerCase()));
+    const toInsert = STANDARD_GARMENT_OPERATIONS.filter((g) => !existingTypes.has(g.garment_type.toLowerCase())).map((g) => ({
+      garment_type: g.garment_type,
+      operations: g.operations,
+      pieces_per_day_per_person:
+        Math.round(estimateRateFromOperations(g.operations, lineSettings.avg_seconds_per_operation, lineSettings.line_efficiency_pct) * 10) / 10,
+    }));
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from("garment_rates").insert(toInsert);
+      if (error) alert(`Couldn't add standard rates:\n${error.message}`);
+    }
+    setSeeding(false);
     load();
   };
 
@@ -143,19 +186,60 @@ export default function Planner() {
         </div>
       </Card>
 
+      {/* Line balancing assumptions */}
+      <Card className="p-4">
+        <h3 className="font-semibold text-sm mb-2">Line balancing assumptions</h3>
+        <p className="text-xs text-stone-500 mb-3">
+          Used to estimate a starting rate from a style's operation count: <span className="font-mono">rate = (9hr shift × efficiency) ÷ (operations × seconds/operation)</span>.
+          These are rough factory-wide averages — tune them as you observe your real line, or just override any garment's rate directly.
+        </p>
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <div className="text-xs text-stone-500 mb-1">Avg seconds per operation</div>
+            <input
+              type="number"
+              min="0"
+              className={inputCls + " w-24"}
+              value={lineSettingsDraft ? lineSettingsDraft.avg_seconds_per_operation : lineSettings.avg_seconds_per_operation}
+              onChange={(e) => setLineSettingsDraft({ ...(lineSettingsDraft || lineSettings), avg_seconds_per_operation: e.target.value })}
+            />
+          </div>
+          <div>
+            <div className="text-xs text-stone-500 mb-1">Line efficiency %</div>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              className={inputCls + " w-24"}
+              value={lineSettingsDraft ? lineSettingsDraft.line_efficiency_pct : lineSettings.line_efficiency_pct}
+              onChange={(e) => setLineSettingsDraft({ ...(lineSettingsDraft || lineSettings), line_efficiency_pct: e.target.value })}
+            />
+          </div>
+          {lineSettingsDraft && (
+            <Btn onClick={saveLineSettings}>Save assumptions</Btn>
+          )}
+        </div>
+      </Card>
+
       {/* Garment rates */}
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <h3 className="font-semibold text-sm">Garment production rates</h3>
-          <Btn variant="ghost" onClick={() => setRateModal({})}>
-            <Plus size={14} /> Add rate
-          </Btn>
+          <div className="flex gap-2">
+            <Btn variant="ghost" onClick={seedStandardRates} disabled={seeding}>
+              <Sparkles size={14} /> {seeding ? "Adding…" : "Load standard reference table"}
+            </Btn>
+            <Btn variant="ghost" onClick={() => setRateModal({})}>
+              <Plus size={14} /> Add rate
+            </Btn>
+          </div>
         </div>
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
               <tr>
                 <th className="text-left px-4 py-2">Garment type</th>
+                <th className="text-right px-4 py-2">Operations</th>
                 <th className="text-right px-4 py-2">Pieces / day / person</th>
                 <th className="px-4 py-2"></th>
               </tr>
@@ -164,9 +248,15 @@ export default function Planner() {
               {rates.map((r) => (
                 <tr key={r.id} className="hover:bg-stone-50">
                   <td className="px-4 py-2">{r.garment_type}</td>
+                  <td className="px-4 py-2 text-right font-mono text-stone-500">{r.operations || "—"}</td>
                   <td className="px-4 py-2 text-right font-mono">{r.pieces_per_day_per_person}</td>
                   <td className="px-4 py-2">
                     <div className="flex justify-end gap-1">
+                      {r.operations > 0 && (
+                        <button onClick={() => recalculateRate(r)} className="text-stone-400 hover:text-indigo-700 p-1" title="Recalculate from operations">
+                          <RefreshCw size={13} />
+                        </button>
+                      )}
                       <button onClick={() => setRateModal(r)} className="text-stone-400 hover:text-indigo-700 p-1"><Pencil size={13} /></button>
                       <button onClick={() => removeRate(r.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={13} /></button>
                     </div>
@@ -175,9 +265,9 @@ export default function Planner() {
               ))}
               {rates.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-4 py-6 text-center text-stone-400 text-sm">
-                    No rates set yet. Add one for each garment type you make (e.g. T-Shirt, Pant, Pant with Back Pocket,
-                    Pant with Elastic) — projections below need this to work.
+                  <td colSpan={4} className="px-4 py-6 text-center text-stone-400 text-sm">
+                    No rates set yet. Click "Load standard reference table" for common school-uniform/sportswear styles
+                    with starting estimates, or add your own — projections below need this to work.
                   </td>
                 </tr>
               )}
@@ -197,7 +287,7 @@ export default function Planner() {
         </div>
       </div>
 
-      {rateModal && <RateModal rate={rateModal} onClose={() => setRateModal(null)} onSave={saveRate} />}
+      {rateModal && <RateModal rate={rateModal} lineSettings={lineSettings} onClose={() => setRateModal(null)} onSave={saveRate} />}
     </div>
   );
 }
@@ -273,26 +363,44 @@ function PipelineCard({ order, projection, onResourcesChange }) {
   );
 }
 
-function RateModal({ rate, onClose, onSave }) {
+function RateModal({ rate, onClose, onSave, lineSettings }) {
   const [f, setF] = useState({
     id: rate.id || null,
     garment_type: rate.garment_type || "",
+    operations: rate.operations || "",
     pieces_per_day_per_person: rate.pieces_per_day_per_person || "",
     notes: rate.notes || "",
   });
+
+  const estimated = f.operations
+    ? Math.round(estimateRateFromOperations(Number(f.operations), lineSettings.avg_seconds_per_operation, lineSettings.line_efficiency_pct) * 10) / 10
+    : null;
+
   return (
     <Modal title={rate.id ? "Edit garment rate" : "Add garment rate"} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!f.garment_type) return;
-          onSave({ ...f, pieces_per_day_per_person: Number(f.pieces_per_day_per_person) || 0 });
+          onSave({ ...f, operations: f.operations ? Number(f.operations) : null, pieces_per_day_per_person: Number(f.pieces_per_day_per_person) || 0 });
         }}
       >
         <Field label="Garment type (must match how it's typed in Orders' item list)">
           <input required className={inputCls} placeholder="e.g. Pant with Back Pocket" value={f.garment_type} onChange={(e) => setF({ ...f, garment_type: e.target.value })} />
         </Field>
-        <Field label="Pieces per day, per person">
+        <Field label="Number of operations (optional — for rate estimation)">
+          <input type="number" min="0" className={inputCls} value={f.operations} onChange={(e) => setF({ ...f, operations: e.target.value })} />
+        </Field>
+        {estimated !== null && (
+          <button
+            type="button"
+            onClick={() => setF({ ...f, pieces_per_day_per_person: estimated })}
+            className="text-xs text-indigo-700 hover:underline -mt-2 mb-3 block"
+          >
+            Estimated rate from {f.operations} operations: {estimated} pieces/day/person — click to use this
+          </button>
+        )}
+        <Field label="Pieces per day, per person (used in projections)">
           <input type="number" min="0" required className={inputCls} value={f.pieces_per_day_per_person} onChange={(e) => setF({ ...f, pieces_per_day_per_person: e.target.value })} />
         </Field>
         <Field label="Notes (optional)">

@@ -1,3 +1,26 @@
+## v15 — Geolocation self check-in/out, plus two schema gaps fixed
+
+### Migration
+Run `migration_17.sql`.
+
+### New: "My Attendance" tab (everyone — Admin, HR, Staff)
+Any logged-in person linked to an employee record (same linking used for Payroll self-view) now has a simple phone-friendly check-in/check-out screen:
+
+- **Check In** button — captures GPS location and records the time
+- **Check Out** button — appears once checked in; captures location again, computes hours worked, and auto-sets status (Present/Half Day/Absent) using the same 9am–6pm, 9-hour-minimum rule as the rest of the app
+- Shows late/overtime badges once checked out, plus a small recent-history list
+- If someone checks in from further away than your configured radius, it's **not blocked** — indoor GPS can be unreliable — it's just flagged with a note, and the distance is stored so you can review it
+
+### New: Geofence settings (Attendance tab, admin only)
+Set your factory's location once — easiest way is standing at the factory and tapping "Use my current location" — plus how many meters counts as "at the factory." This powers the distance-flagging above.
+
+### Two things I found and fixed while building this
+Both were oversights in the master `schema.sql` reference file (the one-shot script for brand-new installs) — **if you've been applying migrations one at a time on your existing project, neither of these affected you**, they only would have bitten someone setting up completely fresh:
+1. The `sync_attendance_punch()` function (used by the ZKTeco sync script) was missing from `schema.sql`, even though its table was present.
+2. `device_sync_keys` was missing from the realtime publication list.
+
+Both are now fixed in `schema.sql` for anyone setting up fresh, and don't require any action from you since your project was built up via the individual migration files, which already had them correctly.
+
 ## v13 — Production Planner (completion projections, pipeline scheduling)
 
 ### Migrations

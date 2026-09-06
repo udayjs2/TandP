@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, CalendarClock, Loader2 } from "lucide-react";
+import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, CalendarClock, MapPinned, Loader2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
 import Header from "./components/Header";
@@ -13,6 +13,7 @@ import SalesTeam from "./components/SalesTeam";
 import Finance from "./components/Finance";
 import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
+import MyAttendance from "./components/MyAttendance";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user", "hr"] },
@@ -20,6 +21,7 @@ const TABS = [
   { id: "orders", label: "Orders", icon: Package, roles: ["admin"] },
   { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin"] },
   { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin", "hr"] },
+  { id: "my-attendance", label: "My Attendance", icon: MapPinned, roles: ["admin", "hr", "user"] },
   { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
   { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin", "user"] },
   { id: "finance", label: "Finance", icon: Landmark, roles: ["admin"] },
@@ -94,6 +96,7 @@ export default function App() {
         {activeTab === "orders" && isAdmin && <Orders profile={profile} />}
         {activeTab === "invoices" && isAdmin && <Invoices isAdmin={isAdmin} />}
         {activeTab === "attendance" && (isAdmin || isHr) && <Attendance profile={profile} />}
+        {activeTab === "my-attendance" && <MyAttendance profile={profile} />}
         {activeTab === "payroll" && <Payroll profile={profile} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
         {activeTab === "finance" && isAdmin && <Finance />}

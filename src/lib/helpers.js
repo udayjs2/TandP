@@ -89,7 +89,39 @@ export const suggestStatusFromHours = (hoursWorked) => {
   return "Absent";
 };
 
-// ---------- Production planning / projections ----------
+// ---------- Operation-based rate estimation (line balancing) ----------
+// Standard garment-industry formula: a style with N operations, at an
+// assumed average seconds-per-operation and a line efficiency %, yields an
+// estimated daily output per operator. This is a STARTING ESTIMATE — real
+// observed output (once you have it) is always more accurate and should
+// replace it.
+export const estimateRateFromOperations = (operations, avgSecondsPerOp, lineEfficiencyPct) => {
+  if (!operations || operations <= 0) return 0;
+  const workingMinutesPerDay = (SHIFT_END_MIN - SHIFT_START_MIN); // e.g. 540 for a 9hr shift
+  const samMinutes = (operations * (avgSecondsPerOp || 30)) / 60;
+  const efficiency = (lineEfficiencyPct || 50) / 100;
+  if (samMinutes <= 0) return 0;
+  return (workingMinutesPerDay * efficiency) / samMinutes;
+};
+
+// Standard reference operation counts for common school-uniform / sportswear
+// styles, so the Planner can seed sensible starting rates in one click
+// instead of the admin typing 14 rows from scratch.
+export const STANDARD_GARMENT_OPERATIONS = [
+  { garment_type: "T-Shirt", operations: 22 },
+  { garment_type: "Polo T-Shirt", operations: 30 },
+  { garment_type: "Shirt", operations: 45 },
+  { garment_type: "Pant", operations: 35 },
+  { garment_type: "Pant with Back Pocket", operations: 45 },
+  { garment_type: "Elastic Pant", operations: 30 },
+  { garment_type: "Elastic Pant with Back Pocket", operations: 40 },
+  { garment_type: "Chudidhar", operations: 30 },
+  { garment_type: "Kids Frock", operations: 38 },
+  { garment_type: "Sports T-Shirt", operations: 24 },
+  { garment_type: "Sports Pant", operations: 30 },
+  { garment_type: "Short", operations: 25 },
+  { garment_type: "Skirt", operations: 30 },
+];
 
 // Match a free-text item description (e.g. "Pant with Back Pocket") against
 // the admin-maintained garment_rates list, case/whitespace-insensitive.
