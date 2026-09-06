@@ -89,6 +89,53 @@ export const suggestStatusFromHours = (hoursWorked) => {
   return "Absent";
 };
 
+// ---------- Production planning / projections ----------
+
+// Match a free-text item description (e.g. "Pant with Back Pocket") against
+// the admin-maintained garment_rates list, case/whitespace-insensitive.
+export const matchGarmentRate = (description, rates = []) => {
+  const norm = (s) => (s || "").trim().toLowerCase();
+  const target = norm(description);
+  return rates.find((r) => norm(r.garment_type) === target) || null;
+};
+
+export const addCalendarDays = (dateStr, days) => {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + Math.ceil(days));
+  return d.toISOString().slice(0, 10);
+};
+
+// Given an order (items, planned_resources), its completed-so-far quantities
+// (from order_progress), and the admin's garment rate list, project how many
+// more days it will take and what date that lands on if work starts today
+// (or from a given start date). Items whose garment type has no matching
+// rate are flagged rather than silently guessed.
+export const computeOrderProjection = (order, completedByItem, rates, startDate) => {
+  const resources = Number(order.planned_resources) || 0;
+  const items = order.items || [];
+  const breakdown = items.map((it) => {
+    const required = Number(it.quantity) || 0;
+    const completed = completedByItem[it.description] || 0;
+    const remaining = Math.max(0, required - completed);
+    const rate = matchGarmentRate(it.description, rates);
+    const personDaysNeeded = rate && rate.pieces_per_day_per_person > 0 ? remaining / rate.pieces_per_day_per_person : null;
+    return { description: it.description, required, completed, remaining, rate, personDaysNeeded };
+  });
+
+  const missingRateFor = breakdown.filter((b) => b.remaining > 0 && b.personDaysNeeded === null).map((b) => b.description);
+  const totalPersonDays = breakdown.reduce((s, b) => s + (b.personDaysNeeded || 0), 0);
+  const daysToComplete = resources > 0 ? totalPersonDays / resources : null;
+  const projectedCompletionDate =
+    daysToComplete !== null && daysToComplete >= 0 ? addCalendarDays(startDate, daysToComplete) : null;
+
+  let onTime = null;
+  if (projectedCompletionDate && order.due_date) {
+    onTime = projectedCompletionDate <= order.due_date;
+  }
+
+  return { breakdown, missingRateFor, totalPersonDays, daysToComplete, projectedCompletionDate, onTime, resources };
+};
+
 export const ROLE_LABELS = { admin: "Admin", hr: "HR", user: "Staff" };
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of

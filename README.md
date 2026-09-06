@@ -1,3 +1,32 @@
+## v13 — Production Planner (completion projections, pipeline scheduling)
+
+### Migrations
+Run `migration_15.sql` (garment rates, per-order resources, total workforce). If you'd already run `migration_13.sql` before this update, also run `migration_15b.sql` (small fix — a table was missed from live-sync registration; harmless either way, just for consistency).
+
+### New "Planner" tab (admin-only)
+
+This answers exactly the questions you asked: how many days will an order take, when will it finish if started today, what happens if you run two orders in parallel with different team sizes, and how far out is the whole pipeline booked.
+
+**1. Garment production rates** — you set how many pieces one person can make per day, for each garment type (e.g. T-Shirt: 25/day, Pant: 18/day, Pant with Back Pocket: 14/day, Pant with Elastic: 20/day — these are just examples, you enter your factory's real numbers). This must match the exact item description text you use in Orders, so the app can look up the right speed per item. This is genuinely something only you know — I didn't invent numbers for you.
+
+**2. Assign resources per order** — each order in the pipeline gets a simple "people assigned" number, editable right in the Planner. This is what lets you simulate: give Narayan's order however many people, give Bala Bharathi 5, and see each one's projection independently — exactly like running them in parallel with separate teams.
+
+**3. Per-order projection** — for each order still in progress, the app shows:
+   - Remaining quantity per item (required − already completed)
+   - Person-days needed per item (remaining ÷ that garment's daily rate), summed across all items
+   - **Days to complete** = total person-days ÷ people assigned
+   - **Projected finish date** = today + days to complete
+   - An **On track / At risk** badge comparing that projection to the order's due date
+
+**4. Pipeline view** — every active order, sorted by due date, so you can see everything queued up at a glance and reassign people between orders as priorities shift.
+
+**5. Capacity check** — set your total factory workforce once; the Planner adds up everyone currently assigned across all orders and warns you if you've over-committed people (assigned more than you actually have). The "Busy until" figure shows the furthest-out projected finish date across the whole pipeline — this is your answer to "until when are we booked" when a new customer asks for a delivery date.
+
+### Assumptions worth knowing
+- Projections use calendar days, not working days — if you take Sundays off, real completion will run a bit later than shown. Ask if you'd like a working-days-only version instead.
+- Each order's projection is calculated independently based on however many people you assign it — the app doesn't automatically stop you from assigning the same 5 people to two orders at once. The capacity warning at the top is your check for that, not an automatic lock.
+- If an item's garment type has no rate set yet, that order's projection is marked incomplete rather than guessed — add the missing rate and it recalculates immediately.
+
 ## v12 — ZKTeco live sync, invoice advance deduction fix
 
 ### Migrations
