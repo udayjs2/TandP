@@ -1,7 +1,12 @@
 export const fmtMoney = (n) =>
   `₹${(Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+// Always compute "today" in India Standard Time — toISOString() converts
+// to UTC first, which silently shows "yesterday" for roughly the first 5.5
+// hours of the IST day (e.g. 2 AM IST is still 8:30 PM the previous day in
+// UTC). Using an explicit timezone avoids that regardless of the device's
+// own clock/locale settings.
+export const todayStr = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 
 export const monthKey = (d = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;

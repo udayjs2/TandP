@@ -1,3 +1,34 @@
+## v17 — Fixes UTC/IST timezone bug in self check-in
+
+### Migration
+Run `migration_19.sql`, then redeploy the code (this one needs both — the database functions AND a frontend helper).
+
+### What was wrong
+Supabase's database server runs in UTC by default, not India time. The `self_check_in()` / `self_check_out()` functions were reading the server's raw clock (`current_time`) instead of converting it to India Standard Time first. A 9:20 AM IST check-in was being stored as roughly 3:50 AM (the UTC clock reading) — matching almost exactly the 5-hour-30-minute gap you saw.
+
+### The fix
+- Both database functions now explicitly convert to `Asia/Kolkata` before storing anything, for both the check-in/check-out time AND the date (the date matters too: for the first ~5.5 hours of the IST day, the UTC date is still "yesterday," which could have caused a check-in to file under the wrong day).
+- Also fixed the same category of bug on the frontend: the `todayStr()` helper used everywhere in the app (Orders, Invoices, Attendance, Payroll, etc.) was computing "today" via a method that silently converts to UTC first. It now explicitly uses India time, so "today" is always correctly the day in India regardless of the device's own clock/locale settings.
+- The ZKTeco biometric sync function was **not** affected by this bug — it uses timestamps read directly from the device's own clock, not the server's. Just double-check the device's own Date/Time menu shows correct India time, since that's a hardware setting outside this app's control.
+
+Any attendance already recorded with the wrong time before this fix won't be automatically corrected — you'd need to manually edit those specific rows in the Attendance tab if needed. Everything going forward will be correct.
+
+## v16 — Fixes signup failure ("Database error saving new user")
+
+### Migration
+Run `migration_18.sql`.
+
+### What was wrong
+"Database error saving new user" happens when the `handle_new_user()` trigger (which runs automatically every time someone signs up, to create their profile row) throws an error. Because it's a single shared trigger, one bad reference in it doesn't just fail for one person — it blocks **every** signup until fixed. The likely cause: this trigger was updated in `migration_7.sql` to check a `role_invitations` table for pre-assigned roles, and if that migration hadn't been run yet on your project, the trigger would fail trying to query a table that didn't exist.
+
+### The fix
+`migration_18.sql` does two things:
+1. **Self-heals**: re-creates `role_invitations` and the `hr` role constraint in case earlier migrations were missed, so your database is in a consistent state regardless of what was run before.
+2. **Makes the trigger exception-safe going forward**: it now wraps the invitation lookup in its own error handler. If that lookup ever fails for any reason in the future, it silently falls back to the default Staff role instead of blocking the signup entirely. A missing/broken table can no longer take down account creation.
+
+### If signup still fails after this
+Run the second query in `supabase/diagnostic.sql` (the one specifically for this issue) and paste me the result — and also check **Supabase Dashboard → Logs → Postgres Logs** around the time of the failed signup attempt, which shows the real underlying error that the generic "Database error saving new user" message hides from the browser.
+
 ## v15 — Geolocation self check-in/out, plus two schema gaps fixed
 
 ### Migration
