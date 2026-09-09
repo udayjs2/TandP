@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, CalendarClock, MapPinned, Loader2 } from "lucide-react";
+import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, CalendarClock, MapPinned, Tv, Loader2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
 import Header from "./components/Header";
@@ -14,9 +14,11 @@ import Finance from "./components/Finance";
 import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
 import MyAttendance from "./components/MyAttendance";
+import FloorDisplay from "./components/FloorDisplay";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user", "hr"] },
+  { id: "floor-display", label: "Floor Display", icon: Tv, roles: ["admin", "user", "hr"] },
   { id: "employees", label: "Employees", icon: Users, roles: ["admin"] },
   { id: "orders", label: "Orders", icon: Package, roles: ["admin"] },
   { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin"] },
@@ -86,6 +88,10 @@ export default function App() {
   const isHr = profile.role === "hr";
   const visibleTabs = TABS.filter((t) => t.roles.includes(profile.role));
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0]?.id;
+
+  if (activeTab === "floor-display") {
+    return <FloorDisplay onBack={() => setTab("dashboard")} />;
+  }
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">

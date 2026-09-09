@@ -1,3 +1,25 @@
+## v18 — Factory Floor Display (TV/monitor screen)
+
+No migration needed — this is frontend-only.
+
+### New "Floor Display" tab (everyone)
+A big, high-contrast, dark-background production board styled after industrial LED signage — meant to be shown fullscreen on a TV or monitor on the factory floor, not viewed on a phone. Updates live automatically (no refresh needed) and shows:
+
+- **Production today**: Plan vs Actual (from order daily targets vs today's logged progress), Efficiency %, Orders in progress
+- **Attendance**: Present today / total employees, attendance rate %
+- **Sales team**: this month's target-achievement % (no rupee figures — see note below)
+- A **fullscreen button** (top right) for true kiosk mode on a dedicated screen, and a back button (top left) to return to the normal app
+
+### What I deliberately left out, and why
+Your reference photo included Uptime/Downtime, Defects, OEE, and 5S scores. I didn't fake numbers for these:
+- **Uptime/Downtime** needs machine/line sensor data this app has no way to capture — that's IoT hardware, a different category of system entirely.
+- **Defects** needs a quality-control log (someone recording defect counts per order/day) — nothing like that exists yet. I can build a simple defects tracker if you want one; it would then flow into this display automatically.
+- **OEE** (Overall Equipment Effectiveness) is a formula built from availability × performance × quality — all three of which need the above data sources. Can't be computed honestly without them.
+- **5S** is a manual workplace-organization audit score, typically walked and scored by a supervisor on a schedule — also not something this app currently tracks. Buildable as a simple periodic-scoring feature if wanted.
+
+### One security note worth knowing
+This display intentionally shows **no financial figures** — no revenue, no invoice amounts, no profit — even though it pulls from the same data as the regular Dashboard, and even if an admin account happens to be the one logged into the screen. Since a factory-floor TV is visible to everyone walking by, I kept it to operational metrics only, on purpose.
+
 ## v17 — Fixes UTC/IST timezone bug in self check-in
 
 ### Migration
