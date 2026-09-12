@@ -23,7 +23,23 @@ where table_schema='public' and (
   (table_name='invoices' and column_name in ('items','linked_order_id','advance_received')) or
   (table_name='settings' and column_name in ('total_workforce','avg_seconds_per_operation','line_efficiency_pct')) or
   (table_name='garment_rates' and column_name in ('operations')) or
-  (table_name='attendance' and column_name in ('check_in','check_out'))
+  (table_name='attendance' and column_name in ('check_in','check_out','check_in_location','check_out_location'))
 )
 
 order by kind, name;
+
+-- ---------------------------------------------------------------
+-- If you're specifically debugging "Database error saving new user"
+-- on signup, also run this separately and paste the result:
+
+select
+  p.prosrc as function_body,
+  t.tgenabled as trigger_enabled
+from pg_proc p
+join pg_trigger t on t.tgfoid = p.oid
+where p.proname = 'handle_new_user';
+
+-- Also check Supabase Dashboard -> Logs -> Postgres Logs (or Auth Logs)
+-- around the time of the failed signup — that shows the exact underlying
+-- error, which "Database error saving new user" hides from the browser.
+

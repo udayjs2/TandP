@@ -1,3 +1,27 @@
+## v19 — Location names on check-in/out, and a real Absent/Half-Day logic bug fixed
+
+### Migrations
+Run `migration_20.sql` then `migration_21.sql`, in that order.
+
+### On "check-in showing 110,000m away"
+110 km is far too small to be "getting location from the US" — that would show roughly 13,000,000+ meters, since the US is about 13,000 km from India. A gap that size points to one of two ordinary causes instead:
+1. **The factory's saved location in Geofence Settings (Attendance tab) was set incorrectly** — most likely culprit. Re-do it by physically standing at the factory and tapping "Use my current location."
+2. **The employee's phone gave an imprecise GPS reading** — common indoors, or if the phone's location mode is set to battery-saving (network-based) rather than high-accuracy (GPS-based).
+
+The new location-name feature below makes this instantly diagnosable going forward — you'll see the actual place name and a map link right next to the distance, instead of just a bare number.
+
+### New: area name at check-in/check-out
+- When someone checks in or out, the app now looks up a readable area name (e.g. "Chinthavaram, Nellore District, Andhra Pradesh") using OpenStreetMap's free reverse-geocoding service — no API key, no billing, no setup.
+- Shown in "My Attendance" (their own check-in/out confirmation and history) and in the admin Attendance tab (a new Location column with a map link, plus a small "Self check-in" tag).
+- Clicking the location name opens the exact spot on Google Maps, so you can visually confirm at a glance whether a check-in genuinely happened near the factory.
+- **On "Google location" specifically**: Google's own Geocoding API needs a Google Cloud API key with billing enabled (free at this call volume, but real setup) and doesn't work directly from browser code without one. OpenStreetMap's service needs none of that and works immediately — that's why it's the default. Say the word if you'd still rather switch to Google's after this, and I'll wire it in with the extra setup documented.
+
+### Fixed: "stayed until afternoon, checkout showed Absent"
+Real logic bug, now fixed. Previously, checking out after fewer than 4.5 hours (even after a legitimate check-in) auto-marked the day "Absent" — which never made sense: if someone checked in and checked out, they clearly showed up. From now on:
+- A completed check-in + check-out can only resolve to **Present** (9+ hours) or **Half Day** (anything less) — never Absent.
+- **Absent** is now reserved for days nobody logged any attendance at all, and stays a manual choice admins/HR can still set directly when appropriate.
+- This fix applies everywhere hours are computed automatically: self check-in/out, the ZKTeco device sync, manual time entry, and CSV import.
+
 ## v18 — Factory Floor Display (TV/monitor screen)
 
 No migration needed — this is frontend-only.

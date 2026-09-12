@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { MapPin, Clock, CheckCircle2, AlertTriangle, LogIn, LogOut } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Btn } from "./ui";
-import { todayStr, computeShiftStats } from "../lib/helpers";
+import { todayStr, computeShiftStats, reverseGeocode, googleMapsLink } from "../lib/helpers";
 
 export default function MyAttendance({ profile }) {
   const [today, setToday] = useState(null);
@@ -62,7 +62,8 @@ export default function MyAttendance({ profile }) {
     setMessage(null);
     try {
       const { lat, lng } = await getLocation();
-      const { data, error } = await supabase.rpc("self_check_in", { p_lat: lat, p_lng: lng });
+      const locationName = await reverseGeocode(lat, lng);
+      const { data, error } = await supabase.rpc("self_check_in", { p_lat: lat, p_lng: lng, p_location: locationName });
       if (error) throw error;
       if (!data.ok) {
         setMessage({ type: "error", text: data.error === "already_checked_in" ? "You're already checked in today." : "Couldn't check in." });
@@ -71,8 +72,8 @@ export default function MyAttendance({ profile }) {
         setMessage({
           type: outside ? "warn" : "success",
           text: outside
-            ? `Checked in — but you appear to be ${Math.round(data.distance_meters)}m from the factory (outside the usual ${radius}m range). This has been noted.`
-            : "Checked in successfully!",
+            ? `Checked in at ${locationName || "your location"} — but that's ${Math.round(data.distance_meters)}m from the factory (outside the usual ${radius}m range). This has been noted.`
+            : `Checked in successfully at ${locationName || "your location"}!`,
         });
         load();
       }
@@ -87,7 +88,8 @@ export default function MyAttendance({ profile }) {
     setMessage(null);
     try {
       const { lat, lng } = await getLocation();
-      const { data, error } = await supabase.rpc("self_check_out", { p_lat: lat, p_lng: lng });
+      const locationName = await reverseGeocode(lat, lng);
+      const { data, error } = await supabase.rpc("self_check_out", { p_lat: lat, p_lng: lng, p_location: locationName });
       if (error) throw error;
       if (!data.ok) {
         setMessage({ type: "error", text: "Couldn't check out." });
@@ -96,8 +98,8 @@ export default function MyAttendance({ profile }) {
         setMessage({
           type: outside ? "warn" : "success",
           text: outside
-            ? `Checked out — ${data.hours.toFixed(1)} hours worked. You appear to be ${Math.round(data.distance_meters)}m from the factory — noted.`
-            : `Checked out — ${data.hours.toFixed(1)} hours worked (${data.status}).`,
+            ? `Checked out at ${locationName || "your location"} — ${data.hours.toFixed(1)} hours worked. That's ${Math.round(data.distance_meters)}m from the factory — noted.`
+            : `Checked out at ${locationName || "your location"} — ${data.hours.toFixed(1)} hours worked (${data.status}).`,
         });
         load();
       }
@@ -139,6 +141,11 @@ export default function MyAttendance({ profile }) {
             <div className="flex items-center justify-center gap-1.5 text-emerald-700 mb-1">
               <CheckCircle2 size={16} /> <span className="text-sm font-medium">Checked in at {today.check_in}</span>
             </div>
+            {today.check_in_location && (
+              <a href={googleMapsLink(today.check_in_lat, today.check_in_lng)} target="_blank" rel="noreferrer" className="text-xs text-indigo-700 hover:underline block mb-1">
+                {today.check_in_location}
+              </a>
+            )}
             <p className="text-xs text-stone-400 mb-4">Don't forget to check out at the end of your shift.</p>
             <Btn onClick={handleCheckOut} disabled={working} className="w-full justify-center py-3">
               <LogOut size={18} /> {working ? "Getting location…" : "Check Out"}
@@ -153,10 +160,20 @@ export default function MyAttendance({ profile }) {
               <div>
                 <div className="text-stone-400 text-xs">Check-in</div>
                 <div className="font-mono">{today.check_in}</div>
+                {today.check_in_location && (
+                  <a href={googleMapsLink(today.check_in_lat, today.check_in_lng)} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-700 hover:underline">
+                    {today.check_in_location}
+                  </a>
+                )}
               </div>
               <div>
                 <div className="text-stone-400 text-xs">Check-out</div>
                 <div className="font-mono">{today.check_out}</div>
+                {today.check_out_location && (
+                  <a href={googleMapsLink(today.check_out_lat, today.check_out_lng)} target="_blank" rel="noreferrer" className="text-[11px] text-indigo-700 hover:underline">
+                    {today.check_out_location}
+                  </a>
+                )}
               </div>
             </div>
             {stats.hoursWorked !== null && (
@@ -191,12 +208,13 @@ export default function MyAttendance({ profile }) {
         </h3>
         <Card className="divide-y divide-stone-100">
           {history.map((h) => (
-            <div key={h.id} className="flex items-center justify-between px-4 py-2 text-sm">
-              <span className="text-stone-500">{h.date}</span>
-              <span className="font-mono text-xs">
+            <div key={h.id} className="flex items-center justify-between px-4 py-2 text-sm gap-2">
+              <span className="text-stone-500 whitespace-nowrap">{h.date}</span>
+              <span className="font-mono text-xs whitespace-nowrap">
                 {h.check_in || "—"} → {h.check_out || "—"}
               </span>
-              <span className="text-xs">{h.status}</span>
+              <span className="text-xs text-stone-400 truncate flex-1 text-right">{h.check_in_location || ""}</span>
+              <span className="text-xs whitespace-nowrap">{h.status}</span>
             </div>
           ))}
           {history.length === 0 && <div className="px-4 py-4 text-center text-stone-400 text-sm">No history yet.</div>}

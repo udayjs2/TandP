@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
-import { daysInMonth, todayStr, computeShiftStats, suggestStatusFromHours } from "../lib/helpers";
+import { daysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
 
 const ATT_STATUSES = ["Present", "Absent", "Half Day", "Leave"];
 const ATT_COLORS = {
@@ -30,7 +30,10 @@ export default function Attendance({ profile }) {
   };
 
   const loadDay = async () => {
-    const { data } = await supabase.from("attendance").select("employee_id, status, check_in, check_out").eq("date", date);
+    const { data } = await supabase
+      .from("attendance")
+      .select("employee_id, status, check_in, check_out, check_in_location, check_out_location, self_marked")
+      .eq("date", date);
     const rec = {};
     (data || []).forEach((r) => (rec[r.employee_id] = r));
     setDayRecord(rec);
@@ -130,6 +133,7 @@ export default function Attendance({ profile }) {
               <th className="text-left px-4 py-2.5">Check-in</th>
               <th className="text-left px-4 py-2.5">Check-out</th>
               <th className="text-left px-4 py-2.5">Hours</th>
+              <th className="text-left px-4 py-2.5">Location</th>
               <th className="text-right px-4 py-2.5">Present days this month</th>
             </tr>
           </thead>
@@ -195,6 +199,20 @@ export default function Attendance({ profile }) {
                       <span className="text-xs text-stone-300">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-2.5">
+                    {rec.check_in_location || rec.check_out_location ? (
+                      <div className="flex flex-col text-xs">
+                        {rec.check_in_location && (
+                          <a href={googleMapsLink(rec.check_in_lat, rec.check_in_lng)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline truncate max-w-[160px]">
+                            {rec.check_in_location}
+                          </a>
+                        )}
+                        {rec.self_marked && <span className="text-[10px] text-stone-400">Self check-in</span>}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-stone-300">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right font-mono">
                     {monthCounts[e.id] || 0} / {totalDays}
                   </td>
@@ -203,7 +221,7 @@ export default function Attendance({ profile }) {
             })}
             {employees.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-stone-400">
+                <td colSpan={7} className="px-4 py-8 text-center text-stone-400">
                   Add employees first.
                 </td>
               </tr>

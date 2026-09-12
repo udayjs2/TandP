@@ -89,9 +89,10 @@ export const computeShiftStats = (checkIn, checkOut) => {
 // Suggest a status from computed hours (still manually overridable)
 export const suggestStatusFromHours = (hoursWorked) => {
   if (hoursWorked === null) return null;
-  if (hoursWorked >= MIN_FULL_DAY_HOURS) return "Present";
-  if (hoursWorked >= MIN_FULL_DAY_HOURS / 2) return "Half Day";
-  return "Absent";
+  // If both check-in and check-out are known, the person clearly showed up
+  // — never auto-suggest "Absent" here. Absent stays a manual admin/HR
+  // choice for days with no attendance logged at all.
+  return hoursWorked >= MIN_FULL_DAY_HOURS ? "Present" : "Half Day";
 };
 
 // ---------- Operation-based rate estimation (line balancing) ----------
@@ -210,3 +211,28 @@ export const buildItemBreakdown = (items = [], progressRows = [], deliveryRows =
     return { description: it.description, required, completed, delivered, pending: Math.max(0, required - delivered) };
   });
 };
+
+// ---------- Reverse geocoding (lat/lng -> place name) ----------
+// Uses OpenStreetMap's free Nominatim service — no API key or billing
+// needed. Returns a short, readable area name, or null if the lookup
+// fails (never blocks check-in/out — this is a nice-to-have, not
+// required for attendance to work).
+export const reverseGeocode = async (lat, lng) => {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const a = data.address || {};
+    // Prefer a locality-level name over the full formatted address (which
+    // is often long) — falls back progressively to whatever's available.
+    const area = a.suburb || a.neighbourhood || a.village || a.town || a.city_district || a.city || a.county;
+    const region = a.state_district || a.state;
+    const parts = [area, region].filter(Boolean);
+    return parts.length ? parts.join(", ") : data.display_name || null;
+  } catch {
+    return null;
+  }
+};
+
+export const googleMapsLink = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;

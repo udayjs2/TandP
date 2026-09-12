@@ -41,15 +41,25 @@ returns trigger as $$
 declare
   matched_role text;
 begin
-  select intended_role into matched_role
-  from role_invitations
-  where lower(email) = lower(new.email)
-  limit 1;
+  -- Exception-safe: a failure looking up an invitation should never block
+  -- the signup itself — just fall back to the default 'user' role.
+  begin
+    select intended_role into matched_role
+    from role_invitations
+    where lower(email) = lower(new.email)
+    limit 1;
+  exception when others then
+    matched_role := null;
+  end;
 
   insert into public.profiles (id, name, role)
   values (new.id, coalesce(new.raw_user_meta_data->>'name', new.email), coalesce(matched_role, 'user'));
 
-  delete from role_invitations where lower(email) = lower(new.email);
+  begin
+    delete from role_invitations where lower(email) = lower(new.email);
+  exception when others then
+    null;
+  end;
 
   return new;
 end;
@@ -168,9 +178,11 @@ create table if not exists attendance (
   check_in_lat numeric,
   check_in_lng numeric,
   check_in_distance_m numeric,
+  check_in_location text,
   check_out_lat numeric,
   check_out_lng numeric,
   check_out_distance_m numeric,
+  check_out_location text,
   self_marked boolean default false,
   unique (employee_id, date)
 );
@@ -599,11 +611,11 @@ begin
     v_hours := null;
   end if;
 
+  -- A punch pair (in + out) is never "Absent" — the device saw them.
   v_status := case
     when v_hours is null then 'Present'
     when v_hours >= 9 then 'Present'
-    when v_hours >= 4.5 then 'Half Day'
-    else 'Absent'
+    else 'Half Day'
   end;
 
   insert into attendance (employee_id, date, status, check_in, check_out)
@@ -637,7 +649,7 @@ $$;
 -- the function to the CALLING user's own linked employee and today's date
 -- only — nothing a client payload can override. Outside-the-geofence
 -- check-ins are flagged (distance returned), never blocked outright.
-create or replace function self_check_in(p_lat numeric, p_lng numeric)
+create or replace function self_check_in(p_lat numeric, p_lng numeric, p_location text default null)
 returns json
 language plpgsql
 security definer
@@ -645,7 +657,8 @@ set search_path = public
 as $$
 declare
   v_employee_id uuid;
-  v_today date := current_date;
+  v_today date := (now() at time zone 'Asia/Kolkata')::date;
+  v_now_ist time := (now() at time zone 'Asia/Kolkata')::time;
   v_existing record;
   v_factory_lat numeric;
   v_factory_lng numeric;
@@ -664,18 +677,18 @@ begin
   select factory_lat, factory_lng into v_factory_lat, v_factory_lng from settings where id = 1;
   v_distance := haversine_meters(v_factory_lat, v_factory_lng, p_lat, p_lng);
 
-  insert into attendance (employee_id, date, status, check_in, check_in_lat, check_in_lng, check_in_distance_m, self_marked)
-  values (v_employee_id, v_today, 'Present', current_time, p_lat, p_lng, v_distance, true)
+  insert into attendance (employee_id, date, status, check_in, check_in_lat, check_in_lng, check_in_distance_m, check_in_location, self_marked)
+  values (v_employee_id, v_today, 'Present', v_now_ist, p_lat, p_lng, v_distance, p_location, true)
   on conflict (employee_id, date)
   do update set check_in = excluded.check_in, check_in_lat = excluded.check_in_lat,
                 check_in_lng = excluded.check_in_lng, check_in_distance_m = excluded.check_in_distance_m,
-                self_marked = true;
+                check_in_location = excluded.check_in_location, self_marked = true;
 
   return json_build_object('ok', true, 'distance_meters', v_distance);
 end;
 $$;
 
-create or replace function self_check_out(p_lat numeric, p_lng numeric)
+create or replace function self_check_out(p_lat numeric, p_lng numeric, p_location text default null)
 returns json
 language plpgsql
 security definer
@@ -683,7 +696,8 @@ set search_path = public
 as $$
 declare
   v_employee_id uuid;
-  v_today date := current_date;
+  v_today date := (now() at time zone 'Asia/Kolkata')::date;
+  v_now_ist time := (now() at time zone 'Asia/Kolkata')::time;
   v_existing record;
   v_factory_lat numeric;
   v_factory_lng numeric;
@@ -703,24 +717,21 @@ begin
 
   select factory_lat, factory_lng into v_factory_lat, v_factory_lng from settings where id = 1;
   v_distance := haversine_meters(v_factory_lat, v_factory_lng, p_lat, p_lng);
-  v_hours := extract(epoch from (current_time - v_existing.check_in)) / 3600.0;
-  v_status := case
-    when v_hours >= 9 then 'Present'
-    when v_hours >= 4.5 then 'Half Day'
-    else 'Absent'
-  end;
+  v_hours := extract(epoch from (v_now_ist - v_existing.check_in)) / 3600.0;
+  -- A completed check-in + check-out is never "Absent" — they showed up.
+  v_status := case when v_hours >= 9 then 'Present' else 'Half Day' end;
 
   update attendance
-  set check_out = current_time, check_out_lat = p_lat, check_out_lng = p_lng,
-      check_out_distance_m = v_distance, status = v_status
+  set check_out = v_now_ist, check_out_lat = p_lat, check_out_lng = p_lng,
+      check_out_distance_m = v_distance, check_out_location = p_location, status = v_status
   where employee_id = v_employee_id and date = v_today;
 
   return json_build_object('ok', true, 'distance_meters', v_distance, 'hours', v_hours, 'status', v_status);
 end;
 $$;
 
-grant execute on function self_check_in(numeric, numeric) to authenticated;
-grant execute on function self_check_out(numeric, numeric) to authenticated;
+grant execute on function self_check_in(numeric, numeric, text) to authenticated;
+grant execute on function self_check_out(numeric, numeric, text) to authenticated;
 
 -- ===================== REALTIME =====================
 -- Lets the app receive live updates when another manager changes data
