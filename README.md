@@ -1,3 +1,20 @@
+## v20 — Offer letter generator, Sales Team customer CRM
+
+### Migrations
+Run `migration_22.sql` then `migration_23.sql`, in that order.
+
+### New: Offer letter generator (Employees tab, admin only)
+A new document icon next to each employee opens a form: Father's/Husband's name, address, designation, department, employment type, joining date, reporting manager, salary breakup (Basic, DA, Attendance allowance, PF/ESI deductions — Gross and Net calculate automatically), probation months, notice period days, and weekly off.
+
+Submitting generates a printable offer letter reproducing your exact template — company letterhead and logo, all 21 clauses in Telugu, the salary table, signature blocks, and the salary annexure — with your inputs filled into the blanks. Each generated letter is saved, so you can reprint it later without re-entering anything.
+
+### New: Sales Team → Customers (admin, and any staff linked to a Sales-role employee)
+A lightweight customer tracker, reachable from a new "Customers" sub-tab in Sales Team:
+- **Customer name, location, contact person, and contact number** — add/edit per customer
+- **Visit log** — log each visit with a date and notes; "number of visits" is always accurate because it's a live count of logged visits, not a manually-typed number
+- **Reminders** — set a follow-up date and note per customer (e.g. "Follow up on quotation"); an "Upcoming reminders" panel at the top of the page shows what's due, with overdue ones highlighted, and a one-tap way to mark a reminder done
+- Visible to any signed-in user (a customer contact list isn't sensitive the way financial data is), but only Admin or staff linked to a Sales-role employee can add/edit — enforced at the database level, not just hidden in the menu
+
 ## v19 — Location names on check-in/out, and a real Absent/Half-Day logic bug fixed
 
 ### Migrations

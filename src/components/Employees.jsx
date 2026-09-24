@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { fmtMoney, todayStr } from "../lib/helpers";
+import { OfferLetterModal } from "./OfferLetter";
 
 const ROLES = ["Production", "Sales", "Manager", "Admin"];
 
@@ -10,6 +11,7 @@ export default function Employees() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
+  const [offerLetterFor, setOfferLetterFor] = useState(null);
 
   const load = async () => {
     const { data, error } = await supabase.from("employees").select("*").order("created_at", { ascending: true });
@@ -77,6 +79,9 @@ export default function Employees() {
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(e.base_salary)}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-1">
+                    <button onClick={() => setOfferLetterFor(e)} className="text-stone-400 hover:text-indigo-700 p-1" title="Generate offer letter">
+                      <FileText size={14} />
+                    </button>
                     <button onClick={() => setModal(e)} className="text-stone-400 hover:text-indigo-700 p-1">
                       <Pencil size={14} />
                     </button>
@@ -100,6 +105,7 @@ export default function Employees() {
       {modal && (
         <EmployeeModal emp={modal} onClose={() => setModal(null)} onSave={save} count={employees.length} />
       )}
+      {offerLetterFor && <OfferLetterModal employee={offerLetterFor} onClose={() => setOfferLetterFor(null)} />}
     </div>
   );
 }

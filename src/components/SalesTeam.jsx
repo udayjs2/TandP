@@ -1,12 +1,46 @@
 import { useEffect, useState } from "react";
-import { Receipt, Upload, X, Check } from "lucide-react";
+import { Receipt, Upload, X, Check, Users2, Wallet } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Field, inputCls, Btn, Modal } from "./ui";
 import { fmtMoney, monthKey, todayStr, EXPENSE_CATEGORIES, TRANSPORT_MODES, EXPENSE_STATUS_COLORS } from "../lib/helpers";
+import CustomerManagement from "./CustomerManagement";
 
 export default function SalesTeam({ profile }) {
-  if (profile?.role === "admin") return <AdminSalesTeam />;
-  return <MyExpenses profile={profile} />;
+  const isAdmin = profile?.role === "admin";
+  const [sub, setSub] = useState(isAdmin ? "targets" : "expenses");
+  const tabs = isAdmin
+    ? [
+        { id: "targets", label: "Targets & Expenses", icon: Wallet },
+        { id: "customers", label: "Customers", icon: Users2 },
+      ]
+    : [
+        { id: "expenses", label: "My Expenses", icon: Wallet },
+        { id: "customers", label: "Customers", icon: Users2 },
+      ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setSub(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 ${
+                sub === t.id ? "border-indigo-900 text-indigo-900" : "border-transparent text-stone-500 hover:text-stone-800"
+              }`}
+            >
+              <Icon size={14} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+      {sub === "targets" && isAdmin && <AdminSalesTeam />}
+      {sub === "expenses" && !isAdmin && <MyExpenses profile={profile} />}
+      {sub === "customers" && <CustomerManagement profile={profile} />}
+    </div>
+  );
 }
 
 // ==================== ADMIN VIEW ====================

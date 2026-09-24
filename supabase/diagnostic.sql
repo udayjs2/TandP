@@ -8,7 +8,8 @@ from unnest(array[
   'profiles','employees','orders','order_progress','order_deliveries','invoices',
   'attendance','payroll','sales_targets','settings','expense_claims','investors',
   'investments','expenditures','order_finance','order_labor','role_invitations',
-  'loans','loan_payments','order_payments','device_sync_keys','garment_rates'
+  'loans','loan_payments','order_payments','device_sync_keys','garment_rates',
+  'offer_letters','sales_customers','customer_visits','customer_reminders'
 ]) as t
 
 union all

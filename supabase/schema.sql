@@ -87,6 +87,18 @@ returns boolean as $$
   );
 $$ language sql security definer stable;
 
+-- Is the current user an admin, OR a staff member linked to an employee
+-- whose role is "Sales"? Lets sales staff manage their own customer list
+-- (Sales Team -> Customers) without needing full admin rights.
+create or replace function is_sales_or_admin()
+returns boolean as $$
+  select is_admin() or exists (
+    select 1 from profiles p
+    join employees e on e.id = p.employee_id
+    where p.id = auth.uid() and e.role = 'Sales'
+  );
+$$ language sql security definer stable;
+
 -- Prevent a non-admin from changing their own role or employee_id, even though
 -- they're otherwise allowed to update their own profile row (e.g. to change their name).
 create or replace function protect_profile_privileged_fields()
@@ -378,6 +390,60 @@ create table if not exists device_sync_keys (
   created_at timestamptz default now()
 );
 
+-- 19. Offer letters — fill a form and get a printable offer letter with
+-- the company letterhead, matching the standard T&P Textiles template.
+create table if not exists offer_letters (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references employees(id) on delete cascade,
+  letter_number text,
+  issue_date date not null,
+  father_husband_name text,
+  address text,
+  designation text,
+  department text,
+  employment_type text default 'Regular' check (employment_type in ('Regular','Probation','Contract')),
+  joining_date date,
+  reporting_manager text,
+  basic_salary numeric default 0,
+  da_allowance numeric default 0,
+  attendance_allowance numeric default 0,
+  other_deductions numeric default 0,
+  probation_months numeric default 3,
+  notice_period_days numeric default 30,
+  weekly_off text default 'Sunday',
+  created_at timestamptz default now()
+);
+
+-- 20. Sales Team customer tracker: locations, contacts, visit log, reminders
+create table if not exists sales_customers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  location text,
+  contact_person text,
+  contact_number text,
+  notes text,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists customer_visits (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid references sales_customers(id) on delete cascade,
+  visit_date date not null,
+  notes text,
+  logged_by text,
+  created_at timestamptz default now()
+);
+
+create table if not exists customer_reminders (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid references sales_customers(id) on delete cascade,
+  remind_date date not null,
+  note text,
+  completed boolean not null default false,
+  created_at timestamptz default now()
+);
+
 -- ===================== ROW LEVEL SECURITY =====================
 
 alter table profiles enable row level security;
@@ -488,6 +554,28 @@ create policy "order_payments_admin_only" on order_payments for all using (is_ad
 
 alter table device_sync_keys enable row level security;
 create policy "device_sync_keys_admin_only" on device_sync_keys for all using (is_admin()) with check (is_admin());
+
+alter table offer_letters enable row level security;
+create policy "offer_letters_admin_only" on offer_letters for all using (is_admin()) with check (is_admin());
+
+alter table sales_customers enable row level security;
+alter table customer_visits enable row level security;
+alter table customer_reminders enable row level security;
+
+create policy "sales_customers_select" on sales_customers for select using (auth.role() = 'authenticated');
+create policy "sales_customers_write" on sales_customers for insert with check (is_sales_or_admin());
+create policy "sales_customers_update" on sales_customers for update using (is_sales_or_admin());
+create policy "sales_customers_delete" on sales_customers for delete using (is_sales_or_admin());
+
+create policy "customer_visits_select" on customer_visits for select using (auth.role() = 'authenticated');
+create policy "customer_visits_write" on customer_visits for insert with check (is_sales_or_admin());
+create policy "customer_visits_update" on customer_visits for update using (is_sales_or_admin());
+create policy "customer_visits_delete" on customer_visits for delete using (is_sales_or_admin());
+
+create policy "customer_reminders_select" on customer_reminders for select using (auth.role() = 'authenticated');
+create policy "customer_reminders_write" on customer_reminders for insert with check (is_sales_or_admin());
+create policy "customer_reminders_update" on customer_reminders for update using (is_sales_or_admin());
+create policy "customer_reminders_delete" on customer_reminders for delete using (is_sales_or_admin());
 
 alter table garment_rates enable row level security;
 create policy "garment_rates_select" on garment_rates for select using (auth.role() = 'authenticated');
@@ -735,4 +823,4 @@ grant execute on function self_check_out(numeric, numeric, text) to authenticate
 
 -- ===================== REALTIME =====================
 -- Lets the app receive live updates when another manager changes data
-alter publication supabase_realtime add table employees, orders, order_progress, order_deliveries, order_payments, invoices, attendance, payroll, sales_targets, settings, expense_claims, investors, investments, expenditures, order_finance, order_labor, role_invitations, loans, loan_payments, device_sync_keys, garment_rates;
+alter publication supabase_realtime add table employees, orders, order_progress, order_deliveries, order_payments, invoices, attendance, payroll, sales_targets, settings, expense_claims, investors, investments, expenditures, order_finance, order_labor, role_invitations, loans, loan_payments, device_sync_keys, garment_rates, offer_letters, sales_customers, customer_visits, customer_reminders;
