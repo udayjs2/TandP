@@ -504,3 +504,10 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
   trying to do something admin-only (e.g. add an employee) — expected behavior.
 - **Can't log in as admin**: check the `profiles` table in Supabase to confirm your
   role is set to `admin`, not `user`.
+
+
+## v24 changes
+- Cutting: T-shirt sizes 20-44 and pant/nicker sizes 18-44 added (stored as `T-24` / `P-24`).
+- Attendance: self check-in/out now shows (times trimmed, realtime enabled, check-out location shown). Needs **migration_29.sql**.
+- Inventory module (machines, fabric, threads/elastic/accessories). Needs **migration_29.sql**.
+- Output module: approved cutting vs stitched pieces, green when equal, red when not.

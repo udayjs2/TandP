@@ -32,10 +32,12 @@ export default function Attendance({ profile }) {
   const loadDay = async () => {
     const { data } = await supabase
       .from("attendance")
-      .select("employee_id, status, check_in, check_out, check_in_location, check_out_location, self_marked")
+      .select("employee_id, status, check_in, check_out, check_in_lat, check_in_lng, check_out_lat, check_out_lng, check_in_location, check_out_location, self_marked")
       .eq("date", date);
     const rec = {};
-    (data || []).forEach((r) => (rec[r.employee_id] = r));
+    // Postgres returns times like "09:20:33.482913"; <input type="time"> shows blank for
+    // microsecond precision, so trim to HH:MM before they reach the UI.
+    (data || []).forEach((r) => (rec[r.employee_id] = { ...r, check_in: r.check_in ? r.check_in.slice(0, 5) : null, check_out: r.check_out ? r.check_out.slice(0, 5) : null }));
     setDayRecord(rec);
   };
 
@@ -205,6 +207,11 @@ export default function Attendance({ profile }) {
                         {rec.check_in_location && (
                           <a href={googleMapsLink(rec.check_in_lat, rec.check_in_lng)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline truncate max-w-[160px]">
                             {rec.check_in_location}
+                          </a>
+                        )}
+                        {rec.check_out_location && (
+                          <a href={googleMapsLink(rec.check_out_lat, rec.check_out_lng)} target="_blank" rel="noreferrer" className="text-indigo-700 hover:underline truncate max-w-[160px]">
+                            Out: {rec.check_out_location}
                           </a>
                         )}
                         {rec.self_marked && <span className="text-[10px] text-stone-400">Self check-in</span>}

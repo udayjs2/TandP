@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp,
-  Landmark, ShieldCheck, CalendarClock, MapPinned, Tv, Scissors, CalendarDays, Loader2,
+  Landmark, ShieldCheck, CalendarClock, MapPinned, Tv, Scissors, CalendarDays, Loader2, Boxes, BarChart3,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -20,6 +20,8 @@ import MyAttendance from "./components/MyAttendance";
 import FloorDisplay from "./components/FloorDisplay";
 import Cutting from "./components/Cutting";
 import LeaveRequests from "./components/LeaveRequests";
+import Inventory from "./components/Inventory";
+import Output from "./components/Output";
 
 // Full access roles: Admin and HR (HR was explicitly made equal to Admin)
 const FULL = ["admin", "hr"];
@@ -31,6 +33,8 @@ const TABS = [
   { id: "orders", label: "Orders", icon: Package, roles: [...FULL, "gm", "pm", "tl"] },
   { id: "invoices", label: "Invoices", icon: Receipt, roles: [...FULL, "gm"] },
   { id: "cutting", label: "Cutting", icon: Scissors, roles: [...FULL, "gm", "pm", "cutting_master"] },
+  { id: "output", label: "Output", icon: BarChart3, roles: [...FULL, "gm", "pm", "tl"] },
+  { id: "inventory", label: "Inventory", icon: Boxes, roles: [...FULL, "gm", "pm", "tl", "cutting_master"] },
   { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: FULL },
   { id: "my-attendance", label: "My Attendance", icon: MapPinned, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
   { id: "leave-requests", label: "Leave Requests", icon: CalendarDays, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
@@ -120,6 +124,8 @@ export default function App() {
         {activeTab === "orders" && canOrders && <Orders profile={profile} />}
         {activeTab === "invoices" && canInvoices && <Invoices isAdmin={canInvoices} />}
         {activeTab === "cutting" && canCutting && <Cutting profile={profile} />}
+        {activeTab === "output" && <Output />}
+        {activeTab === "inventory" && <Inventory profile={profile} />}
         {activeTab === "attendance" && canAttendance && <Attendance profile={profile} />}
         {activeTab === "my-attendance" && <MyAttendance profile={profile} />}
         {activeTab === "leave-requests" && <LeaveRequests profile={profile} />}

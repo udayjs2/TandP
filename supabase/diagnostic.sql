@@ -37,6 +37,14 @@ union all
 select 'constraint', 'profiles_role_check includes new roles',
   (select pg_get_constraintdef(oid) from pg_constraint where conname = 'profiles_role_check') like '%gm%'
 
+union all
+select 'table', t, to_regclass('public.'||t) is not null
+from unnest(array['inventory_machines','inventory_fabric','inventory_items']) as t
+
+union all
+select 'realtime', 'attendance in realtime publication',
+  exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and tablename='attendance')
+
 order by kind, name;
 
 -- ---------------------------------------------------------------

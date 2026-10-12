@@ -4,12 +4,27 @@ import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
 
-const SIZES = ["2XS", "XS", "S", "M", "L", "XL", "2XL"];
+const LETTER_SIZES = ["2XS", "XS", "S", "M", "L", "XL", "2XL"];
+// T-shirt numeric sizes 20-44 and pant / nicker sizes 18-44 (even numbers, as sold)
+const range = (a, b) => Array.from({ length: (b - a) / 2 + 1 }, (_, i) => String(a + i * 2));
+export const TSHIRT_SIZES = range(20, 44);
+export const PANT_SIZES = range(18, 44);
+const SIZE_GROUPS = [
+  { key: "letter", label: "Letter sizes", sizes: LETTER_SIZES },
+  { key: "tshirt", label: "T-shirt sizes (20–44)", sizes: TSHIRT_SIZES },
+  { key: "pant", label: "Pant / Nicker sizes (18–44)", sizes: PANT_SIZES },
+];
+// Numeric sizes can appear in both T-shirt and pant groups, so keys are prefixed in the form
+// and stored as e.g. "T-24" / "P-24" to keep the two apart.
+const SIZES = LETTER_SIZES;
 const STATUS_COLORS = {
   Submitted: "bg-amber-100 text-amber-800",
   Approved: "bg-emerald-100 text-emerald-800",
   Rejected: "bg-rose-100 text-rose-800",
 };
+
+// "T-24" -> "T-shirt 24", "P-24" -> "Pant 24", letter sizes unchanged
+export const sizeLabel = (k) => (k.startsWith("T-") ? `T ${k.slice(2)}` : k.startsWith("P-") ? `Pant ${k.slice(2)}` : k);
 
 export default function Cutting({ profile }) {
   const isCuttingMaster = profile?.role === "cutting_master";
@@ -90,7 +105,7 @@ export default function Cutting({ profile }) {
                         match === null ? "border-stone-200" : match ? "border-emerald-300 bg-emerald-50" : "border-rose-300 bg-rose-50"
                       }`}
                     >
-                      <div className="font-semibold text-stone-600">{size}</div>
+                      <div className="font-semibold text-stone-600">{sizeLabel(size)}</div>
                       <div className="font-mono">
                         {done}/{qty}
                       </div>
@@ -137,7 +152,7 @@ function CuttingModal({ orders, profile, onClose, onSaved }) {
   const [orderId, setOrderId] = useState("");
   const [itemDesc, setItemDesc] = useState("");
   const [cutDate, setCutDate] = useState(todayStr());
-  const [sizes, setSizes] = useState(Object.fromEntries(SIZES.map((s) => [s, ""])));
+  const [sizes, setSizes] = useState({});
   const [saving, setSaving] = useState(false);
 
   const order = orders.find((o) => o.id === orderId);
@@ -187,20 +202,28 @@ function CuttingModal({ orders, profile, onClose, onSaved }) {
           <input type="date" className={inputCls} value={cutDate} onChange={(e) => setCutDate(e.target.value)} />
         </Field>
         <span className="block text-xs font-medium text-stone-600 mb-1">Cut quantity per size</span>
-        <div className="grid grid-cols-4 gap-2 mb-3">
-          {SIZES.map((s) => (
-            <div key={s}>
-              <span className="block text-[11px] text-stone-500 mb-0.5">{s}</span>
-              <input
-                type="number"
-                min="0"
-                className="w-full border border-stone-300 rounded px-2 py-1 text-sm"
-                value={sizes[s]}
-                onChange={(e) => setSizes({ ...sizes, [s]: e.target.value })}
-              />
+        {SIZE_GROUPS.map((g) => (
+          <div key={g.key} className="mb-3">
+            <span className="block text-[11px] font-semibold text-stone-500 uppercase tracking-wide mb-1">{g.label}</span>
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+              {g.sizes.map((sz) => {
+                const key = g.key === "letter" ? sz : `${g.key === "tshirt" ? "T" : "P"}-${sz}`;
+                return (
+                  <div key={key}>
+                    <span className="block text-[11px] text-stone-500 mb-0.5">{sz}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      className="w-full border border-stone-300 rounded px-2 py-1 text-sm"
+                      value={sizes[key] ?? ""}
+                      onChange={(e) => setSizes({ ...sizes, [key]: e.target.value })}
+                    />
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Submit for approval"}</Btn>
@@ -238,7 +261,7 @@ function CompleteSizesModal({ entry, onClose, onSaved }) {
         <div className="grid grid-cols-4 gap-2 mb-3">
           {Object.entries(sizes).map(([s, cutQty]) => (
             <div key={s}>
-              <span className="block text-[11px] text-stone-500 mb-0.5">{s} (cut {cutQty})</span>
+              <span className="block text-[11px] text-stone-500 mb-0.5">{sizeLabel(s)} (cut {cutQty})</span>
               <input
                 type="number"
                 min="0"
