@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, CalendarCheck, Package, Receipt, AlertTriangle, Activity } from "lucide-react";
+import { Users, CalendarCheck, Package, Receipt, AlertTriangle, Activity, Users2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
 import { fmtMoney, monthKey, todayStr, orderItemsRequired, ORDER_STATUS_COLORS } from "../lib/helpers";
@@ -7,7 +7,7 @@ import { fmtMoney, monthKey, todayStr, orderItemsRequired, ORDER_STATUS_COLORS }
 export default function Dashboard({ profile }) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = profile?.role === "admin" || profile?.role === "hr";
 
   const load = async () => {
     const today = todayStr();
@@ -21,6 +21,8 @@ export default function Dashboard({ profile }) {
       { data: sales },
       { data: recentOrders },
       { data: todaysProgress },
+      { data: todaysLabor },
+      { data: allEmployees },
     ] = await Promise.all([
       supabase.from("employees").select("id, role"),
       supabase.from("attendance").select("employee_id, status").eq("date", today),
@@ -32,8 +34,26 @@ export default function Dashboard({ profile }) {
       supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
       supabase.from("orders").select("*").order("order_date", { ascending: false }).limit(5),
       supabase.from("order_progress").select("order_id, quantity").eq("date", today),
+      supabase.from("order_labor").select("order_id, employee_id").eq("work_date", today),
+      supabase.from("employees").select("id, name, reporting_manager_id"),
     ]);
     const invoices = invoicesResult.data;
+
+    // Teams working today: group today's order_labor assignments by order,
+    // and label each person's team by their reporting manager (their TL).
+    const empById = {};
+    (allEmployees || []).forEach((e) => (empById[e.id] = e));
+    const orderNameById = {};
+    (orders || []).forEach((o) => (orderNameById[o.id] = `${o.order_number} — ${o.customer_name}`));
+    const teamsByOrder = {};
+    (todaysLabor || []).forEach((l) => {
+      const emp = empById[l.employee_id];
+      if (!emp) return;
+      teamsByOrder[l.order_id] = teamsByOrder[l.order_id] || { orderLabel: orderNameById[l.order_id] || "—", people: [] };
+      const manager = emp.reporting_manager_id ? empById[emp.reporting_manager_id] : null;
+      teamsByOrder[l.order_id].people.push({ name: emp.name, team: manager ? manager.name : null });
+    });
+    const teamsWorkingToday = Object.values(teamsByOrder);
 
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
     const pendingOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped").length;
@@ -71,6 +91,7 @@ export default function Dashboard({ profile }) {
       orderProgressToday,
       todayTotalDone,
       todayTotalTarget,
+      teamsWorkingToday,
     });
     setLoading(false);
   };
@@ -192,6 +213,34 @@ export default function Dashboard({ profile }) {
           </div>
         )}
       </Card>
+
+      {stats.teamsWorkingToday.length > 0 && (
+        <Card className="p-4">
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
+            <Users2 size={14} className="text-indigo-700" /> Teams working today
+          </h3>
+          <div className="space-y-2.5">
+            {stats.teamsWorkingToday.map((t, idx) => {
+              const byTeam = {};
+              t.people.forEach((p) => {
+                const key = p.team || "Unassigned team";
+                byTeam[key] = byTeam[key] || [];
+                byTeam[key].push(p.name);
+              });
+              return (
+                <div key={idx} className="text-sm">
+                  <div className="font-medium">{t.orderLabel}</div>
+                  {Object.entries(byTeam).map(([team, names]) => (
+                    <div key={team} className="text-xs text-stone-500 ml-2">
+                      {team}: {names.join(", ")}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <Card className="p-4">
         <h3 className="font-semibold text-sm mb-3">Orders in progress</h3>

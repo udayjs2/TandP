@@ -13,15 +13,25 @@ export default function FloorDisplay({ onBack }) {
     const today = todayStr();
     const mk = monthKey();
 
-    const [{ data: employees }, { data: todaysAtt }, { data: orders }, { data: todaysProgress }, { data: sales }, { data: settings }] =
-      await Promise.all([
-        supabase.from("employees").select("id"),
-        supabase.from("attendance").select("status").eq("date", today),
-        supabase.from("orders").select("id, status, daily_target"),
-        supabase.from("order_progress").select("order_id, quantity").eq("date", today),
-        supabase.from("sales_targets").select("target, achieved").eq("month", mk),
-        supabase.from("settings").select("business_name").eq("id", 1).single(),
-      ]);
+    const [
+      { data: employees },
+      { data: todaysAtt },
+      { data: orders },
+      { data: todaysProgress },
+      { data: sales },
+      { data: settings },
+      { data: todaysLabor },
+      { data: allEmployees },
+    ] = await Promise.all([
+      supabase.from("employees").select("id"),
+      supabase.from("attendance").select("status").eq("date", today),
+      supabase.from("orders").select("id, status, daily_target, order_number, customer_name"),
+      supabase.from("order_progress").select("order_id, quantity").eq("date", today),
+      supabase.from("sales_targets").select("target, achieved").eq("month", mk),
+      supabase.from("settings").select("business_name").eq("id", 1).single(),
+      supabase.from("order_labor").select("order_id, employee_id").eq("work_date", today),
+      supabase.from("employees").select("id, name, reporting_manager_id"),
+    ]);
 
     const employeeCount = (employees || []).length;
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
@@ -33,6 +43,22 @@ export default function FloorDisplay({ onBack }) {
     const salesAchieved = (sales || []).reduce((s, r) => s + Number(r.achieved || 0), 0);
     const salesPct = salesTarget > 0 ? (salesAchieved / salesTarget) * 100 : null;
 
+    // Teams working today: group today's order_labor assignments by order,
+    // labeling each person by their reporting manager (their Team Lead).
+    const empById = {};
+    (allEmployees || []).forEach((e) => (empById[e.id] = e));
+    const orderNameById = {};
+    (orders || []).forEach((o) => (orderNameById[o.id] = `${o.order_number} — ${o.customer_name}`));
+    const teamsByOrder = {};
+    (todaysLabor || []).forEach((l) => {
+      const emp = empById[l.employee_id];
+      if (!emp) return;
+      teamsByOrder[l.order_id] = teamsByOrder[l.order_id] || { orderLabel: orderNameById[l.order_id] || "—", people: [] };
+      const manager = emp.reporting_manager_id ? empById[emp.reporting_manager_id] : null;
+      teamsByOrder[l.order_id].people.push({ name: emp.name, team: manager ? manager.name : null });
+    });
+    const teamsWorkingToday = Object.values(teamsByOrder);
+
     setBusinessName(settings?.business_name || "T&P Textiles");
     setStats({
       employeeCount,
@@ -42,6 +68,7 @@ export default function FloorDisplay({ onBack }) {
       actualToday,
       efficiency,
       salesPct,
+      teamsWorkingToday,
     });
   };
 
@@ -131,6 +158,35 @@ export default function FloorDisplay({ onBack }) {
               <div className="text-emerald-400 font-extrabold text-2xl md:text-3xl tracking-wide">SALES TEAM — THIS MONTH</div>
             </div>
             <Row label="TARGET ACHIEVED" value={`${stats.salesPct.toFixed(0)}%`} valueClass={tone(stats.salesPct)} />
+          </>
+        )}
+
+        {/* TEAMS section */}
+        {stats.teamsWorkingToday.length > 0 && (
+          <>
+            <div className="px-6 py-3 border-y border-stone-800 mt-2">
+              <div className="text-emerald-400 font-extrabold text-2xl md:text-3xl tracking-wide">TEAMS WORKING TODAY</div>
+            </div>
+            <div className="px-6 py-3 space-y-3">
+              {stats.teamsWorkingToday.map((t, idx) => {
+                const byTeam = {};
+                t.people.forEach((p) => {
+                  const key = p.team || "Unassigned";
+                  byTeam[key] = byTeam[key] || [];
+                  byTeam[key].push(p.name);
+                });
+                return (
+                  <div key={idx}>
+                    <div className="text-amber-400 font-semibold text-sm md:text-base">{t.orderLabel}</div>
+                    {Object.entries(byTeam).map(([team, names]) => (
+                      <div key={team} className="text-stone-300 text-xs md:text-sm ml-2">
+                        {team} team: {names.join(", ")}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
 

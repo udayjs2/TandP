@@ -174,7 +174,17 @@ export const computeOrderProjection = (order, completedByItem, rates, startDate)
   return { breakdown, missingRateFor, totalPersonDays, daysToComplete, projectedCompletionDate, onTime, resources };
 };
 
-export const ROLE_LABELS = { admin: "Admin", hr: "HR", user: "Staff" };
+export const ROLE_LABELS = {
+  admin: "Admin",
+  hr: "HR",
+  gm: "General Manager",
+  pm: "Production Manager",
+  tl: "Team Lead",
+  cutting_master: "Cutting Master",
+  sales: "Sales",
+  user: "Staff",
+};
+export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"];
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of
 // employees by id (must include base_salary), compute manpower count,

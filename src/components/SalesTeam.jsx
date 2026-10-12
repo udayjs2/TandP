@@ -6,7 +6,7 @@ import { fmtMoney, monthKey, todayStr, EXPENSE_CATEGORIES, TRANSPORT_MODES, EXPE
 import CustomerManagement from "./CustomerManagement";
 
 export default function SalesTeam({ profile }) {
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = ["admin", "hr", "gm", "pm"].includes(profile?.role);
   const [sub, setSub] = useState(isAdmin ? "targets" : "expenses");
   const tabs = isAdmin
     ? [
@@ -50,18 +50,21 @@ function AdminSalesTeam() {
   const [rows, setRows] = useState({});
   const [claims, setClaims] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [viewClaim, setViewClaim] = useState(null);
 
   const load = async () => {
-    const [{ data: emp }, { data: targets }, { data: allEmp }, { data: exp }] = await Promise.all([
+    const [{ data: emp }, { data: targets }, { data: allEmp }, { data: exp }, { data: ord }] = await Promise.all([
       supabase.from("employees").select("*").eq("role", "Sales"),
       supabase.from("sales_targets").select("*").eq("month", mk),
       supabase.from("employees").select("*"),
       supabase.from("expense_claims").select("*").order("created_at", { ascending: false }),
+      supabase.from("orders").select("id, order_number, customer_name"),
     ]);
     setSalesEmployees(emp || []);
     setEmployees(allEmp || []);
     setClaims(exp || []);
+    setOrders(ord || []);
     const r = {};
     (targets || []).forEach((t) => (r[t.employee_id] = t));
     setRows(r);
@@ -93,6 +96,11 @@ function AdminSalesTeam() {
   };
 
   const employeeName = (id) => employees.find((e) => e.id === id)?.name || "—";
+  const orderLabel = (id) => {
+    if (!id) return "Marketing / Other";
+    const o = orders.find((x) => x.id === id);
+    return o ? `${o.order_number} — ${o.customer_name}` : "—";
+  };
   const pendingCount = claims.filter((c) => c.status === "Submitted").length;
 
   return (
@@ -149,6 +157,7 @@ function AdminSalesTeam() {
               <tr>
                 <th className="text-left px-4 py-2.5">Employee</th>
                 <th className="text-left px-4 py-2.5">Category</th>
+                <th className="text-left px-4 py-2.5">Relates to</th>
                 <th className="text-left px-4 py-2.5">Date</th>
                 <th className="text-right px-4 py-2.5">Amount</th>
                 <th className="text-left px-4 py-2.5">Status</th>
@@ -160,6 +169,7 @@ function AdminSalesTeam() {
                 <tr key={c.id} className="hover:bg-stone-50 cursor-pointer" onClick={() => setViewClaim(c)}>
                   <td className="px-4 py-2.5 font-medium">{employeeName(c.employee_id)}</td>
                   <td className="px-4 py-2.5">{c.category}{c.transport_mode ? ` · ${c.transport_mode}` : ""}</td>
+                  <td className="px-4 py-2.5 text-stone-500 text-xs">{orderLabel(c.linked_order_id)}</td>
                   <td className="px-4 py-2.5 text-stone-500">{c.expense_date}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(c.amount)}</td>
                   <td className="px-4 py-2.5">
@@ -170,7 +180,7 @@ function AdminSalesTeam() {
               ))}
               {claims.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-stone-400">No expense claims submitted yet.</td>
+                  <td colSpan={7} className="px-4 py-8 text-center text-stone-400">No expense claims submitted yet.</td>
                 </tr>
               )}
             </tbody>
@@ -179,13 +189,13 @@ function AdminSalesTeam() {
       </div>
 
       {viewClaim && (
-        <ClaimReviewModal claim={viewClaim} employeeName={employeeName(viewClaim.employee_id)} onClose={() => setViewClaim(null)} onSetStatus={setClaimStatus} />
+        <ClaimReviewModal claim={viewClaim} employeeName={employeeName(viewClaim.employee_id)} orderLabel={orderLabel(viewClaim.linked_order_id)} onClose={() => setViewClaim(null)} onSetStatus={setClaimStatus} />
       )}
     </div>
   );
 }
 
-function ClaimReviewModal({ claim, employeeName, onClose, onSetStatus }) {
+function ClaimReviewModal({ claim, employeeName, orderLabel, onClose, onSetStatus }) {
   const [notes, setNotes] = useState(claim.admin_notes || "");
   const [receiptUrl, setReceiptUrl] = useState(null);
   const [loadingUrl, setLoadingUrl] = useState(false);
@@ -203,6 +213,7 @@ function ClaimReviewModal({ claim, employeeName, onClose, onSetStatus }) {
       <div className="space-y-1 text-sm mb-4">
         <div className="flex justify-between"><span className="text-stone-500">Employee</span><span className="font-medium">{employeeName}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Category</span><span>{claim.category}{claim.transport_mode ? ` · ${claim.transport_mode}` : ""}</span></div>
+        <div className="flex justify-between"><span className="text-stone-500">Relates to</span><span>{orderLabel}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Date</span><span>{claim.expense_date}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Amount</span><span className="font-mono font-semibold">{fmtMoney(claim.amount)}</span></div>
         {claim.description && <div className="pt-1"><span className="text-stone-500 block text-xs mb-0.5">Notes from staff</span>{claim.description}</div>}
@@ -234,20 +245,27 @@ function ClaimReviewModal({ claim, employeeName, onClose, onSetStatus }) {
 // ==================== STAFF VIEW ====================
 function MyExpenses({ profile }) {
   const [claims, setClaims] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const orderLabel = (id) => {
+    if (!id) return "Marketing / Other";
+    const o = orders.find((x) => x.id === id);
+    return o ? `${o.order_number} — ${o.customer_name}` : null;
+  };
 
   const load = async () => {
     if (!profile?.employee_id) {
       setLoading(false);
       return;
     }
-    const { data } = await supabase
-      .from("expense_claims")
-      .select("*")
-      .eq("employee_id", profile.employee_id)
-      .order("created_at", { ascending: false });
+    const [{ data }, { data: ord }] = await Promise.all([
+      supabase.from("expense_claims").select("*").eq("employee_id", profile.employee_id).order("created_at", { ascending: false }),
+      supabase.from("orders").select("id, order_number, customer_name"),
+    ]);
     setClaims(data || []);
+    setOrders(ord || []);
     setLoading(false);
   };
 
@@ -300,6 +318,7 @@ function MyExpenses({ profile }) {
                   {c.category}{c.transport_mode ? ` · ${c.transport_mode}` : ""} — {fmtMoney(c.amount)}
                 </div>
                 <div className="text-xs text-stone-500 mt-0.5">{c.expense_date}{c.description ? ` · ${c.description}` : ""}</div>
+                <div className="text-xs text-stone-400 mt-0.5">{orderLabel(c.linked_order_id)}</div>
                 {c.admin_notes && <div className="text-xs text-stone-500 mt-1 italic">Admin: {c.admin_notes}</div>}
               </div>
               <div className="flex flex-col items-end gap-1.5">
@@ -334,10 +353,20 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
   const [date, setDate] = useState(todayStr());
   const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
+  const [linkedOrderId, setLinkedOrderId] = useState("");
+  const [orders, setOrders] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const needsTransportMode = category === "Petrol" || category === "Transport";
+
+  useEffect(() => {
+    supabase
+      .from("orders")
+      .select("id, order_number, customer_name")
+      .order("order_date", { ascending: false })
+      .then(({ data }) => setOrders(data || []));
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -362,6 +391,7 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
         receipt_path: receiptPath,
         submitted_by: profile.id,
         status: "Submitted",
+        linked_order_id: linkedOrderId || null,
       });
       if (insErr) throw insErr;
       onSaved();
@@ -400,6 +430,14 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
         </Field>
         <Field label="Notes (optional)">
           <input className={inputCls} placeholder="e.g. Client visit — Vijayawada" value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label="Relates to">
+          <select className={inputCls} value={linkedOrderId} onChange={(e) => setLinkedOrderId(e.target.value)}>
+            <option value="">Marketing / Other (not order-specific)</option>
+            {orders.map((o) => (
+              <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>
+            ))}
+          </select>
         </Field>
         <Field label="Receipt photo (optional)">
           <input

@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote } from "lucide-react";
+import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
-import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, computeLaborCost } from "../lib/helpers";
+import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
 
 const SUB_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "investors", label: "Investors", icon: Landmark },
   { id: "expenditures", label: "Expenditures", icon: Wallet },
+  { id: "payments", label: "Payments", icon: CreditCard },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
 ];
 
-export default function Finance() {
+export default function Finance({ profile }) {
   const [sub, setSub] = useState("overview");
   return (
     <div className="space-y-4">
@@ -39,6 +40,7 @@ export default function Finance() {
       {sub === "overview" && <Overview />}
       {sub === "investors" && <Investors />}
       {sub === "expenditures" && <Expenditures />}
+      {sub === "payments" && <Payments profile={profile} />}
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
     </div>
@@ -518,7 +520,7 @@ function OrderProfitability() {
       supabase.from("order_payments").select("order_id, amount"),
       supabase.from("order_labor").select("*"),
       supabase.from("employees").select("id, base_salary"),
-      supabase.from("expenditures").select("linked_order_id, amount").not("linked_order_id", "is", null),
+      supabase.from("expenditures").select("linked_order_id, amount").not("linked_order_id", "is", null).eq("category", "Raw Material"),
     ]);
     setOrders(ord || []);
     const fin = {};
@@ -598,10 +600,12 @@ function OrderProfitability() {
         <StatCard label="Total profit" value={fmtMoney(totals.profit)} tone={totals.profit >= 0 ? "good" : "bad"} />
       </div>
       <p className="text-xs text-stone-400">
-        Revenue is each order's full invoiced amount (not increased by advance payments — an advance is part of that same
-        amount, deducted on the invoice itself as a Balance Due). Raw material cost auto-totals from any Expenditures
-        tagged to that order; labor cost, manpower and days auto-calculate from staff assignments logged in the Orders
-        tab (people icon). Where nothing is logged, you can type the numbers in manually instead.
+        Revenue is each order's full invoiced amount (not increased by advance payments — see the Payments tab for those;
+        an advance is part of the invoiced amount, deducted on the invoice itself as a Balance Due). Raw material cost
+        auto-totals from Expenditures tagged to that order with category "Raw Material" specifically — other categories
+        linked to an order (e.g. a reimbursed sales expense) don't get counted here. Labor cost, manpower and days
+        auto-calculate from staff assignments logged in the Orders tab (people icon). Where nothing is logged, you can
+        type the numbers in manually instead.
       </p>
       <div className="grid gap-3">
         {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, advancePending, totalCost, profit, margin }) => (
@@ -886,6 +890,174 @@ function LoanPaymentModal({ loan, payments, onClose, onChanged }) {
 
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ==================== PAYMENTS ====================
+function Payments({ profile }) {
+  const [orders, setOrders] = useState([]);
+  const [paymentsByOrder, setPaymentsByOrder] = useState({});
+  const [paymentOrder, setPaymentOrder] = useState(null);
+
+  const load = async () => {
+    const [{ data: ord }, { data: pay }] = await Promise.all([
+      supabase.from("orders").select("id, order_number, customer_name, status, due_date").order("order_date", { ascending: false }),
+      supabase.from("order_payments").select("order_id, amount"),
+    ]);
+    setOrders(ord || []);
+    const totals = {};
+    (pay || []).forEach((p) => (totals[p.order_id] = (totals[p.order_id] || 0) + Number(p.amount || 0)));
+    setPaymentsByOrder(totals);
+  };
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("finance-payments-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_payments" }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  const grandTotal = Object.values(paymentsByOrder).reduce((s, v) => s + v, 0);
+
+  return (
+    <div className="space-y-4">
+      <StatCard label="Total advance/payments received (all orders)" value={fmtMoney(grandTotal)} icon={CreditCard} tone="good" />
+      <p className="text-xs text-stone-400">
+        Log advance and milestone payments received directly against an order here. This moved from the Orders tab since
+        Orders is now also open to Production Manager, General Manager and Team Lead — payment amounts stay restricted to Finance.
+      </p>
+      <Card className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+            <tr>
+              <th className="text-left px-4 py-2.5">Order</th>
+              <th className="text-left px-4 py-2.5">Status</th>
+              <th className="text-left px-4 py-2.5">Due date</th>
+              <th className="text-right px-4 py-2.5">Received so far</th>
+              <th className="px-4 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {orders.map((o) => (
+              <tr key={o.id} className="hover:bg-stone-50">
+                <td className="px-4 py-2.5 font-medium">{o.order_number} — {o.customer_name}</td>
+                <td className="px-4 py-2.5 text-stone-500">{o.status}</td>
+                <td className="px-4 py-2.5 text-stone-500">{o.due_date || "—"}</td>
+                <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(paymentsByOrder[o.id] || 0)}</td>
+                <td className="px-4 py-2.5 text-right">
+                  <Btn variant="ghost" onClick={() => setPaymentOrder(o)}>Log / view</Btn>
+                </td>
+              </tr>
+            ))}
+            {orders.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-stone-400">No orders yet.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+      {paymentOrder && <PaymentModal order={paymentOrder} profile={profile} onClose={() => setPaymentOrder(null)} onChanged={load} />}
+    </div>
+  );
+}
+
+function PaymentModal({ order, profile, onClose, onChanged }) {
+  const [payments, setPayments] = useState([]);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [mode, setMode] = useState("Cash");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    const { data } = await supabase.from("order_payments").select("*").eq("order_id", order.id).order("payment_date", { ascending: false });
+    setPayments(data || []);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id]);
+
+  const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  const addPayment = async (e) => {
+    e.preventDefault();
+    if (!amount) return;
+    setSaving(true);
+    const { error } = await supabase.from("order_payments").insert({
+      order_id: order.id,
+      amount: Number(amount),
+      payment_date: date,
+      mode,
+      notes: notes || null,
+      updated_by: profile?.name || null,
+    });
+    setSaving(false);
+    if (error) { alert(`Couldn't save this payment:\n${error.message}`); return; }
+    setAmount("");
+    setNotes("");
+    load();
+    onChanged();
+  };
+
+  const removePayment = async (id) => {
+    if (!confirm("Remove this payment entry?")) return;
+    await supabase.from("order_payments").delete().eq("id", id);
+    load();
+    onChanged();
+  };
+
+  return (
+    <Modal title={`Advance / payments — ${order.order_number}`} onClose={onClose}>
+      <div className="bg-stone-50 rounded-lg p-3 mb-4 text-center">
+        <div className="text-lg font-mono font-semibold">{fmtMoney(total)}</div>
+        <div className="text-[11px] text-stone-500">Total received so far</div>
+      </div>
+
+      <form onSubmit={addPayment} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
+        <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a payment received</div>
+        <div className="grid grid-cols-2 gap-2">
+          <input type="number" min="0" placeholder="Amount (₹)" className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value)}>
+          {PAYMENT_MODES.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+        <input placeholder="Notes (optional)" className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Btn type="submit" disabled={saving} className="w-full justify-center">
+          {saving ? "Saving…" : "Add payment"}
+        </Btn>
+      </form>
+
+      <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
+      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+        {payments.map((p) => (
+          <div key={p.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
+            <div>
+              <span className="font-mono font-medium">{fmtMoney(p.amount)}</span>
+              <span className="text-xs text-stone-400"> · {p.mode}</span>
+              <div className="text-xs text-stone-400">{p.payment_date}{p.notes ? ` · ${p.notes}` : ""}</div>
+            </div>
+            <button onClick={() => removePayment(p.id)} className="text-stone-400 hover:text-rose-700 p-1">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        {payments.length === 0 && <p className="text-xs text-stone-400">No payments logged yet.</p>}
+      </div>
+
+      <div className="flex justify-end mt-4">
+        <Btn variant="ghost" onClick={onClose}>
+          Close
+        </Btn>
       </div>
     </Modal>
   );

@@ -1,3 +1,80 @@
+## v23 — Payments moved to Finance, reimbursed sales expenses auto-sync to Expenditures
+
+### Migration
+Run `migration_28.sql`.
+
+### Payments moved out of Orders, into Finance
+Since Orders is now also open to PM, GM, and Team Lead, advance/payment logging has moved to **Finance → Payments** (admin/HR only, same as the rest of Finance). The button and inline "Advance received" figure are gone from the Orders tab entirely. Nothing about the underlying data changed — it's the same `order_payments` records, just managed from a more appropriately restricted place. Order Profitability (Finance) still shows advance-received as context, unchanged.
+
+### Reimbursed sales expenses now flow into Expenditures automatically
+When a sales expense claim is marked **Reimbursed**, it's now automatically added as a row in **Finance → Expenditures** — via a database trigger, so this happens no matter which screen is used to mark it reimbursed, and it won't double-insert if marked reimbursed more than once.
+
+- The expenditure is tagged with category "Other" and an item label like "Sales expense — Petrol (Own Vehicle)", so it's clearly identifiable in the Expenditures list.
+- **Sales staff can now tag an expense to a specific order** when submitting it — a new "Relates to" dropdown with every existing order, plus **"Marketing / Other"** as the default for anything not order-specific. This choice is shown back to them on their own claim list, and to admin in the review table and detail view.
+- That order link carries through to the auto-created expenditure too — but I made sure it does **not** get counted in Order Profitability's "raw material cost" figure, since that's specifically meant to track material costs, not travel/food reimbursements. The auto-calculation now filters to category "Raw Material" only, so a reimbursed sales expense linked to an order shows up correctly in the Expenditures ledger without quietly distorting that order's profitability math.
+
+## v22 — New roles, Cutting module, reporting chain, leave requests
+
+### Migrations
+Run, in order: `migration_25.sql`, `migration_26.sql`, `migration_27.sql`.
+
+### New roles and the full access matrix
+
+| Role | Dashboard | Floor Display | Orders | Invoices | Cutting | Attendance (full) | My Attendance | Leave Requests | Payroll | Sales Team | Finance | User Mgmt | Planner | Employees |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Admin / HR | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (all) | ✓ (all) | ✓ | ✓ (full) | ✓ | ✓ |
+| GM | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | own | ✓ (all) | — | ✓ (reset only) | ✓ | — |
+| PM | ✓ | ✓ | ✓ | — | ✓ | — | ✓ | ✓ | own | ✓ (all) | — | ✓ (reset only) | ✓ | — |
+| TL | ✓ | ✓ | ✓ | — | — | — | ✓ | ✓ | own | — | — | — | — | — |
+| Cutting Master | ✓ | ✓ | — | — | ✓ | — | ✓ | ✓ | own | — | — | — | — | — |
+| Sales | ✓ | ✓ | — | — | — | — | ✓ | ✓ | own | ✓ (own) | — | — | — | — |
+| Staff | ✓ | ✓ | — | — | — | — | ✓ | ✓ | own | ✓ (own) | — | — | — | — |
+
+**HR now has the exact same access as Admin, everywhere** — implemented by redefining the one core database function nearly every permission check calls, so it applies consistently across the whole app without touching dozens of individual rules.
+
+Assign roles from **User Management** → existing accounts → role dropdown (Admin/HR only), or pre-assign a role to someone's email via **Invite** before they sign up.
+
+### New: Cutting module
+- **Cutting Master** logs how many of each size (2XS–2XL) were cut, for a specific order + item, on a specific day → submits for approval.
+- **PM, GM, Admin, or HR** approve or reject it.
+- Once approved, completed/stitched counts are logged per size against the same entry — shown **green when it matches the cut count, red when it doesn't**, exactly as requested. A size with nothing logged yet stays neutral (no color) rather than flashing red before anyone's started.
+
+### New: reporting manager chain
+Every employee can have a reporting manager (also an employee) — set in **Employees → Reporting manager**. Intended chain: Team Lead → Production Manager → General Manager, but it's a free field, so any structure works.
+
+### New: Leave Requests
+Anyone linked to an employee record can submit a leave request (date range + reason). It's automatically routed to their reporting manager for approval — found via the chain above. Admin/HR can see and act on every request as a backstop. A manager only sees requests from people who report **directly** to them (not a cascading view down the whole chain).
+
+### New: password reset (User Management)
+Admin, HR, GM, and PM can trigger a standard "reset your password" email for any account — using Supabase's own built-in, public reset-email method. Nobody (including the person clicking the button) ever sees or sets another person's password directly; this needed no extra server infrastructure.
+
+### New: "Teams working today" (Dashboard + Floor Display)
+Shows each active order today, with who's assigned to it (from the existing manpower-assignment feature), grouped by their reporting Team Lead — e.g. "ORD-0012 — Example School: Ravi's team: Lakshmi, Suresh."
+
+### A few judgment calls worth knowing about
+- **TL** gets the full Orders module (progress logging, deliveries, etc.) — the request said "access to Orders module" without narrowing it further, so I didn't restrict it to read-only.
+- **Cutting approval** is open to GM as well as PM (not PM-exclusively) for practical oversight, since GM outranks PM in the chain described.
+- **Completed-size logging** in Cutting is done by PM/GM/admin/hr, not TL — since TL wasn't granted Cutting module access in the spec, this keeps that boundary intact rather than quietly widening it.
+- **Sales Team "admin view"** (target-setting + expense-claim review, vs. the personal "My Expenses" self-service view) is now shown to GM and PM too, matching "Sales team modules" being explicitly granted to both.
+
+## v21 — Order Confirmation & Supply Agreement (Orders tab)
+
+### Migration
+Run `migration_24.sql`.
+
+### New: Generate Agreement (Orders tab, admin only)
+A new document icon on each order opens a form, then generates a printable two-page School Uniform Order Confirmation & Supply Agreement matching your standard template exactly — company letterhead, all 17 clauses, order table, and a signature/size-schedule page.
+
+**Auto-filled from the order** (no need to re-type): order number, customer/school name, item list, order date, expected delivery date.
+
+**You fill in** (not already tracked elsewhere): school address, contact person, mobile, customer GSTIN, quotation number, payment terms (advance/dispatch/balance percentages and days), transportation terms, unclaimed-goods storage period, and a rate per item (orders track quantities but not price — that's intentionally kept on invoices/agreements instead).
+
+**Page 1**: Parties, order table (item/qty/rate/amount) with GST and grand total, and all 17 standard clauses (design approval, payment terms, delivery, defects, cancellation, confidentiality, dispute resolution, etc.) — with your specific percentages/days filled into clauses 6, 13, and 14.
+
+**Page 2**: Order & Size Schedule with a blank size-wise table (2XS–2XL columns) for hand-completion — since this app tracks total quantity per garment type, not a size breakdown, this table is intentionally left blank to fill in by hand, matching exactly how your original template is meant to be used — plus the approval checklist and signature blocks for both parties.
+
+Each generated agreement is saved, so you can reopen and reprint it later without re-entering the details. Click **Print / Download** in the preview to get a PDF via your browser's print dialog (choose "Save as PDF" as the destination).
+
 ## v20 — Offer letter generator, Sales Team customer CRM
 
 ### Migrations

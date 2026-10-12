@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp, Landmark, ShieldCheck, CalendarClock, MapPinned, Tv, Loader2 } from "lucide-react";
+import {
+  LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp,
+  Landmark, ShieldCheck, CalendarClock, MapPinned, Tv, Scissors, CalendarDays, Loader2,
+} from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
 import Header from "./components/Header";
@@ -15,20 +18,27 @@ import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
 import MyAttendance from "./components/MyAttendance";
 import FloorDisplay from "./components/FloorDisplay";
+import Cutting from "./components/Cutting";
+import LeaveRequests from "./components/LeaveRequests";
+
+// Full access roles: Admin and HR (HR was explicitly made equal to Admin)
+const FULL = ["admin", "hr"];
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "user", "hr"] },
-  { id: "floor-display", label: "Floor Display", icon: Tv, roles: ["admin", "user", "hr"] },
-  { id: "employees", label: "Employees", icon: Users, roles: ["admin"] },
-  { id: "orders", label: "Orders", icon: Package, roles: ["admin"] },
-  { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin"] },
-  { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: ["admin", "hr"] },
-  { id: "my-attendance", label: "My Attendance", icon: MapPinned, roles: ["admin", "hr", "user"] },
-  { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "user"] },
-  { id: "sales", label: "Sales Team", icon: TrendingUp, roles: ["admin", "user"] },
-  { id: "finance", label: "Finance", icon: Landmark, roles: ["admin"] },
-  { id: "users", label: "User Management", icon: ShieldCheck, roles: ["admin"] },
-  { id: "planner", label: "Planner", icon: CalendarClock, roles: ["admin"] },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
+  { id: "floor-display", label: "Floor Display", icon: Tv, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
+  { id: "employees", label: "Employees", icon: Users, roles: FULL },
+  { id: "orders", label: "Orders", icon: Package, roles: [...FULL, "gm", "pm", "tl"] },
+  { id: "invoices", label: "Invoices", icon: Receipt, roles: [...FULL, "gm"] },
+  { id: "cutting", label: "Cutting", icon: Scissors, roles: [...FULL, "gm", "pm", "cutting_master"] },
+  { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: FULL },
+  { id: "my-attendance", label: "My Attendance", icon: MapPinned, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
+  { id: "leave-requests", label: "Leave Requests", icon: CalendarDays, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
+  { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"] },
+  { id: "sales", label: "Sales Team", icon: TrendingUp, roles: [...FULL, "gm", "pm", "sales", "user"] },
+  { id: "finance", label: "Finance", icon: Landmark, roles: FULL },
+  { id: "users", label: "User Management", icon: ShieldCheck, roles: [...FULL, "gm", "pm"] },
+  { id: "planner", label: "Planner", icon: CalendarClock, roles: [...FULL, "gm", "pm"] },
 ];
 
 export default function App() {
@@ -84,9 +94,17 @@ export default function App() {
     );
   }
 
-  const isAdmin = profile.role === "admin";
-  const isHr = profile.role === "hr";
-  const visibleTabs = TABS.filter((t) => t.roles.includes(profile.role));
+  const role = profile.role;
+  const isAdmin = FULL.includes(role); // Admin or HR — same access everywhere
+  const canAttendance = FULL.includes(role); // full roster attendance marking (not GM/PM/TL — they get My Attendance self check-in)
+  const canOrders = isAdmin || ["gm", "pm", "tl"].includes(role);
+  const canInvoices = isAdmin || role === "gm";
+  const canCutting = isAdmin || ["gm", "pm", "cutting_master"].includes(role);
+  const canFinance = isAdmin;
+  const canPlanner = isAdmin || ["gm", "pm"].includes(role);
+  const canUsers = isAdmin || ["gm", "pm"].includes(role); // GM/PM get the limited (password-reset-only) view, handled inside the component
+
+  const visibleTabs = TABS.filter((t) => t.roles.includes(role));
   const activeTab = visibleTabs.some((t) => t.id === tab) ? tab : visibleTabs[0]?.id;
 
   if (activeTab === "floor-display") {
@@ -99,15 +117,17 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === "dashboard" && <Dashboard profile={profile} />}
         {activeTab === "employees" && isAdmin && <Employees />}
-        {activeTab === "orders" && isAdmin && <Orders profile={profile} />}
-        {activeTab === "invoices" && isAdmin && <Invoices isAdmin={isAdmin} />}
-        {activeTab === "attendance" && (isAdmin || isHr) && <Attendance profile={profile} />}
+        {activeTab === "orders" && canOrders && <Orders profile={profile} />}
+        {activeTab === "invoices" && canInvoices && <Invoices isAdmin={canInvoices} />}
+        {activeTab === "cutting" && canCutting && <Cutting profile={profile} />}
+        {activeTab === "attendance" && canAttendance && <Attendance profile={profile} />}
         {activeTab === "my-attendance" && <MyAttendance profile={profile} />}
+        {activeTab === "leave-requests" && <LeaveRequests profile={profile} />}
         {activeTab === "payroll" && <Payroll profile={profile} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
-        {activeTab === "finance" && isAdmin && <Finance />}
-        {activeTab === "users" && isAdmin && <UserManagement />}
-        {activeTab === "planner" && isAdmin && <Planner />}
+        {activeTab === "finance" && canFinance && <Finance profile={profile} />}
+        {activeTab === "users" && canUsers && <UserManagement profile={profile} />}
+        {activeTab === "planner" && canPlanner && <Planner />}
       </main>
     </div>
   );

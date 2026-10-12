@@ -11,6 +11,7 @@ create table if not exists employees (
   phone text,
   join_date date,
   base_salary numeric default 0,
+  reporting_manager_id uuid references employees(id) on delete set null,
   created_at timestamptz default now()
 );
 
@@ -18,8 +19,9 @@ create table if not exists employees (
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null default '',
-  role text not null default 'user' check (role in ('admin','user','hr')),
+  role text not null default 'user' check (role in ('admin','user','hr','gm','pm','tl','cutting_master','sales')),
   employee_id uuid references employees(id) on delete set null,
+  email text,
   created_at timestamptz default now()
 );
 
@@ -52,8 +54,8 @@ begin
     matched_role := null;
   end;
 
-  insert into public.profiles (id, name, role)
-  values (new.id, coalesce(new.raw_user_meta_data->>'name', new.email), coalesce(matched_role, 'user'));
+  insert into public.profiles (id, name, role, email)
+  values (new.id, coalesce(new.raw_user_meta_data->>'name', new.email), coalesce(matched_role, 'user'), new.email);
 
   begin
     delete from role_invitations where lower(email) = lower(new.email);
@@ -70,20 +72,38 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure handle_new_user();
 
--- Helper: is the current logged-in user an admin?
+-- HR has the SAME access as Admin everywhere — rather than rewrite every
+-- RLS policy in this schema individually (there are dozens), this is the
+-- one function almost all of them call, so it's the single place that
+-- needs to say so.
 create or replace function is_admin()
 returns boolean as $$
   select exists (
-    select 1 from profiles where id = auth.uid() and role = 'admin'
+    select 1 from profiles where id = auth.uid() and role in ('admin','hr')
   );
 $$ language sql security definer stable;
 
--- HR role can additionally mark/edit attendance — nothing else. Every other
--- admin-only table in this schema still checks is_admin() specifically.
+-- Kept as an alias for backward compatibility with earlier policies that
+-- reference it by name — identical to is_admin() now that HR has full access.
 create or replace function is_admin_or_hr()
 returns boolean as $$
-  select exists (
-    select 1 from profiles where id = auth.uid() and role in ('admin','hr')
+  select is_admin();
+$$ language sql security definer stable;
+
+-- Is the current user GM, PM, or admin/hr? Used for Cutting approvals and
+-- the limited (password-reset-only) User Management view.
+create or replace function is_gm_pm_or_admin()
+returns boolean as $$
+  select is_admin() or exists (
+    select 1 from profiles where id = auth.uid() and role in ('gm','pm')
+  );
+$$ language sql security definer stable;
+
+-- Is the current user the Cutting Master, or admin/hr?
+create or replace function is_cutting_or_admin()
+returns boolean as $$
+  select is_admin() or exists (
+    select 1 from profiles where id = auth.uid() and role = 'cutting_master'
   );
 $$ language sql security definer stable;
 
@@ -276,6 +296,7 @@ create table if not exists expense_claims (
   status text not null default 'Submitted' check (status in ('Submitted','Approved','Rejected','Reimbursed')),
   admin_notes text,
   submitted_by uuid references profiles(id) on delete set null,
+  linked_order_id uuid references orders(id) on delete set null,
   created_at timestamptz default now()
 );
 
@@ -311,6 +332,7 @@ create table if not exists expenditures (
   notes text,
   linked_order_id uuid references orders(id) on delete set null,
   investor_id uuid references investors(id) on delete set null,
+  source_claim_id uuid references expense_claims(id) on delete set null,
   created_by uuid references profiles(id) on delete set null,
   created_at timestamptz default now()
 );
@@ -441,6 +463,63 @@ create table if not exists customer_reminders (
   remind_date date not null,
   note text,
   completed boolean not null default false,
+  created_at timestamptz default now()
+);
+
+-- 21. Order Confirmation & Supply Agreement per order — pulls order
+-- number, customer name, items, and dates automatically from the order;
+-- only asks for what isn't already tracked elsewhere.
+create table if not exists order_agreements (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders(id) on delete cascade,
+  agreement_date date not null,
+  quotation_no text,
+  supplier_gstin text,
+  supplier_contact text,
+  school_address text,
+  contact_person text,
+  mobile text,
+  customer_gstin text,
+  gst_percent numeric default 0,
+  advance_pct numeric default 0,
+  before_dispatch_pct numeric default 0,
+  balance_pct numeric default 0,
+  balance_days numeric default 7,
+  transportation text default 'As mutually agreed' check (transportation in ('Included in price','Payable separately','As mutually agreed')),
+  unclaimed_goods_days numeric default 15,
+  item_rates jsonb default '[]',
+  created_at timestamptz default now()
+);
+
+-- 22. Cutting module — Cutting Master logs size-wise cut counts per order
+-- + item + day; PM/GM/admin/hr approve; completed (stitched) size counts
+-- are logged against the same row for a red/green comparison.
+create table if not exists cutting_entries (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders(id) on delete cascade,
+  item_description text not null,
+  cut_date date not null,
+  sizes jsonb not null default '{}',
+  completed_sizes jsonb not null default '{}',
+  status text not null default 'Submitted' check (status in ('Submitted','Approved','Rejected')),
+  submitted_by text,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  notes text,
+  created_at timestamptz default now()
+);
+
+-- 23. Leave requests — routed to the employee's reporting manager
+create table if not exists leave_requests (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid references employees(id) on delete cascade,
+  start_date date not null,
+  end_date date not null,
+  reason text,
+  status text not null default 'Pending' check (status in ('Pending','Approved','Rejected')),
+  reviewed_by text,
+  reviewed_at timestamptz,
+  review_notes text,
   created_at timestamptz default now()
 );
 
@@ -577,6 +656,44 @@ create policy "customer_reminders_write" on customer_reminders for insert with c
 create policy "customer_reminders_update" on customer_reminders for update using (is_sales_or_admin());
 create policy "customer_reminders_delete" on customer_reminders for delete using (is_sales_or_admin());
 
+alter table order_agreements enable row level security;
+create policy "order_agreements_admin_only" on order_agreements for all using (is_admin()) with check (is_admin());
+
+alter table cutting_entries enable row level security;
+create policy "cutting_entries_select" on cutting_entries for select using (auth.role() = 'authenticated');
+create policy "cutting_entries_insert" on cutting_entries for insert with check (is_cutting_or_admin());
+create policy "cutting_entries_update" on cutting_entries for update using (is_gm_pm_or_admin());
+create policy "cutting_entries_delete" on cutting_entries for delete using (is_admin());
+
+alter table leave_requests enable row level security;
+create policy "leave_requests_select" on leave_requests for select using (
+  is_admin()
+  or employee_id = (select employee_id from profiles where id = auth.uid())
+  or exists (
+    select 1 from employees e
+    where e.id = leave_requests.employee_id
+      and e.reporting_manager_id = (select employee_id from profiles where id = auth.uid())
+  )
+);
+create policy "leave_requests_insert" on leave_requests for insert with check (
+  is_admin() or employee_id = (select employee_id from profiles where id = auth.uid())
+);
+create policy "leave_requests_update" on leave_requests for update using (
+  is_admin()
+  or exists (
+    select 1 from employees e
+    where e.id = leave_requests.employee_id
+      and e.reporting_manager_id = (select employee_id from profiles where id = auth.uid())
+  )
+  or (
+    employee_id = (select employee_id from profiles where id = auth.uid())
+    and status = 'Pending'
+  )
+);
+create policy "leave_requests_delete" on leave_requests for delete using (
+  is_admin() or employee_id = (select employee_id from profiles where id = auth.uid())
+);
+
 alter table garment_rates enable row level security;
 create policy "garment_rates_select" on garment_rates for select using (auth.role() = 'authenticated');
 create policy "garment_rates_admin_write" on garment_rates for insert with check (is_admin());
@@ -660,6 +777,35 @@ end;
 $$;
 
 grant execute on function public_order_status(text, text) to anon, authenticated;
+
+-- When admin marks a sales/field expense claim "Reimbursed", automatically
+-- add it to the central Expenditures ledger — via trigger, so it happens
+-- regardless of which screen is used to mark it reimbursed.
+create or replace function sync_reimbursed_expense_to_expenditure()
+returns trigger as $$
+begin
+  if new.status = 'Reimbursed' and (old.status is distinct from 'Reimbursed') then
+    if not exists (select 1 from expenditures where source_claim_id = new.id) then
+      insert into expenditures (category, item, amount, expense_date, notes, linked_order_id, source_claim_id)
+      values (
+        'Other',
+        'Sales expense — ' || new.category || coalesce(' (' || new.transport_mode || ')', ''),
+        new.amount,
+        new.expense_date,
+        coalesce(new.description, 'Reimbursed sales/field expense'),
+        new.linked_order_id,
+        new.id
+      );
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_expense_claim_reimbursed on expense_claims;
+create trigger on_expense_claim_reimbursed
+  after update on expense_claims
+  for each row execute procedure sync_reimbursed_expense_to_expenditure();
 
 -- Biometric device sync function (was missing from this master file before —
 -- fresh installs need this even though device_sync_keys table was present).
@@ -823,4 +969,4 @@ grant execute on function self_check_out(numeric, numeric, text) to authenticate
 
 -- ===================== REALTIME =====================
 -- Lets the app receive live updates when another manager changes data
-alter publication supabase_realtime add table employees, orders, order_progress, order_deliveries, order_payments, invoices, attendance, payroll, sales_targets, settings, expense_claims, investors, investments, expenditures, order_finance, order_labor, role_invitations, loans, loan_payments, device_sync_keys, garment_rates, offer_letters, sales_customers, customer_visits, customer_reminders;
+alter publication supabase_realtime add table employees, orders, order_progress, order_deliveries, order_payments, invoices, attendance, payroll, sales_targets, settings, expense_claims, investors, investments, expenditures, order_finance, order_labor, role_invitations, loans, loan_payments, device_sync_keys, garment_rates, offer_letters, sales_customers, customer_visits, customer_reminders, order_agreements, cutting_entries, leave_requests;

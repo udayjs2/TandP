@@ -103,14 +103,14 @@ export default function Employees() {
         </table>
       </Card>
       {modal && (
-        <EmployeeModal emp={modal} onClose={() => setModal(null)} onSave={save} count={employees.length} />
+        <EmployeeModal emp={modal} onClose={() => setModal(null)} onSave={save} count={employees.length} allEmployees={employees} />
       )}
       {offerLetterFor && <OfferLetterModal employee={offerLetterFor} onClose={() => setOfferLetterFor(null)} />}
     </div>
   );
 }
 
-function EmployeeModal({ emp, onClose, onSave, count }) {
+function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
   const [f, setF] = useState({
     id: emp.id || null,
     employee_number: emp.employee_number || `EMP-${String(count + 1).padStart(3, "0")}`,
@@ -120,14 +120,16 @@ function EmployeeModal({ emp, onClose, onSave, count }) {
     phone: emp.phone || "",
     join_date: emp.join_date || todayStr(),
     base_salary: emp.base_salary || "",
+    reporting_manager_id: emp.reporting_manager_id || "",
   });
+  const possibleManagers = (allEmployees || []).filter((e) => e.id !== emp.id);
   return (
     <Modal title={emp.id ? "Edit employee" : "Add employee"} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           if (!f.name) return;
-          onSave({ ...f, base_salary: Number(f.base_salary) || 0 });
+          onSave({ ...f, base_salary: Number(f.base_salary) || 0, reporting_manager_id: f.reporting_manager_id || null });
         }}
       >
         <Field label="Employee number">
@@ -154,6 +156,14 @@ function EmployeeModal({ emp, onClose, onSave, count }) {
         </Field>
         <Field label="Monthly base salary (₹)">
           <input type="number" min="0" className={inputCls} value={f.base_salary} onChange={(e) => setF({ ...f, base_salary: e.target.value })} />
+        </Field>
+        <Field label="Reporting manager (optional)">
+          <select className={inputCls} value={f.reporting_manager_id} onChange={(e) => setF({ ...f, reporting_manager_id: e.target.value })}>
+            <option value="">— none —</option>
+            {possibleManagers.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
         </Field>
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>

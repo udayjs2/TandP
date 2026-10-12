@@ -9,7 +9,8 @@ from unnest(array[
   'attendance','payroll','sales_targets','settings','expense_claims','investors',
   'investments','expenditures','order_finance','order_labor','role_invitations',
   'loans','loan_payments','order_payments','device_sync_keys','garment_rates',
-  'offer_letters','sales_customers','customer_visits','customer_reminders'
+  'offer_letters','sales_customers','customer_visits','customer_reminders',
+  'order_agreements','cutting_entries','leave_requests'
 ]) as t
 
 union all
@@ -19,13 +20,22 @@ select 'column', table_name || '.' || column_name,
 from information_schema.columns
 where table_schema='public' and (
   (table_name='orders' and column_name in ('items','daily_target','planned_start_date','planned_end_date','tracking_code','planned_resources')) or
-  (table_name='profiles' and column_name in ('employee_id','role')) or
+  (table_name='profiles' and column_name in ('employee_id','role','email')) or
+  (table_name='employees' and column_name in ('reporting_manager_id')) or
+  (table_name='expense_claims' and column_name in ('linked_order_id')) or
+  (table_name='expenditures' and column_name in ('source_claim_id')) or
   (table_name='expenditures' and column_name in ('linked_order_id','investor_id')) or
   (table_name='invoices' and column_name in ('items','linked_order_id','advance_received')) or
   (table_name='settings' and column_name in ('total_workforce','avg_seconds_per_operation','line_efficiency_pct')) or
   (table_name='garment_rates' and column_name in ('operations')) or
   (table_name='attendance' and column_name in ('check_in','check_out','check_in_location','check_out_location'))
 )
+
+union all
+
+-- Confirm the role check constraint includes all new role values
+select 'constraint', 'profiles_role_check includes new roles',
+  (select pg_get_constraintdef(oid) from pg_constraint where conname = 'profiles_role_check') like '%gm%'
 
 order by kind, name;
 

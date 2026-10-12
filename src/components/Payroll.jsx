@@ -6,7 +6,7 @@ import { daysInMonth, fmtMoney, monthKey } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
 export default function Payroll({ profile }) {
-  if (profile?.role === "admin") return <AdminPayroll />;
+  if (profile?.role === "admin" || profile?.role === "hr") return <AdminPayroll />;
   return <MyPayroll profile={profile} />;
 }
 

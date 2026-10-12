@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
-import { UserPlus, Trash2, Copy, Check } from "lucide-react";
+import { UserPlus, Trash2, Copy, Check, KeyRound } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { ROLE_LABELS } from "../lib/helpers";
+import { ROLE_LABELS, LOGIN_ROLES } from "../lib/helpers";
 
-const LOGIN_ROLES = ["admin", "hr", "user"];
-
-export default function UserManagement() {
+export default function UserManagement({ profile }) {
+  const canManageRoles = profile?.role === "admin" || profile?.role === "hr";
   const [profiles, setProfiles] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteModal, setInviteModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [resetSentFor, setResetSentFor] = useState(null);
 
   const load = async () => {
     const [{ data: profs }, { data: invites }] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at", { ascending: true }),
-      supabase.from("role_invitations").select("*").order("created_at", { ascending: false }),
+      canManageRoles ? supabase.from("role_invitations").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
     setProfiles(profs || []);
     setInvitations(invites || []);
@@ -31,6 +31,7 @@ export default function UserManagement() {
       .on("postgres_changes", { event: "*", schema: "public", table: "role_invitations" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setRole = async (id, role) => {
@@ -42,6 +43,20 @@ export default function UserManagement() {
   const cancelInvite = async (email) => {
     await supabase.from("role_invitations").delete().eq("email", email);
     load();
+  };
+
+  const sendPasswordReset = async (p) => {
+    if (!p.email) {
+      alert("No email on file for this account — they signed up before email tracking was added. Ask them to use 'Forgot password' on the login screen themselves.");
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(p.email);
+    if (error) {
+      alert(`Couldn't send reset email:\n${error.message}`);
+      return;
+    }
+    setResetSentFor(p.id);
+    setTimeout(() => setResetSentFor(null), 3000);
   };
 
   const signupUrl = `${window.location.origin}/`;
@@ -60,48 +75,52 @@ export default function UserManagement() {
       <div>
         <h2 className="text-lg font-semibold mb-1">User management</h2>
         <p className="text-xs text-stone-500">
-          Admin, HR, and Staff logins are separate from Employee records — an admin doesn't need to be an employee.
+          {canManageRoles
+            ? "Admin, HR, and other logins are separate from Employee records — an admin doesn't need to be an employee."
+            : "You can send a password reset link to anyone below. Role changes are handled by Admin/HR."}
         </p>
       </div>
 
-      <Card className="p-4">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-          <h3 className="font-semibold text-sm">Invite someone with a specific role</h3>
-          <Btn onClick={() => setInviteModal(true)}>
-            <UserPlus size={15} /> New invitation
-          </Btn>
-        </div>
-        <p className="text-xs text-stone-500 mb-3">
-          This app can't set someone's password for them directly — that needs extra server infrastructure. Instead:
-          pre-assign a role to their email below, then send them the app link. When they use "Create account" with that
-          exact email, they'll land with the role you chose instead of the default Staff role.
-        </p>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs font-mono break-all">{signupUrl}</div>
-          <Btn variant="ghost" onClick={copyLink}>
-            {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy link</>}
-          </Btn>
-        </div>
-
-        {invitations.length > 0 && (
-          <div className="border-t border-stone-100 pt-3">
-            <div className="text-xs font-semibold text-stone-600 uppercase mb-2">Pending invitations</div>
-            <div className="space-y-1.5">
-              {invitations.map((inv) => (
-                <div key={inv.email} className="flex items-center justify-between text-sm bg-stone-50 rounded-lg px-3 py-2">
-                  <div>
-                    <span className="font-medium">{inv.email}</span>
-                    <span className="text-stone-400 ml-2 text-xs">→ {ROLE_LABELS[inv.intended_role]}{inv.name_hint ? ` · ${inv.name_hint}` : ""}</span>
-                  </div>
-                  <button onClick={() => cancelInvite(inv.email)} className="text-stone-400 hover:text-rose-700 p-1">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
+      {canManageRoles && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <h3 className="font-semibold text-sm">Invite someone with a specific role</h3>
+            <Btn onClick={() => setInviteModal(true)}>
+              <UserPlus size={15} /> New invitation
+            </Btn>
           </div>
-        )}
-      </Card>
+          <p className="text-xs text-stone-500 mb-3">
+            This app can't set someone's password for them directly — that needs extra server infrastructure. Instead:
+            pre-assign a role to their email below, then send them the app link. When they use "Create account" with that
+            exact email, they'll land with the role you chose instead of the default Staff role.
+          </p>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-xs font-mono break-all">{signupUrl}</div>
+            <Btn variant="ghost" onClick={copyLink}>
+              {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy link</>}
+            </Btn>
+          </div>
+
+          {invitations.length > 0 && (
+            <div className="border-t border-stone-100 pt-3">
+              <div className="text-xs font-semibold text-stone-600 uppercase mb-2">Pending invitations</div>
+              <div className="space-y-1.5">
+                {invitations.map((inv) => (
+                  <div key={inv.email} className="flex items-center justify-between text-sm bg-stone-50 rounded-lg px-3 py-2">
+                    <div>
+                      <span className="font-medium">{inv.email}</span>
+                      <span className="text-stone-400 ml-2 text-xs">→ {ROLE_LABELS[inv.intended_role]}{inv.name_hint ? ` · ${inv.name_hint}` : ""}</span>
+                    </div>
+                    <button onClick={() => cancelInvite(inv.email)} className="text-stone-400 hover:text-rose-700 p-1">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div>
         <h3 className="font-semibold text-sm mb-2">Existing accounts</h3>
@@ -111,31 +130,44 @@ export default function UserManagement() {
               <tr>
                 <th className="text-left px-4 py-2.5">Name</th>
                 <th className="text-left px-4 py-2.5">Role</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {profiles.map((p) => (
                 <tr key={p.id} className="hover:bg-stone-50">
-                  <td className="px-4 py-2.5 font-medium">{p.name}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    {p.name}
+                    {p.email && <div className="text-xs text-stone-400 font-normal">{p.email}</div>}
+                  </td>
                   <td className="px-4 py-2.5">
-                    <select className="text-xs border border-stone-300 rounded px-2 py-1" value={p.role} onChange={(e) => setRole(p.id, e.target.value)}>
-                      {LOGIN_ROLES.map((r) => (
-                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                      ))}
-                    </select>
+                    {canManageRoles ? (
+                      <select className="text-xs border border-stone-300 rounded px-2 py-1" value={p.role} onChange={(e) => setRole(p.id, e.target.value)}>
+                        {LOGIN_ROLES.map((r) => (
+                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs">{ROLE_LABELS[p.role] || p.role}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <button onClick={() => sendPasswordReset(p)} className="text-xs text-indigo-700 hover:underline inline-flex items-center gap-1">
+                      <KeyRound size={12} /> {resetSentFor === p.id ? "Sent!" : "Reset password"}
+                    </button>
                   </td>
                 </tr>
               ))}
               {!loading && profiles.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="px-4 py-8 text-center text-stone-400">No login accounts yet.</td>
+                  <td colSpan={3} className="px-4 py-8 text-center text-stone-400">No login accounts yet.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </Card>
         <p className="text-xs text-stone-400 mt-2">
-          <b>Admin</b> — full access. <b>HR</b> — Dashboard + Attendance only. <b>Staff</b> — Invoices, their own Payroll, and (if linked to a Sales-role employee) their own Sales Team expense claims.
+          <b>Reset password</b> sends the account's own email a standard password-reset link — nobody (including you) ever sees or sets their password directly.
         </p>
       </div>
 
