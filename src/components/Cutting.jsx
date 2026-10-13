@@ -25,6 +25,11 @@ export const SIZE_GROUPS = [
   { key: "frock", prefix: "FROCK", label: "Frock (18–44)", sizes: SIZES18_44 },
 ];
 const SIZES = LETTER_SIZES;
+const STATUS_COLORS = {
+  Submitted: "bg-amber-100 text-amber-800",
+  Approved: "bg-emerald-100 text-emerald-800",
+  Rejected: "bg-rose-100 text-rose-800",
+};
 
 // "T-24" -> "T-shirt 24", "CHUD-24" -> "Chudidhar 24"; letter sizes unchanged
 export const sizeLabel = (k) => {
