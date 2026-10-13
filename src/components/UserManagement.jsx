@@ -12,6 +12,7 @@ export default function UserManagement({ profile }) {
   const [inviteModal, setInviteModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [resetSentFor, setResetSentFor] = useState(null);
+  const isAdminOnly = profile?.role === "admin"; // deletion is Admin-only (HR cannot)
 
   const load = async () => {
     const [{ data: profs }, { data: invites }] = await Promise.all([
@@ -57,6 +58,16 @@ export default function UserManagement({ profile }) {
     }
     setResetSentFor(p.id);
     setTimeout(() => setResetSentFor(null), 3000);
+  };
+
+  const deleteUser = async (p) => {
+    if (!window.confirm(`Permanently delete the login account for ${p.name || p.email}?\n\nThey will no longer be able to sign in. Their employee record (if any) is kept.`)) return;
+    const { data, error } = await supabase.rpc("delete_user_account", { p_user_id: p.id });
+    if (error || data?.ok === false) {
+      alert(`Couldn't delete account:\n${error?.message || data?.error}`);
+      return;
+    }
+    load();
   };
 
   const signupUrl = `${window.location.origin}/`;
@@ -155,6 +166,11 @@ export default function UserManagement({ profile }) {
                     <button onClick={() => sendPasswordReset(p)} className="text-xs text-indigo-700 hover:underline inline-flex items-center gap-1">
                       <KeyRound size={12} /> {resetSentFor === p.id ? "Sent!" : "Reset password"}
                     </button>
+                    {isAdminOnly && p.id !== profile?.id && (
+                      <button onClick={() => deleteUser(p)} className="ml-3 text-xs text-rose-700 hover:underline inline-flex items-center gap-1">
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

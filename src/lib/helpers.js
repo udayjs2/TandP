@@ -16,6 +16,33 @@ export const daysInMonth = (mk) => {
   return new Date(y, m, 0).getDate();
 };
 
+// Number of Sundays in a "YYYY-MM" month. Sundays are paid by default.
+export const sundaysInMonth = (mk) => {
+  const [y, m] = mk.split("-").map(Number);
+  const n = new Date(y, m, 0).getDate();
+  let c = 0;
+  for (let d = 1; d <= n; d++) if (new Date(y, m - 1, d).getDay() === 0) c++;
+  return c;
+};
+
+// Paid days = days present on non-Sundays (half day = 0.5) + every Sunday in the month,
+// capped at the days in the month. Present on a Sunday doesn't pay twice.
+export const paidDaysFromAttendance = (rows, mk) => {
+  let present = 0;
+  let leave = 0;
+  let absent = 0;
+  (rows || []).forEach((r) => {
+    const [y, m, d] = r.date.split("-").map(Number);
+    const isSunday = new Date(y, m - 1, d).getDay() === 0;
+    if (r.status === "Present" && !isSunday) present += 1;
+    else if (r.status === "Half Day" && !isSunday) present += 0.5;
+    else if (r.status === "Leave") leave += 1;
+    else if (r.status === "Absent") absent += 1;
+  });
+  const sundays = sundaysInMonth(mk);
+  return { present: Math.min(daysInMonth(mk), present + sundays), workedDays: present, sundays, leave, absent };
+};
+
 export const itemsTotal = (items = []) =>
   items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
 
@@ -181,10 +208,11 @@ export const ROLE_LABELS = {
   pm: "Production Manager",
   tl: "Team Lead",
   cutting_master: "Cutting Master",
+  quality_manager: "Quality Manager",
   sales: "Sales",
   user: "Staff",
 };
-export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "sales", "user"];
+export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"];
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of
 // employees by id (must include base_salary), compute manpower count,

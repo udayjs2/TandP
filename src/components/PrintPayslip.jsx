@@ -60,7 +60,7 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
               <td className="text-right py-2">{totalDays}</td>
             </tr>
             <tr className="border-b border-stone-200">
-              <td className="py-2">Present days</td>
+              <td className="py-2">Paid days (present + Sundays)</td>
               <td className="text-right py-2">{present}</td>
             </tr>
             <tr className="border-b border-stone-200">

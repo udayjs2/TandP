@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard } from "lucide-react";
+import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
@@ -11,17 +11,21 @@ const SUB_TABS = [
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
+  { id: "purchase", label: "Purchase Requests", icon: ShoppingCart },
 ];
 
 export default function Finance({ profile }) {
-  const [sub, setSub] = useState("overview");
+  // GM / PM only see Purchase Requests; Admin and HR see everything.
+  const limited = !["admin", "hr"].includes(profile?.role);
+  const tabs = limited ? SUB_TABS.filter((t) => t.id === "purchase") : SUB_TABS;
+  const [sub, setSub] = useState(limited ? "purchase" : "overview");
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold mb-1">Finance</h2>
-        <p className="text-xs text-stone-500 mb-3">Admin-only — investor capital, business expenditures, and per-order profit &amp; loss.</p>
+        <p className="text-xs text-stone-500 mb-3">{limited ? "Raise and approve purchase requests." : "Investor capital, business expenditures, purchase requests, and per-order profit & loss."}</p>
         <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
-          {SUB_TABS.map((t) => {
+          {tabs.map((t) => {
             const Icon = t.icon;
             return (
               <button
@@ -43,6 +47,7 @@ export default function Finance({ profile }) {
       {sub === "payments" && <Payments profile={profile} />}
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
+      {sub === "purchase" && <PurchaseRequests profile={profile} />}
     </div>
   );
 }
@@ -1059,6 +1064,547 @@ function PaymentModal({ order, profile, onClose, onChanged }) {
           Close
         </Btn>
       </div>
+    </Modal>
+  );
+}
+
+
+// ==================== PURCHASE REQUESTS ====================
+const PR_CATEGORIES = ["Fabric", "Machine", "Spare Parts", "Accessories", "Other"];
+const PR_STATUS_COLORS = {
+  Pending: "bg-amber-100 text-amber-800",
+  Approved: "bg-emerald-100 text-emerald-800",
+  Rejected: "bg-rose-100 text-rose-800",
+};
+
+function PurchaseRequests({ profile }) {
+  const role = profile?.role;
+  const isGM = role === "gm";
+  const isAdminish = ["admin", "hr"].includes(role);
+  const [rows, setRows] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [investors, setInvestors] = useState([]);
+  const [filter, setFilter] = useState("Pending");
+  const [modal, setModal] = useState(false);
+  const [stage, setStage] = useState(null); // { kind: "payment"|"invoice"|"dispatch"|"receive", row }
+
+  const load = async () => {
+    const [{ data: pr, error }, { data: ord }, { data: inv }] = await Promise.all([
+      supabase.from("purchase_requests").select("*").order("created_at", { ascending: false }),
+      supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
+      supabase.rpc("investor_names"),
+    ]);
+    if (error) console.error("Failed to load purchase requests:", error.message);
+    setRows(pr || []);
+    setOrders(ord || []);
+    setInvestors(inv || []);
+  };
+
+  useEffect(() => {
+    load();
+    const ch = supabase
+      .channel("purchase-requests-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_requests" }, load)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  const orderLabel = (id) => {
+    const o = orders.find((x) => x.id === id);
+    return o ? `${o.order_number} — ${o.customer_name}` : "Not tied to an order";
+  };
+  const investorLabel = (id) => investors.find((x) => x.id === id)?.name || "Not investor-funded";
+
+  const approve = async (r) => {
+    const { data, error } = await supabase.rpc("approve_purchase_request", { p_id: r.id });
+    if (error || data?.ok === false) alert(error?.message || data?.error);
+    load();
+  };
+  const reject = async (r) => {
+    const reason = window.prompt("Reason for rejecting (optional):");
+    if (reason === null) return;
+    const { data, error } = await supabase.rpc("reject_purchase_request", { p_id: r.id, p_reason: reason || null });
+    if (error || data?.ok === false) alert(error?.message || data?.error);
+    load();
+  };
+  const remove = async (r) => {
+    if (!window.confirm("Delete this request?")) return;
+    const { error } = await supabase.from("purchase_requests").delete().eq("id", r.id);
+    if (error) alert(error.message);
+    load();
+  };
+
+  const inTransit = (r) => r.status === "Approved" && !r.received_at;
+  const shown = rows.filter((r) =>
+    filter === "All" ? true : filter === "Awaiting delivery" ? inTransit(r) : filter === "Received" ? !!r.received_at : r.status === filter
+  );
+  const countFor = (f) => (f === "Awaiting delivery" ? rows.filter(inTransit).length : f === "Received" ? rows.filter((r) => r.received_at).length : rows.filter((r) => r.status === f).length);
+  const openInvoice = async (r) => {
+    const { data, error } = await supabase.storage.from("bills").createSignedUrl(r.invoice_path, 300);
+    if (error) return alert(error.message);
+    window.open(data.signedUrl, "_blank");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs text-stone-500 max-w-xl">
+          Needs approval from the <b>General Manager</b> and <b>one Admin</b>. Once both approve, the amount is added to Expenditures against the selected order and investor. After that: record payment → vendor invoice → dispatch/tracking → goods received, which adds the stock to Inventory.
+        </p>
+        <Btn onClick={() => setModal(true)}><Plus size={15} /> New purchase request</Btn>
+      </div>
+
+      <div className="flex gap-1.5 flex-wrap">
+        {["Pending", "Awaiting delivery", "Received", "Rejected", "All"].map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-full text-xs font-medium border ${filter === f ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-600 border-stone-200"}`}>
+            {f}{f !== "All" ? ` (${countFor(f)})` : ""}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-3">
+        {shown.map((r) => {
+          const canGm = isGM && !r.gm_approved_at;
+          const canAdmin = isAdminish && !r.admin_approved_at;
+          const canReject = (isGM || isAdminish) && r.status === "Pending";
+          const canDelete = r.status === "Pending" && (role === "admin" || r.requested_by === profile?.id);
+          return (
+            <Card key={r.id} className="p-4">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="font-semibold text-sm">{r.category} — {r.item}</div>
+                  <div className="text-xs text-stone-500">
+                    {r.quantity ? `${r.quantity}${r.unit ? ` ${r.unit}` : ""} · ` : ""}₹{Number(r.amount).toLocaleString("en-IN")}{r.vendor ? ` · ${r.vendor}` : ""}
+                  </div>
+                  <div className="text-xs text-stone-500 mt-0.5">Order: {orderLabel(r.order_id)} · Funded by: {investorLabel(r.investor_id)}</div>
+                  <div className="text-xs text-stone-400 mt-0.5">Requested by {r.requested_by_name || "—"} on {new Date(r.created_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</div>
+                  {r.notes && <div className="text-xs text-stone-500 mt-1">{r.notes}</div>}
+                  {r.status === "Rejected" && <div className="text-xs text-rose-700 mt-1">Rejected by {r.rejected_by}{r.reject_reason ? `: ${r.reject_reason}` : ""}</div>}
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PR_STATUS_COLORS[r.status]}`}>{r.status}</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-3 text-xs">
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${r.gm_approved_at ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-stone-50 border-stone-200 text-stone-500"}`}>
+                  {r.gm_approved_at ? <Check size={11} /> : null} General Manager{r.gm_approved_by ? `: ${r.gm_approved_by}` : " — pending"}
+                </span>
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${r.admin_approved_at ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-stone-50 border-stone-200 text-stone-500"}`}>
+                  {r.admin_approved_at ? <Check size={11} /> : null} Admin{r.admin_approved_by ? `: ${r.admin_approved_by}` : " — pending"}
+                </span>
+                {r.status === "Approved" && <span className="text-emerald-700 self-center">Added to expenditures</span>}
+              </div>
+
+              {r.status === "Approved" && (
+                <div className="mt-3 border-t border-stone-100 pt-3">
+                  <div className="grid sm:grid-cols-4 gap-2 text-xs">
+                    <FulfilStep done={!!r.paid_at} icon={Banknote} title="Payment to vendor">
+                      {r.paid_at ? `₹${Number(r.paid_amount || 0).toLocaleString("en-IN")} · ${r.payment_mode} · ${r.paid_at}${r.payment_ref ? ` · Ref ${r.payment_ref}` : ""}` : "Not paid yet"}
+                    </FulfilStep>
+                    <FulfilStep done={!!r.invoice_number} icon={FileText} title="Vendor invoice">
+                      {r.invoice_number ? (
+                        <>
+                          #{r.invoice_number}{r.invoice_amount != null ? ` · ₹${Number(r.invoice_amount).toLocaleString("en-IN")}` : ""}
+                          {r.invoice_path && <button onClick={() => openInvoice(r)} className="block text-indigo-700 hover:underline">View file</button>}
+                        </>
+                      ) : "Awaiting invoice"}
+                    </FulfilStep>
+                    <FulfilStep done={!!r.transporter} icon={Truck} title="Dispatch / transport">
+                      {r.transporter ? (
+                        <>
+                          {r.transporter}{r.tracking_number ? ` · ${r.tracking_number}` : ""}
+                          <span className="block text-stone-400">
+                            {r.dispatch_date ? `Sent ${r.dispatch_date}` : ""}{r.expected_arrival ? ` · ETA ${r.expected_arrival}` : ""}
+                          </span>
+                          {r.tracking_number && (
+                            <a className="text-indigo-700 hover:underline" target="_blank" rel="noreferrer"
+                              href={`https://www.google.com/search?q=${encodeURIComponent(`${r.transporter} tracking ${r.tracking_number}`)}`}>Track shipment</a>
+                          )}
+                        </>
+                      ) : "Not dispatched yet"}
+                    </FulfilStep>
+                    <FulfilStep done={!!r.received_at} icon={PackageCheck} title="Received at factory">
+                      {r.received_at ? `${r.received_at} · by ${r.received_by}${r.received_qty != null ? ` · qty ${r.received_qty}` : ""}${r.inventory_posted ? ` · ${r.inventory_posted}` : ""}` : "Not received yet"}
+                    </FulfilStep>
+                  </div>
+                  {!r.received_at && (
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                      {isAdminish && <Btn variant="ghost" onClick={() => setStage({ kind: "payment", row: r })}><Banknote size={13} /> {r.paid_at ? "Edit payment" : "Record payment"}</Btn>}
+                      <Btn variant="ghost" onClick={() => setStage({ kind: "invoice", row: r })}><FileText size={13} /> {r.invoice_number ? "Edit invoice" : "Add vendor invoice"}</Btn>
+                      <Btn variant="ghost" onClick={() => setStage({ kind: "dispatch", row: r })}><Truck size={13} /> {r.transporter ? "Edit dispatch" : "Add dispatch / tracking"}</Btn>
+                      <Btn onClick={() => setStage({ kind: "receive", row: r })}><PackageCheck size={13} /> Goods received → Inventory</Btn>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {r.status === "Pending" && (canGm || canAdmin || canReject || canDelete) && (
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  {(canGm || canAdmin) && <Btn onClick={() => approve(r)}><Check size={13} /> Approve{canGm ? " as GM" : " as Admin"}</Btn>}
+                  {canReject && <Btn variant="ghost" onClick={() => reject(r)}><X size={13} /> Reject</Btn>}
+                  {canDelete && <Btn variant="ghost" onClick={() => remove(r)}><Trash2 size={13} /> Delete</Btn>}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+        {shown.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No {filter === "All" ? "" : filter.toLowerCase() + " "}purchase requests.</Card>}
+      </div>
+
+      {stage?.kind === "payment" && <PaymentStageModal row={stage.row} onClose={() => setStage(null)} onSaved={load} />}
+      {stage?.kind === "invoice" && <InvoiceStageModal row={stage.row} onClose={() => setStage(null)} onSaved={load} />}
+      {stage?.kind === "dispatch" && <DispatchStageModal row={stage.row} onClose={() => setStage(null)} onSaved={load} />}
+      {stage?.kind === "receive" && <ReceiveStageModal row={stage.row} onClose={() => setStage(null)} onSaved={load} />}
+      {modal && <PurchaseRequestModal orders={orders} investors={investors} profile={profile} onClose={() => setModal(false)} onSaved={load} />}
+    </div>
+  );
+}
+
+function PurchaseRequestModal({ orders, investors, profile, onClose, onSaved }) {
+  const [f, setF] = useState({ category: "Fabric", item: "", quantity: "", unit: "", amount: "", vendor: "", order_id: "", investor_id: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const { error } = await supabase.from("purchase_requests").insert({
+      category: f.category,
+      item: f.item,
+      quantity: f.quantity === "" ? null : Number(f.quantity),
+      unit: f.unit || null,
+      amount: Number(f.amount) || 0,
+      vendor: f.vendor || null,
+      order_id: f.order_id || null,
+      investor_id: f.investor_id || null,
+      notes: f.notes || null,
+      requested_by: profile.id,
+      requested_by_name: profile.name || null,
+    });
+    setSaving(false);
+    if (error) return alert(`Couldn't submit:\n${error.message}`);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <Modal title="New purchase request" onClose={onClose}>
+      <form onSubmit={save}>
+        <Field label="What are you buying?">
+          <select className={inputCls} value={f.category} onChange={set("category")}>
+            {PR_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
+        <Field label="Item">
+          <input required className={inputCls} value={f.item} onChange={set("item")}
+            placeholder={f.category === "Accessories" ? "e.g. Elastic 20mm, collar cups, buttons" : f.category === "Machine" ? "e.g. JUKI single needle" : f.category === "Fabric" ? "e.g. Single jersey, navy" : "Item name"} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Quantity"><input type="number" min="0" step="any" className={inputCls} value={f.quantity} onChange={set("quantity")} /></Field>
+          <Field label="Unit"><input className={inputCls} value={f.unit} onChange={set("unit")} placeholder="kg, m, pcs, rolls" /></Field>
+          <Field label="Amount (₹)"><input type="number" min="0" required className={inputCls} value={f.amount} onChange={set("amount")} /></Field>
+          <Field label="Vendor / supplier"><input className={inputCls} value={f.vendor} onChange={set("vendor")} /></Field>
+        </div>
+        <Field label="For which order?">
+          <select className={inputCls} value={f.order_id} onChange={set("order_id")}>
+            <option value="">Not tied to a specific order</option>
+            {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>)}
+          </select>
+        </Field>
+        <Field label="Who is funding this?">
+          <select className={inputCls} value={f.investor_id} onChange={set("investor_id")}>
+            <option value="">Not investor-funded</option>
+            {investors.map((inv) => <option key={inv.id} value={inv.id}>{inv.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Notes"><textarea rows={2} className={inputCls} value={f.notes} onChange={set("notes")} /></Field>
+        <div className="flex justify-end gap-2 mt-4">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Submitting…" : "Submit for approval"}</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function FulfilStep({ done, icon: Icon, title, children }) {
+  return (
+    <div className={`rounded-lg border px-2.5 py-2 ${done ? "border-emerald-300 bg-emerald-50/60" : "border-stone-200 bg-stone-50"}`}>
+      <div className={`flex items-center gap-1 font-semibold mb-0.5 ${done ? "text-emerald-800" : "text-stone-500"}`}>
+        <Icon size={12} /> {title}
+      </div>
+      <div className="text-stone-600 break-words">{children}</div>
+    </div>
+  );
+}
+
+async function runStage(row, stage, data) {
+  const { data: res, error } = await supabase.rpc("update_purchase_fulfilment", { p_id: row.id, p_stage: stage, p_data: data });
+  if (error || res?.ok === false) {
+    alert(`Couldn't save:\n${error?.message || res?.error}`);
+    return false;
+  }
+  return true;
+}
+
+function PaymentStageModal({ row, onClose, onSaved }) {
+  const [f, setF] = useState({
+    paid_at: row.paid_at || todayStr(),
+    paid_amount: row.paid_amount ?? row.invoice_amount ?? row.amount ?? "",
+    payment_mode: row.payment_mode || "Bank Transfer",
+    payment_ref: row.payment_ref || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const ok = await runStage(row, "payment", { ...f, paid_amount: Number(f.paid_amount) || 0 });
+    setSaving(false);
+    if (ok) { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title={`Payment — ${row.item}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Amount paid to vendor (₹)"><input type="number" min="0" required className={inputCls} value={f.paid_amount} onChange={(e) => setF({ ...f, paid_amount: e.target.value })} /></Field>
+        <Field label="Payment date"><input type="date" required className={inputCls} value={f.paid_at} onChange={(e) => setF({ ...f, paid_at: e.target.value })} /></Field>
+        <Field label="Mode">
+          <select className={inputCls} value={f.payment_mode} onChange={(e) => setF({ ...f, payment_mode: e.target.value })}>
+            {PAYMENT_MODES.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="Reference / UTR / cheque no."><input className={inputCls} value={f.payment_ref} onChange={(e) => setF({ ...f, payment_ref: e.target.value })} /></Field>
+        <div className="flex justify-end gap-2 mt-4"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save payment"}</Btn></div>
+      </form>
+    </Modal>
+  );
+}
+
+function InvoiceStageModal({ row, onClose, onSaved }) {
+  const [f, setF] = useState({
+    invoice_number: row.invoice_number || "",
+    invoice_date: row.invoice_date || todayStr(),
+    invoice_amount: row.invoice_amount ?? row.amount ?? "",
+    vendor: row.vendor || "",
+  });
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    let invoice_path = "";
+    if (file) {
+      const path = `vendor-invoices/${row.id}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const { error } = await supabase.storage.from("bills").upload(path, file);
+      if (error) {
+        setSaving(false);
+        return alert(`Couldn't upload the file:\n${error.message}`);
+      }
+      invoice_path = path;
+    }
+    const ok = await runStage(row, "invoice", { ...f, invoice_amount: f.invoice_amount === "" ? null : Number(f.invoice_amount), invoice_path });
+    setSaving(false);
+    if (ok) { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title={`Vendor invoice — ${row.item}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Vendor"><input className={inputCls} value={f.vendor} onChange={(e) => setF({ ...f, vendor: e.target.value })} /></Field>
+        <Field label="Invoice number"><input required className={inputCls} value={f.invoice_number} onChange={(e) => setF({ ...f, invoice_number: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Invoice date"><input type="date" className={inputCls} value={f.invoice_date} onChange={(e) => setF({ ...f, invoice_date: e.target.value })} /></Field>
+          <Field label="Invoice amount (₹)"><input type="number" min="0" className={inputCls} value={f.invoice_amount} onChange={(e) => setF({ ...f, invoice_amount: e.target.value })} /></Field>
+        </div>
+        <Field label={row.invoice_path ? "Replace invoice file (optional)" : "Invoice file (photo or PDF)"}>
+          <input type="file" accept="image/*,application/pdf" className="text-sm" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        </Field>
+        <p className="text-xs text-stone-400 mb-2">The invoice amount replaces the estimate in this order's expenditure.</p>
+        <div className="flex justify-end gap-2 mt-4"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save invoice"}</Btn></div>
+      </form>
+    </Modal>
+  );
+}
+
+function DispatchStageModal({ row, onClose, onSaved }) {
+  const [f, setF] = useState({
+    transporter: row.transporter || "",
+    tracking_number: row.tracking_number || "",
+    dispatch_date: row.dispatch_date || todayStr(),
+    expected_arrival: row.expected_arrival || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const ok = await runStage(row, "dispatch", f);
+    setSaving(false);
+    if (ok) { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title={`Dispatch & tracking — ${row.item}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <Field label="Transporter / courier"><input required className={inputCls} placeholder="e.g. VRL, DTDC, Professional Couriers" value={f.transporter} onChange={(e) => setF({ ...f, transporter: e.target.value })} /></Field>
+        <Field label="LR / consignment / tracking number"><input className={inputCls} value={f.tracking_number} onChange={(e) => setF({ ...f, tracking_number: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Dispatch date"><input type="date" className={inputCls} value={f.dispatch_date} onChange={(e) => setF({ ...f, dispatch_date: e.target.value })} /></Field>
+          <Field label="Expected arrival"><input type="date" className={inputCls} value={f.expected_arrival} onChange={(e) => setF({ ...f, expected_arrival: e.target.value })} /></Field>
+        </div>
+        <div className="flex justify-end gap-2 mt-4"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save dispatch details"}</Btn></div>
+      </form>
+    </Modal>
+  );
+}
+
+function ReceiveStageModal({ row, onClose, onSaved }) {
+  const [fabrics, setFabrics] = useState([]);
+  const [items, setItems] = useState([]);
+  const [machines, setMachines] = useState([]);
+  const [recvQty, setRecvQty] = useState(row.quantity ?? "");
+  const [notes, setNotes] = useState("");
+  const [mode, setMode] = useState("existing");
+  const [inv, setInv] = useState({
+    id: "", fabric_type: "", color: "", weight_gsm: "", kg: "", meters: "",
+    category: "Elastic", name: "", unit: row.unit || "", quantity: row.quantity ?? "",
+    model: "JUKI", model_other: "", machine_type: row.item || "", machine_id: "", part_name: row.item || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k) => (e) => setInv({ ...inv, [k]: e.target.value });
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: f }, { data: i }, { data: m }] = await Promise.all([
+        supabase.from("inventory_fabric").select("id, fabric_type, color, stock_kg, stock_meters").order("fabric_type"),
+        supabase.from("inventory_items").select("id, name, category, quantity, unit").order("name"),
+        supabase.from("inventory_machines").select("id, model, model_other, machine_type, working_condition"),
+      ]);
+      setFabrics(f || []);
+      setItems(i || []);
+      setMachines(m || []);
+    })();
+  }, []);
+
+  const num = (v) => (v === "" || v == null ? null : Number(v));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    let payload = {};
+    if (row.category === "Fabric") {
+      if (mode === "existing" && !inv.id) return alert("Select which fabric stock to add to.");
+      payload = { mode, id: inv.id, fabric_type: inv.fabric_type, color: inv.color, weight_gsm: inv.weight_gsm, kg: num(inv.kg) ?? 0, meters: num(inv.meters) ?? 0 };
+    } else if (row.category === "Accessories") {
+      if (mode === "existing" && !inv.id) return alert("Select which item to add to.");
+      payload = { mode, id: inv.id, category: inv.category, name: inv.name, unit: inv.unit, quantity: num(inv.quantity) ?? 0 };
+    } else if (row.category === "Machine") {
+      payload = { model: inv.model, model_other: inv.model_other, machine_type: inv.machine_type, quantity: num(inv.quantity) ?? 1 };
+    } else if (row.category === "Spare Parts") {
+      payload = { machine_id: inv.machine_id, part_name: inv.part_name, quantity: num(inv.quantity) ?? 1 };
+    }
+    setSaving(true);
+    const { data, error } = await supabase.rpc("receive_purchase_request", { p_id: row.id, p_received_qty: num(recvQty), p_notes: notes, p_inv: payload });
+    setSaving(false);
+    if (error || data?.ok === false) return alert(`Couldn't save:\n${error?.message || data?.error}`);
+    onSaved();
+    onClose();
+  };
+
+  const machineName = (m) => `${m.model === "OTHER" ? m.model_other || "Other" : m.model} ${m.machine_type} (${m.working_condition})`;
+
+  return (
+    <Modal title={`Goods received — ${row.item}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="text-xs text-stone-500 mb-3">
+          Confirm what actually reached the factory. {row.category === "Other" ? "This category isn't stocked in Inventory, so it is only marked received." : "The quantity below is added to Inventory automatically."}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={`Quantity received${row.unit ? ` (${row.unit})` : ""}`}>
+            <input type="number" min="0" step="any" className={inputCls} value={recvQty} onChange={(e) => setRecvQty(e.target.value)} />
+          </Field>
+          <Field label="Ordered quantity"><div className="text-sm py-2">{row.quantity ?? "—"}{row.unit ? ` ${row.unit}` : ""}</div></Field>
+        </div>
+
+        {(row.category === "Fabric" || row.category === "Accessories") && (
+          <Field label="Add to">
+            <select className={inputCls} value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="existing">Existing inventory entry</option>
+              <option value="new">Create a new inventory entry</option>
+            </select>
+          </Field>
+        )}
+
+        {row.category === "Fabric" && (
+          <>
+            {mode === "existing" ? (
+              <Field label="Fabric">
+                <select className={inputCls} value={inv.id} onChange={set("id")}>
+                  <option value="">— select —</option>
+                  {fabrics.map((f) => <option key={f.id} value={f.id}>{f.fabric_type}{f.color ? ` · ${f.color}` : ""} (now {f.stock_kg ?? 0} kg / {f.stock_meters ?? 0} m)</option>)}
+                </select>
+              </Field>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Fabric type"><input required className={inputCls} value={inv.fabric_type} onChange={set("fabric_type")} /></Field>
+                <Field label="Color"><input className={inputCls} value={inv.color} onChange={set("color")} /></Field>
+                <Field label="GSM"><input type="number" min="0" className={inputCls} value={inv.weight_gsm} onChange={set("weight_gsm")} /></Field>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Add (kg)"><input type="number" min="0" step="any" className={inputCls} value={inv.kg} onChange={set("kg")} /></Field>
+              <Field label="Add (meters)"><input type="number" min="0" step="any" className={inputCls} value={inv.meters} onChange={set("meters")} /></Field>
+            </div>
+          </>
+        )}
+
+        {row.category === "Accessories" && (
+          <>
+            {mode === "existing" ? (
+              <Field label="Item">
+                <select className={inputCls} value={inv.id} onChange={set("id")}>
+                  <option value="">— select —</option>
+                  {items.map((i) => <option key={i.id} value={i.id}>{i.category} · {i.name} (now {i.quantity} {i.unit})</option>)}
+                </select>
+              </Field>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Category">
+                  <select className={inputCls} value={inv.category} onChange={set("category")}>
+                    {["Thread", "Elastic", "Accessory", "Other"].map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Item name"><input required className={inputCls} value={inv.name} onChange={set("name")} placeholder="e.g. Collar cups" /></Field>
+                <Field label="Unit"><input className={inputCls} value={inv.unit} onChange={set("unit")} placeholder="pcs, m, cones" /></Field>
+              </div>
+            )}
+            <Field label="Add quantity"><input type="number" min="0" step="any" className={inputCls} value={inv.quantity} onChange={set("quantity")} /></Field>
+          </>
+        )}
+
+        {row.category === "Machine" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Model">
+              <select className={inputCls} value={inv.model} onChange={set("model")}>
+                {["JUKI", "ZOJE", "JIN", "JACK", "KANSAI", "OTHER"].map((m) => <option key={m} value={m}>{m === "OTHER" ? "Other" : m}</option>)}
+              </select>
+            </Field>
+            {inv.model === "OTHER" && <Field label="Model name"><input required className={inputCls} value={inv.model_other} onChange={set("model_other")} /></Field>}
+            <Field label="Type"><input required className={inputCls} value={inv.machine_type} onChange={set("machine_type")} /></Field>
+            <Field label="Quantity"><input type="number" min="1" className={inputCls} value={inv.quantity} onChange={set("quantity")} /></Field>
+          </div>
+        )}
+
+        {row.category === "Spare Parts" && (
+          <>
+            <Field label="Part name"><input required className={inputCls} value={inv.part_name} onChange={set("part_name")} /></Field>
+            <Field label="For machine (optional)">
+              <select className={inputCls} value={inv.machine_id} onChange={set("machine_id")}>
+                <option value="">General spare stock</option>
+                {machines.map((m) => <option key={m.id} value={m.id}>{machineName(m)}</option>)}
+              </select>
+            </Field>
+            <Field label="Quantity"><input type="number" min="1" className={inputCls} value={inv.quantity} onChange={set("quantity")} /></Field>
+          </>
+        )}
+
+        <Field label="Notes (damage, shortage, remarks)"><textarea rows={2} className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <div className="flex justify-end gap-2 mt-4"><Btn variant="ghost" onClick={onClose}>Cancel</Btn><Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Confirm receipt"}</Btn></div>
+      </form>
     </Modal>
   );
 }

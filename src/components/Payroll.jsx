@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn } from "./ui";
-import { daysInMonth, fmtMoney, monthKey } from "../lib/helpers";
+import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
 export default function Payroll({ profile }) {
@@ -26,7 +26,7 @@ function AdminPayroll() {
     const end = `${mk}-${String(totalDays).padStart(2, "0")}`;
     const [{ data: emp }, { data: att }, { data: pay }, { data: profs }, { data: set }] = await Promise.all([
       supabase.from("employees").select("*").order("created_at", { ascending: true }),
-      supabase.from("attendance").select("employee_id, status").gte("date", start).lte("date", end),
+      supabase.from("attendance").select("employee_id, date, status").gte("date", start).lte("date", end),
       supabase.from("payroll").select("*").eq("month", mk),
       supabase.from("profiles").select("*"),
       supabase.from("settings").select("*").eq("id", 1).single(),
@@ -34,13 +34,11 @@ function AdminPayroll() {
     setEmployees(emp || []);
     setProfiles(profs || []);
     setSettings(set || {});
+    const grouped = {};
+    (att || []).forEach((r) => (grouped[r.employee_id] = grouped[r.employee_id] || []).push(r));
     const byEmp = {};
-    (att || []).forEach((r) => {
-      byEmp[r.employee_id] = byEmp[r.employee_id] || { present: 0, leave: 0, absent: 0 };
-      if (r.status === "Present") byEmp[r.employee_id].present += 1;
-      else if (r.status === "Half Day") byEmp[r.employee_id].present += 0.5;
-      else if (r.status === "Leave") byEmp[r.employee_id].leave += 1;
-      else if (r.status === "Absent") byEmp[r.employee_id].absent += 1;
+    (emp || []).forEach((e) => {
+      byEmp[e.id] = paidDaysFromAttendance(grouped[e.id] || [], mk); // includes all Sundays
     });
     setAttByEmp(byEmp);
     const rows = {};
@@ -104,7 +102,7 @@ function AdminPayroll() {
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
             <tr>
               <th className="text-left px-4 py-2.5">Employee</th>
-              <th className="text-right px-4 py-2.5">Present</th>
+              <th className="text-right px-4 py-2.5">Paid days</th>
               <th className="text-right px-4 py-2.5">Leaves</th>
               <th className="text-right px-4 py-2.5">Bonus (₹)</th>
               <th className="text-right px-4 py-2.5">Deductions (₹)</th>
@@ -187,7 +185,7 @@ function AdminPayroll() {
         </table>
       </Card>
       <p className="text-xs text-stone-400">
-        Net pay = (base salary ÷ days in month) × present days + bonus − deductions. Link a login account so staff
+        Net pay = (base salary ÷ days in month) × paid days + bonus − deductions. Paid days = days present + all Sundays in the month (Sundays are paid by default). Link a login account so staff
         can see their own payroll and leave count under their own Payroll tab.
       </p>
       {payslip && (
@@ -232,18 +230,12 @@ function MyPayroll({ profile }) {
     const end = `${mk}-${String(totalDays).padStart(2, "0")}`;
     const [{ data: emp }, { data: attRows }, { data: pay }, { data: set }] = await Promise.all([
       supabase.from("employees").select("*").eq("id", profile.employee_id).single(),
-      supabase.from("attendance").select("status").eq("employee_id", profile.employee_id).gte("date", start).lte("date", end),
+      supabase.from("attendance").select("date, status").eq("employee_id", profile.employee_id).gte("date", start).lte("date", end),
       supabase.from("payroll").select("*").eq("employee_id", profile.employee_id).eq("month", mk).maybeSingle(),
       supabase.from("settings").select("*").eq("id", 1).single(),
     ]);
     setEmployee(emp || null);
-    const counts = { present: 0, leave: 0, absent: 0 };
-    (attRows || []).forEach((r) => {
-      if (r.status === "Present") counts.present += 1;
-      else if (r.status === "Half Day") counts.present += 0.5;
-      else if (r.status === "Leave") counts.leave += 1;
-      else if (r.status === "Absent") counts.absent += 1;
-    });
+    const counts = paidDaysFromAttendance(attRows || [], mk);
     setAtt(counts);
     setEntry(pay || { bonus: 0, deductions: 0, status: "Pending" });
     setSettings(set || {});

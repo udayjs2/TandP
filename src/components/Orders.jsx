@@ -83,7 +83,8 @@ export default function Orders({ profile }) {
   };
 
   const setStatus = async (id, status) => {
-    await supabase.from("orders").update({ status }).eq("id", id);
+    const { error } = await supabase.from("orders").update({ status }).eq("id", id);
+    if (error) alert(error.message);
     load();
   };
 
@@ -126,9 +127,15 @@ export default function Orders({ profile }) {
                     className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${ORDER_STATUS_COLORS[o.status]}`}
                   >
                     {ORDER_STATUSES.map((s) => (
-                      <option key={s}>{s}</option>
+                      <option key={s} disabled={s === "Shipped" && o.quality_status !== "Approved"}>{s}{s === "Shipped" && o.quality_status !== "Approved" ? " (needs QC approval)" : ""}</option>
                     ))}
                   </select>
+                  <span
+                    className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${o.quality_status === "Approved" ? "bg-emerald-100 text-emerald-800" : o.quality_status === "Rejected" ? "bg-rose-100 text-rose-800" : "bg-stone-100 text-stone-500"}`}
+                    title="Set by the Quality Manager in the Quality tab"
+                  >
+                    {o.quality_status === "Approved" ? "QC approved" : o.quality_status === "Rejected" ? "QC rejected" : "QC pending"}
+                  </span>
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
                     <LinkIcon size={14} />
                   </button>
@@ -277,7 +284,7 @@ function OrderModal({ order, onClose, onSave, count }) {
         <Field label="Status">
           <select className={inputCls} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
             {ORDER_STATUSES.map((s) => (
-              <option key={s}>{s}</option>
+              <option key={s} disabled={s === "Shipped" && order.quality_status !== "Approved"}>{s}{s === "Shipped" && order.quality_status !== "Approved" ? " (needs QC approval)" : ""}</option>
             ))}
           </select>
         </Field>
@@ -423,7 +430,7 @@ function DeliveryModal({ order, onClose, profile }) {
   const addDelivery = async (e) => {
     e.preventDefault();
     if (!itemDesc || !quantity) return;
-    await supabase.from("order_deliveries").insert({
+    const { error: delErr } = await supabase.from("order_deliveries").insert({
       order_id: order.id,
       date,
       item_description: itemDesc,
@@ -432,6 +439,10 @@ function DeliveryModal({ order, onClose, profile }) {
       notes: notes || null,
       updated_by: profile?.name || null,
     });
+    if (delErr) {
+      alert(delErr.message);
+      return;
+    }
     setQuantity("");
     setDeliveredTo("");
     setNotes("");
@@ -467,6 +478,11 @@ function DeliveryModal({ order, onClose, profile }) {
             })}
           </div>
 
+          {order.quality_status !== "Approved" && (
+            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+              This order has not passed quality inspection yet, so deliveries can't be logged. The Quality Manager approves it in the Quality tab.
+            </div>
+          )}
           <form onSubmit={addDelivery} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
             <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a delivery</div>
             <div className="grid grid-cols-2 gap-2">

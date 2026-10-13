@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, Trash2, Pencil, Wrench } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 
@@ -13,6 +13,9 @@ const COND_COLORS = {
   "Not working": "bg-rose-100 text-rose-800",
 };
 
+// Spare-part / purchase tracking opens up when a machine is down
+const NEEDS_PARTS = ["Under repair", "Not working"];
+
 const SUBTABS = [
   { id: "machines", label: "Machines", table: "inventory_machines" },
   { id: "fabric", label: "Fabric", table: "inventory_fabric" },
@@ -25,12 +28,24 @@ export default function Inventory({ profile }) {
   const canEdit = ["admin", "hr", "gm", "pm"].includes(profile?.role);
   const [sub, setSub] = useState("machines");
   const [rows, setRows] = useState({ machines: [], fabric: [], items: [] });
+  const [usage, setUsage] = useState([]);
+  const [parts, setParts] = useState([]);
+  const [partsFor, setPartsFor] = useState(null);
+  const [orderNames, setOrderNames] = useState({});
   const [modal, setModal] = useState(null); // { kind, row }
 
   const load = async () => {
     const [m, f, i] = await Promise.all(
       SUBTABS.map((t) => supabase.from(t.table).select("*").order("created_at", { ascending: false }))
     );
+    const [{ data: u }, { data: sp }, { data: ord }] = await Promise.all([
+      supabase.from("fabric_usage").select("*").order("created_at", { ascending: false }).limit(50),
+      supabase.from("inventory_spare_parts").select("*").order("created_at", { ascending: false }),
+      supabase.from("orders").select("id, order_number"),
+    ]);
+    setUsage(u || []);
+    setParts(sp || []);
+    setOrderNames(Object.fromEntries((ord || []).map((o) => [o.id, o.order_number])));
     const err = m.error || f.error || i.error;
     if (err) console.error("Inventory load failed:", err.message);
     setRows({ machines: m.data || [], fabric: f.data || [], items: i.data || [] });
@@ -39,7 +54,9 @@ export default function Inventory({ profile }) {
   useEffect(() => {
     load();
     const ch = supabase.channel("inventory-changes");
-    SUBTABS.forEach((t) => ch.on("postgres_changes", { event: "*", schema: "public", table: t.table }, load));
+    [...SUBTABS.map((t) => t.table), "fabric_usage", "inventory_spare_parts"].forEach((tbl) =>
+      ch.on("postgres_changes", { event: "*", schema: "public", table: tbl }, load)
+    );
     ch.subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -108,7 +125,14 @@ export default function Inventory({ profile }) {
                     <td className="px-3 py-2 font-medium">{m.model === "OTHER" ? m.model_other || "Other" : m.model}</td>
                     <td className="px-3 py-2">{m.machine_type}</td>
                     <td className="px-3 py-2 text-right font-mono">{m.quantity}</td>
-                    <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${COND_COLORS[m.working_condition] || "bg-stone-100"}`}>{m.working_condition}</span></td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${COND_COLORS[m.working_condition] || "bg-stone-100"}`}>{m.working_condition}</span>
+                      {NEEDS_PARTS.includes(m.working_condition) && (
+                        <button onClick={() => setPartsFor(m)} className="ml-2 inline-flex items-center gap-1 text-xs text-indigo-700 hover:underline">
+                          <Wrench size={12} /> Spare parts ({parts.filter((p) => p.machine_id === m.id).length})
+                        </button>
+                      )}
+                    </td>
                     <td className="px-3 py-2">{fmt(m.purchase_date)}</td>
                     <td className="px-3 py-2">{fmt(m.last_service_date)}</td>
                     {actions("machines", m)}
@@ -123,7 +147,7 @@ export default function Inventory({ profile }) {
 
       {sub === "fabric" && (
         <>
-          <p className="text-xs text-stone-500">Total stock: {totalKg.toFixed(1)} kg · {totalM.toFixed(1)} m</p>
+          <p className="text-xs text-stone-500">Total available: {totalKg.toFixed(1)} kg · {totalM.toFixed(1)} m</p>
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -131,8 +155,8 @@ export default function Inventory({ profile }) {
                   <th className="text-left px-3 py-2.5">Fabric type</th>
                   <th className="text-left px-3 py-2.5">Color</th>
                   <th className="text-right px-3 py-2.5">Weight (GSM)</th>
-                  <th className="text-right px-3 py-2.5">Stock (kg)</th>
-                  <th className="text-right px-3 py-2.5">Stock (m)</th>
+                  <th className="text-right px-3 py-2.5">Available (kg)</th>
+                  <th className="text-right px-3 py-2.5">Available (m)</th>
                   <th className="text-left px-3 py-2.5">Supplier</th>
                   {canEdit && <th />}
                 </tr>
@@ -153,6 +177,41 @@ export default function Inventory({ profile }) {
               </tbody>
             </table>
           </Card>
+          <div>
+            <h3 className="font-semibold text-sm mb-2">Fabric used in cutting</h3>
+            <p className="text-xs text-stone-500 mb-2">Logged automatically when the Cutting Master submits cutting. Each entry has already been deducted from the available stock above.</p>
+            <Card className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+                  <tr>
+                    <th className="text-left px-3 py-2.5">Date</th>
+                    <th className="text-left px-3 py-2.5">Order</th>
+                    <th className="text-left px-3 py-2.5">Fabric</th>
+                    <th className="text-right px-3 py-2.5">kg</th>
+                    <th className="text-right px-3 py-2.5">m</th>
+                    <th className="text-left px-3 py-2.5">By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {usage.map((u) => {
+                    const fab = rows.fabric.find((x) => x.id === u.fabric_id);
+                    return (
+                      <tr key={u.id} className={u.restored ? "text-stone-400 line-through" : ""}>
+                        <td className="px-3 py-2">{new Date(u.created_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
+                        <td className="px-3 py-2">{orderNames[u.order_id] || "—"}</td>
+                        <td className="px-3 py-2">{fab ? `${fab.fabric_type}${fab.color ? ` · ${fab.color}` : ""}` : "—"}</td>
+                        <td className="px-3 py-2 text-right font-mono">{u.kg_used}</td>
+                        <td className="px-3 py-2 text-right font-mono">{u.meters_used}</td>
+                        <td className="px-3 py-2">{u.used_by || "—"}</td>
+                      </tr>
+                    );
+                  })}
+                  {usage.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-stone-400">No fabric used yet.</td></tr>}
+                </tbody>
+              </table>
+            </Card>
+            <p className="text-[11px] text-stone-400 mt-1">Struck-through rows were returned to stock because the cutting entry was rejected.</p>
+          </div>
         </>
       )}
 
@@ -186,6 +245,7 @@ export default function Inventory({ profile }) {
         </Card>
       )}
 
+      {partsFor && <SparePartsModal machine={partsFor} parts={parts.filter((p) => p.machine_id === partsFor.id)} canEdit={canEdit} onClose={() => setPartsFor(null)} onSaved={load} />}
       {modal && <InventoryModal kind={modal.kind} row={modal.row} onClose={() => setModal(null)} onSaved={load} />}
     </div>
   );
@@ -328,6 +388,99 @@ function InventoryModal({ kind, row, onClose, onSaved }) {
           <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function SparePartsModal({ machine, parts, canEdit, onClose, onSaved }) {
+  const blank = { part_name: "", quantity: 1, status: "Needed", supplier: "", amount: "", purchase_date: "", notes: "" };
+  const [f, setF] = useState(blank);
+  const [saving, setSaving] = useState(false);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const name = machine.model === "OTHER" ? machine.model_other || "Other" : machine.model;
+
+  const add = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    const { error } = await supabase.from("inventory_spare_parts").insert({
+      machine_id: machine.id,
+      part_name: f.part_name,
+      quantity: Number(f.quantity) || 1,
+      status: f.status,
+      supplier: f.supplier || null,
+      amount: f.amount === "" ? null : Number(f.amount),
+      purchase_date: f.purchase_date || null,
+      notes: f.notes || null,
+    });
+    setSaving(false);
+    if (error) return alert(`Couldn't save:\n${error.message}`);
+    setF(blank);
+    onSaved();
+  };
+
+  const setStatus = async (id, status) => {
+    const patch = { status };
+    if (status === "Purchased") patch.purchase_date = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const { error } = await supabase.from("inventory_spare_parts").update(patch).eq("id", id);
+    if (error) alert(error.message);
+    onSaved();
+  };
+
+  const del = async (id) => {
+    if (!window.confirm("Delete this spare part entry?")) return;
+    await supabase.from("inventory_spare_parts").delete().eq("id", id);
+    onSaved();
+  };
+
+  const total = parts.reduce((t, p) => t + (Number(p.amount) || 0), 0);
+
+  return (
+    <Modal title={`Spare parts — ${name} ${machine.machine_type} (${machine.working_condition})`} onClose={onClose}>
+      <div className="space-y-1.5 mb-3 max-h-64 overflow-y-auto">
+        {parts.map((p) => (
+          <div key={p.id} className="flex items-center justify-between gap-2 bg-stone-50 rounded-lg px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <div className="font-medium truncate">{p.part_name} <span className="text-stone-400 font-normal">× {p.quantity}</span></div>
+              <div className="text-xs text-stone-500">
+                {[p.supplier, p.amount != null ? `₹${p.amount}` : null, p.purchase_date ? fmt(p.purchase_date) : null].filter(Boolean).join(" · ") || "No purchase details yet"}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {canEdit ? (
+                <select className="text-xs border border-stone-300 rounded px-1.5 py-1" value={p.status} onChange={(e) => setStatus(p.id, e.target.value)}>
+                  {["Needed", "Ordered", "Purchased"].map((s) => <option key={s}>{s}</option>)}
+                </select>
+              ) : (
+                <span className="text-xs">{p.status}</span>
+              )}
+              {canEdit && <button onClick={() => del(p.id)} className="text-stone-400 hover:text-rose-600"><Trash2 size={13} /></button>}
+            </div>
+          </div>
+        ))}
+        {parts.length === 0 && <p className="text-xs text-stone-400 py-3 text-center">No spare parts recorded for this machine.</p>}
+      </div>
+      {parts.length > 0 && <p className="text-xs text-stone-500 mb-3">Total spare-part cost: ₹{total.toLocaleString("en-IN")}</p>}
+
+      {canEdit && (
+        <form onSubmit={add} className="border-t border-stone-100 pt-3">
+          <div className="text-xs font-semibold text-stone-600 uppercase mb-2">Add spare part / purchase</div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Part name"><input required className={inputCls} value={f.part_name} onChange={set("part_name")} placeholder="e.g. Motor, Needle bar" /></Field>
+            <Field label="Quantity"><input type="number" min="1" className={inputCls} value={f.quantity} onChange={set("quantity")} /></Field>
+            <Field label="Status">
+              <select className={inputCls} value={f.status} onChange={set("status")}>{["Needed", "Ordered", "Purchased"].map((s) => <option key={s}>{s}</option>)}</select>
+            </Field>
+            <Field label="Supplier"><input className={inputCls} value={f.supplier} onChange={set("supplier")} /></Field>
+            <Field label="Amount (₹)"><input type="number" min="0" className={inputCls} value={f.amount} onChange={set("amount")} /></Field>
+            <Field label="Purchase date"><input type="date" className={inputCls} value={f.purchase_date} onChange={set("purchase_date")} /></Field>
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Btn variant="ghost" onClick={onClose}>Close</Btn>
+            <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Add part"}</Btn>
+          </div>
+        </form>
+      )}
+      {!canEdit && <div className="flex justify-end mt-2"><Btn variant="ghost" onClick={onClose}>Close</Btn></div>}
     </Modal>
   );
 }

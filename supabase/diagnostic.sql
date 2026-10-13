@@ -39,7 +39,11 @@ select 'constraint', 'profiles_role_check includes new roles',
 
 union all
 select 'table', t, to_regclass('public.'||t) is not null
-from unnest(array['inventory_machines','inventory_fabric','inventory_items']) as t
+from unnest(array['inventory_machines','inventory_fabric','inventory_items','inventory_spare_parts','fabric_usage','purchase_requests','quality_inspections']) as t
+
+union all
+select 'column', 'purchase_requests.tracking_number',
+  exists (select 1 from information_schema.columns where table_name='purchase_requests' and column_name='tracking_number')
 
 union all
 select 'realtime', 'attendance in realtime publication',

@@ -4,7 +4,7 @@ import { supabase } from "../supabaseClient";
 import { Field, inputCls, Btn } from "./ui";
 
 export default function LoginScreen() {
-  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +22,22 @@ export default function LoginScreen() {
     if (error) setError(error.message);
   };
 
+  const friendly = (msg = "") =>
+    /rate limit/i.test(msg)
+      ? "Too many emails were sent recently, so the email service has paused for a while. Please wait about an hour and try again, or ask an admin to set up a custom email (SMTP) service in Supabase."
+      : msg;
+
+  const forgot = async (e) => {
+    e.preventDefault();
+    setError("");
+    setInfo("");
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    setLoading(false);
+    if (error) return setError(friendly(error.message));
+    setInfo("If that email has an account, a password-reset link is on its way. Open it on this device to choose a new password.");
+  };
+
   const signUp = async (e) => {
     e.preventDefault();
     setError("");
@@ -36,7 +52,7 @@ export default function LoginScreen() {
       options: { data: { name: name.trim() } },
     });
     setLoading(false);
-    if (error) return setError(error.message);
+    if (error) return setError(friendly(error.message));
     setInfo(
       "Account created. If email confirmation is enabled on your Supabase project, check your inbox before signing in. New accounts start as Staff — ask an admin to upgrade your role in Supabase if needed."
     );
@@ -81,6 +97,23 @@ export default function LoginScreen() {
               <Btn type="submit" className="w-full justify-center mt-1" disabled={loading}>
                 {loading ? <Loader2 size={15} className="animate-spin" /> : null} Sign in
               </Btn>
+              <button type="button" onClick={() => { setMode("forgot"); setError(""); setInfo(""); }} className="block mx-auto mt-3 text-xs text-indigo-700 hover:underline">
+                Forgot password?
+              </button>
+            </form>
+          ) : mode === "forgot" ? (
+            <form onSubmit={forgot}>
+              <p className="text-xs text-stone-500 mb-3">Enter your account email and we'll send you a link to set a new password.</p>
+              <Field label="Email">
+                <input type="email" required autoFocus className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} />
+              </Field>
+              {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
+              <Btn type="submit" className="w-full justify-center" disabled={loading}>
+                {loading ? <Loader2 size={15} className="animate-spin" /> : null} Send reset link
+              </Btn>
+              <button type="button" onClick={() => { setMode("signin"); setError(""); }} className="block mx-auto mt-3 text-xs text-stone-500 hover:underline">
+                Back to sign in
+              </button>
             </form>
           ) : (
             <form onSubmit={signUp}>

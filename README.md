@@ -511,3 +511,18 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 - Attendance: self check-in/out now shows (times trimmed, realtime enabled, check-out location shown). Needs **migration_29.sql**.
 - Inventory module (machines, fabric, threads/elastic/accessories). Needs **migration_29.sql**.
 - Output module: approved cutting vs stitched pieces, green when equal, red when not.
+
+## v25 changes (needs migration_30.sql)
+- PM has full write access in Orders (orders, progress, deliveries, agreements).
+- Cutting: Chudidhar, Short, Shirt, Coat, Skirt, Track Pant, Frock (18-44) added; fabric must be picked from Inventory and the kg/m used is deducted on submit (returned if the entry is rejected).
+- Inventory: spare parts + purchase details for machines that are Under repair / Not working; fabric usage history.
+- User Management: Admin-only delete account. Login: Forgot password + set-new-password screen.
+- Approved leave is marked Leave in Attendance. Payroll pays every Sunday by default.
+- Finance -> Purchase Requests: needs GM + one Admin approval, then adds an expenditure to the chosen order/investor. GM and PM can open Finance (this sub-tab only).
+
+## v26 changes (needs migration_31.sql, after migration_30)
+- Purchase requests now run through: payment to vendor -> vendor invoice (file upload) -> dispatch / tracking -> goods received, which adds stock to Inventory (fabric, accessories, machines, spare parts).
+
+## v27 changes (needs migration_32.sql, after migration_31)
+- New role **Quality Manager** and a **Quality** tab: 12-point inspection checklist (stitched count vs cut count, design, colour, print vs sample, measurements, stitching, etc.). Approval makes the order "Ready for shipping"; orders can't be marked Shipped or have deliveries logged until approved.
+- Also fixes inviting GM / PM / TL / Cutting Master / Sales from User Management (the invitation table only allowed admin / HR / staff).
