@@ -24,7 +24,7 @@ export default function QuarterlyReport() {
     try {
       const [invoices, expenditures, orders, finance, labor, employees] = await Promise.all([
         fetchAll(() => supabase.from("invoices").select("id, linked_order_id, amount, issue_date").gte("issue_date", prevRange.from).lte("issue_date", range.to).order("id")),
-        fetchAll(() => supabase.from("expenditures").select("id, category, amount, expense_date, linked_order_id").gte("expense_date", prevRange.from).lte("expense_date", range.to).order("id")),
+        fetchAll(() => supabase.from("expenditures").select("id, category, amount, expense_date, linked_order_id, payroll_id").gte("expense_date", prevRange.from).lte("expense_date", range.to).order("id")),
         fetchAll(() => supabase.from("orders").select("id, order_number, customer_name").order("id")),
         fetchAll(() => supabase.from("order_finance").select("*").order("order_id")),
         fetchAll(() => supabase.from("order_labor").select("*").order("id")),
@@ -70,14 +70,18 @@ export default function QuarterlyReport() {
   const invP = data.invoices.filter((i) => i.issue_date && inRange(i.issue_date, prevRange));
   const expQ = data.expenditures.filter((e) => inRange(e.expense_date, range));
   const expP = data.expenditures.filter((e) => inRange(e.expense_date, prevRange));
+  // Paid salaries are already in the expenditures (category Salary). Only months with no
+  // salary recorded yet get an estimate (current base pay), so nothing is counted twice.
   const salaryMonthly = sum(data.employees, (e) => e.base_salary);
-  const salaryQ = salaryMonthly * 3;
+  const estFor = (r, rows) => r.months.filter((mk) => !rows.some((e) => e.category === "Salary" && e.expense_date.startsWith(mk))).length * salaryMonthly;
+  const salaryQ = estFor(range, data.expenditures);
+  const salaryPaidQ = sum(data.expenditures.filter((e) => e.category === "Salary" && inRange(e.expense_date, range)));
   const revenue = sum(invQ);
   const spend = sum(expQ);
   const net = revenue - spend - salaryQ;
   const margin = revenue ? (net / revenue) * 100 : null;
   const prevRevenue = sum(invP);
-  const prevNet = prevRevenue - sum(expP) - salaryQ;
+  const prevNet = prevRevenue - sum(expP) - estFor(prevRange, data.expenditures);
   const revChange = pctChange(revenue, prevRevenue);
 
   const monthly = range.months.map((mk) => ({
@@ -128,7 +132,7 @@ export default function QuarterlyReport() {
 
   const bullets = [
     `Revenue (invoiced) was ${fmtMoney(revenue)}${revChange === null ? "" : `, ${revChange >= 0 ? "up" : "down"} ${Math.abs(Math.round(revChange * 10) / 10)}% on ${prevRange.label}`}.`,
-    `Spend was ${fmtMoney(spend)} (logged expenditures) plus an estimated ${fmtMoney(salaryQ)} in salaries (current base pay x 3 months). Net ${net >= 0 ? "profit" : "loss"}: ${fmtMoney(Math.abs(net))}${margin === null ? "" : ` (${Math.round(margin * 10) / 10}% of revenue)`}.`,
+    `Spend was ${fmtMoney(spend)} (logged expenditures) including ${fmtMoney(salaryPaidQ)} of salaries paid${salaryQ ? `, plus an estimated ${fmtMoney(salaryQ)} for months with no salary recorded yet (current base pay)` : ""}. Net ${net >= 0 ? "profit" : "loss"}: ${fmtMoney(Math.abs(net))}${margin === null ? "" : ` (${Math.round(margin * 10) / 10}% of revenue)`}.`,
     orderRows.length ? `${winners.length} order(s) made a profit and ${losers.length} made a loss.` : "No orders were fully invoiced in this quarter.",
     ...(winners[0] ? [`Best order: ${winners[0].order} (${winners[0].customer}) with ${fmtMoney(winners[0].profit)} profit.`] : []),
     ...(losers.length ? [`Biggest loss: ${losers[losers.length - 1].order} (${losers[losers.length - 1].customer}), ${fmtMoney(Math.abs(losers[losers.length - 1].profit))} below cost.`] : []),
@@ -145,7 +149,8 @@ export default function QuarterlyReport() {
         kpis: [
           { label: "Revenue (invoiced)", value: fmtMoney(revenue) },
           { label: "Expenditure", value: fmtMoney(spend) },
-          { label: "Est. salaries", value: fmtMoney(salaryQ) },
+          { label: "Salaries paid", value: fmtMoney(salaryPaidQ) },
+          { label: "Est. salaries (unpaid months)", value: fmtMoney(salaryQ) },
           { label: net >= 0 ? "Net profit" : "Net loss", value: fmtMoney(Math.abs(net)) },
           { label: "Profit margin", value: margin === null ? "n/a" : `${Math.round(margin * 10) / 10}%` },
           { label: "Revenue vs last quarter", value: revChange === null ? "n/a" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}%` },
@@ -177,7 +182,7 @@ export default function QuarterlyReport() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Revenue" value={fmtMoney(revenue)} icon={TrendingUp} tone="good" sub={revChange === null ? "No earlier quarter data" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}% vs ${prevRange.label}`} />
-        <StatCard label="Expenditure" value={fmtMoney(spend)} icon={Wallet} sub={`+ ${fmtMoney(salaryQ)} est. salaries`} />
+        <StatCard label="Expenditure" value={fmtMoney(spend)} icon={Wallet} sub={`incl. ${fmtMoney(salaryPaidQ)} salaries${salaryQ ? ` + ${fmtMoney(salaryQ)} est.` : ""}`} />
         <StatCard label={net >= 0 ? "Net profit" : "Net loss"} value={fmtMoney(Math.abs(net))} icon={net >= 0 ? TrendingUp : TrendingDown} tone={net >= 0 ? "good" : "bad"} sub={prevNet ? `Last quarter: ${fmtMoney(prevNet)}` : undefined} />
         <StatCard label="Profit margin" value={margin === null ? "—" : `${Math.round(margin * 10) / 10}%`} icon={Percent} tone={margin !== null && margin < 0 ? "bad" : "good"} sub={`${winners.length} profit · ${losers.length} loss orders`} />
       </div>

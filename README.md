@@ -531,3 +531,9 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 - Insights tab: Daily report, "Why did output change?" analysis, Operation log.
 - Finance -> Quarterly Report: revenue, expenditure, profit/loss %, per-order profit/loss, charts.
 - Every report downloads as PDF, PowerPoint or Excel (new packages: jspdf, jspdf-autotable, pptxgenjs, exceljs).
+
+## v30 changes (needs migration_34.sql, after migration_33)
+- Marking a salary **Paid** in Payroll now posts an expenditure (category **Salary**, dated the day it was marked paid, one line per employee per month). Marking it back to Pending removes it. Editing bonus/deductions on a paid row updates the amount.
+- Salary lines show "from Payroll" in Finance -> Expenditures (change them in Payroll).
+- Quarterly Report counts paid salaries from expenditures and estimates only months with no salary recorded.
+- Salaries already marked Paid before this update are not posted; toggle them to Pending and back to Paid once.

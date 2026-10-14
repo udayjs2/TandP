@@ -62,7 +62,18 @@ function AdminPayroll() {
     const existing = payrollRows[empId] || { bonus: 0, deductions: 0, status: "Pending" };
     const next = { ...existing, ...patch, employee_id: empId, month: mk };
     delete next.id;
-    await supabase.from("payroll").upsert(next, { onConflict: "employee_id,month" });
+    // The net amount is stored with the row so a Paid salary posts to Finance -> Expenditures
+    // (category "Salary") with the exact figure shown here. Re-saved on any bonus/deduction edit.
+    const emp = employees.find((x) => x.id === empId);
+    const att = attByEmp[empId] || { present: 0 };
+    const daily = (Number(emp?.base_salary) || 0) / totalDays;
+    next.net_pay = Math.max(0, Math.round((daily * att.present + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
+    delete next.paid_at;
+    if (next.status === "Paid" && next.net_pay <= 0) { alert("Net pay is 0, so there is nothing to record as paid."); return; }
+    if (next.status === "Paid" && existing.status !== "Paid" && !confirm(`Mark ${emp?.name || "employee"} as paid ${fmtMoney(next.net_pay)}? This is recorded in Finance as a Salary expenditure.`)) return;
+    if (existing.status === "Paid" && next.status !== "Paid" && !confirm("Mark as Pending? The salary entry will be removed from Finance expenditures.")) return;
+    const { error } = await supabase.from("payroll").upsert(next, { onConflict: "employee_id,month" });
+    if (error) alert("Couldn't save payroll: " + error.message + "\n(If it mentions net_pay, run migration_34.sql.)");
     load();
   };
 

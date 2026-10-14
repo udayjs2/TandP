@@ -444,8 +444,12 @@ function Expenditures() {
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-1">
-                    <button onClick={() => setModal(r)} className="text-stone-400 hover:text-indigo-700 p-1"><Pencil size={14} /></button>
-                    <button onClick={() => remove(r.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={14} /></button>
+                    {r.payroll_id ? (
+                      <span className="text-[10px] text-stone-400 px-1" title="Posted from Payroll. Change it there.">from Payroll</span>
+                    ) : (<>
+                      <button onClick={() => setModal(r)} className="text-stone-400 hover:text-indigo-700 p-1"><Pencil size={14} /></button>
+                      <button onClick={() => remove(r.id)} className="text-stone-400 hover:text-rose-700 p-1"><Trash2 size={14} /></button>
+                    </>)}
                   </div>
                 </td>
               </tr>
