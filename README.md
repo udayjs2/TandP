@@ -526,3 +526,8 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 ## v27 changes (needs migration_32.sql, after migration_31)
 - New role **Quality Manager** and a **Quality** tab: 12-point inspection checklist (stitched count vs cut count, design, colour, print vs sample, measurements, stitching, etc.). Approval makes the order "Ready for shipping"; orders can't be marked Shipped or have deliveries logged until approved.
 - Also fixes inviting GM / PM / TL / Cutting Master / Sales from User Management (the invitation table only allowed admin / HR / staff).
+
+## v29 changes (needs migration_33.sql, after migration_32; then run `npm install` for the new packages)
+- Insights tab: Daily report, "Why did output change?" analysis, Operation log.
+- Finance -> Quarterly Report: revenue, expenditure, profit/loss %, per-order profit/loss, charts.
+- Every report downloads as PDF, PowerPoint or Excel (new packages: jspdf, jspdf-autotable, pptxgenjs, exceljs).

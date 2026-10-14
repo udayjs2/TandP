@@ -39,7 +39,7 @@ select 'constraint', 'profiles_role_check includes new roles',
 
 union all
 select 'table', t, to_regclass('public.'||t) is not null
-from unnest(array['inventory_machines','inventory_fabric','inventory_items','inventory_spare_parts','fabric_usage','purchase_requests','quality_inspections']) as t
+from unnest(array['inventory_machines','inventory_fabric','inventory_items','inventory_spare_parts','fabric_usage','purchase_requests','quality_inspections','operation_output']) as t
 
 union all
 select 'column', 'purchase_requests.tracking_number',

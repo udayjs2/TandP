@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, Receipt, CalendarCheck, Wallet, TrendingUp,
-  Landmark, ShieldCheck, ClipboardCheck, CalendarClock, MapPinned, Tv, Scissors, CalendarDays, Loader2, Boxes, BarChart3,
+  Landmark, ShieldCheck, ClipboardCheck, CalendarClock, MapPinned, Tv, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Activity,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -24,6 +24,7 @@ import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
 import Output from "./components/Output";
 import Quality from "./components/Quality";
+import Insights from "./components/Insights";
 
 // Full access roles: Admin and HR (HR was explicitly made equal to Admin)
 const FULL = ["admin", "hr"];
@@ -36,6 +37,7 @@ const TABS = [
   { id: "invoices", label: "Invoices", icon: Receipt, roles: [...FULL, "gm"] },
   { id: "cutting", label: "Cutting", icon: Scissors, roles: [...FULL, "gm", "pm", "cutting_master"] },
   { id: "output", label: "Output", icon: BarChart3, roles: [...FULL, "gm", "pm", "tl", "quality_manager"] },
+  { id: "insights", label: "Insights", icon: Activity, roles: [...FULL, "gm", "pm", "tl"] },
   { id: "quality", label: "Quality", icon: ClipboardCheck, roles: [...FULL, "gm", "pm", "tl", "quality_manager"] },
   { id: "inventory", label: "Inventory", icon: Boxes, roles: [...FULL, "gm", "pm", "tl", "cutting_master"] },
   { id: "attendance", label: "Attendance", icon: CalendarCheck, roles: FULL },
@@ -134,6 +136,7 @@ export default function App() {
         {activeTab === "invoices" && canInvoices && <Invoices isAdmin={canInvoices} />}
         {activeTab === "cutting" && canCutting && <Cutting profile={profile} />}
         {activeTab === "output" && <Output />}
+        {activeTab === "insights" && <Insights profile={profile} />}
         {activeTab === "quality" && <Quality profile={profile} />}
         {activeTab === "inventory" && <Inventory profile={profile} />}
         {activeTab === "attendance" && canAttendance && <Attendance profile={profile} />}

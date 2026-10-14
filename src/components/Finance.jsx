@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
+import QuarterlyReport from "./QuarterlyReport";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
 
 const SUB_TABS = [
@@ -12,6 +13,7 @@ const SUB_TABS = [
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
   { id: "purchase", label: "Purchase Requests", icon: ShoppingCart },
+  { id: "quarterly", label: "Quarterly Report", icon: TrendingUp },
 ];
 
 export default function Finance({ profile }) {
@@ -48,6 +50,7 @@ export default function Finance({ profile }) {
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
       {sub === "purchase" && <PurchaseRequests profile={profile} />}
+      {sub === "quarterly" && <QuarterlyReport />}
     </div>
   );
 }
