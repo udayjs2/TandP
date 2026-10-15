@@ -1842,3 +1842,396 @@ end $$;
 drop trigger if exists payroll_post_expenditure on payroll;
 create trigger payroll_post_expenditure after insert or update on payroll
   for each row execute function sync_payroll_expenditure();
+-- v31: leave approvals for GM / PM / TL / HR, no self-approval, and auto-link of
+-- manager logins to their employee record (needed for self check-in / check-out).
+-- Run after migration_34.sql. Safe to re-run.
+
+create or replace function my_role() returns text
+language sql stable security definer set search_path = public as $$
+  select role from profiles where id = auth.uid()
+$$;
+
+-- Who can SEE and DECIDE a leave request:
+--   admin / hr  : everyone
+--   gm / pm     : everyone except their own request
+--   tl          : people who report to them (employees.reporting_manager_id)
+--   anyone      : their own request (to view / cancel while Pending)
+drop policy if exists "leave_requests_select" on leave_requests;
+create policy "leave_requests_select" on leave_requests for select using (
+  is_admin()
+  or my_role() in ('gm','pm')
+  or employee_id = (select employee_id from profiles where id = auth.uid())
+  or exists (
+    select 1 from employees e
+    where e.id = leave_requests.employee_id
+      and e.reporting_manager_id = (select employee_id from profiles where id = auth.uid())
+  )
+);
+
+drop policy if exists "leave_requests_update" on leave_requests;
+create policy "leave_requests_update" on leave_requests for update using (
+  is_admin()
+  or (my_role() in ('gm','pm') and employee_id is distinct from (select employee_id from profiles where id = auth.uid()))
+  or exists (
+    select 1 from employees e
+    where e.id = leave_requests.employee_id
+      and e.reporting_manager_id = (select employee_id from profiles where id = auth.uid())
+  )
+  or (
+    employee_id = (select employee_id from profiles where id = auth.uid())
+    and status = 'Pending'
+  )
+);
+
+-- Nobody approves or rejects their own leave (only the owner/admin login can, as the final authority).
+create or replace function block_self_leave_review() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare my_emp uuid; r text;
+begin
+  if new.status is distinct from old.status and new.status in ('Approved','Rejected') then
+    select employee_id, role into my_emp, r from profiles where id = auth.uid();
+    if my_emp is not null and my_emp = new.employee_id and coalesce(r,'') <> 'admin' then
+      raise exception 'You cannot approve or reject your own leave request. Ask your manager, GM or Admin.';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists leave_block_self_review on leave_requests;
+create trigger leave_block_self_review before update on leave_requests
+  for each row execute function block_self_leave_review();
+
+-- Link GM / PM / TL / HR logins to an employee record when the name matches exactly
+-- (one employee, not already linked to another login). Lets them use My Attendance
+-- check-in / check-out and raise leave. Anything not matched is listed in the notice.
+do $$
+declare p record; n int; emp uuid;
+begin
+  for p in select id, name from profiles
+           where role in ('gm','pm','tl','hr') and employee_id is null loop
+    select count(*) into n from employees e
+      where lower(trim(e.name)) = lower(trim(p.name))
+        and not exists (select 1 from profiles x where x.employee_id = e.id);
+    if n = 1 then
+      select e.id into emp from employees e
+        where lower(trim(e.name)) = lower(trim(p.name))
+          and not exists (select 1 from profiles x where x.employee_id = e.id);
+      update profiles set employee_id = emp where id = p.id;
+      raise notice 'Linked login "%" to its employee record', p.name;
+    else
+      raise notice 'NOT linked (no unique name match): "%". Link it in Payroll -> account column.', p.name;
+    end if;
+  end loop;
+end $$;
+-- v32: Vendors (Sales Team) and employee advances for expense claims.
+-- Run after migration_35.sql. Safe to re-run.
+
+-- ---------- Vendors ----------
+create table if not exists vendors (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  supplier_type text not null default 'Fabric',   -- Fabric, Machines, Accessories, Elastic, Threads, ...
+  contact_person text,
+  designation text,                                -- Owner, Sales Manager, ...
+  phone text,
+  email text,
+  address text,
+  gstin text,
+  notes text,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz default now()
+);
+alter table vendors enable row level security;
+drop policy if exists "vendors_select" on vendors;
+drop policy if exists "vendors_insert" on vendors;
+drop policy if exists "vendors_update" on vendors;
+drop policy if exists "vendors_delete" on vendors;
+create policy "vendors_select" on vendors for select using (is_admin() or my_role() in ('gm','pm','sales'));
+create policy "vendors_insert" on vendors for insert with check (is_admin() or my_role() in ('gm','pm','sales'));
+create policy "vendors_update" on vendors for update using (is_admin() or my_role() in ('gm','pm','sales'));
+create policy "vendors_delete" on vendors for delete using (is_admin() or my_role() in ('gm','pm'));
+
+-- ---------- Advances given to employees ----------
+create table if not exists employee_advances (
+  id uuid primary key default gen_random_uuid(),
+  employee_id uuid not null references employees(id) on delete cascade,
+  amount numeric not null check (amount > 0),
+  given_date date not null default current_date,
+  purpose text not null default 'Travel',          -- Travel, Marketing, Purchase, Other
+  payment_mode text,
+  linked_order_id uuid references orders(id) on delete set null,
+  notes text,
+  returned_amount numeric not null default 0,       -- unspent cash handed back
+  status text not null default 'Open' check (status in ('Open','Settled')),
+  given_by uuid references profiles(id) on delete set null,
+  settled_at timestamptz,
+  created_at timestamptz default now()
+);
+alter table employee_advances enable row level security;
+drop policy if exists "advances_select" on employee_advances;
+drop policy if exists "advances_write" on employee_advances;
+create policy "advances_select" on employee_advances for select using (
+  is_admin() or employee_id = (select employee_id from profiles where id = auth.uid())
+);
+create policy "advances_write" on employee_advances for all using (is_admin()) with check (is_admin());
+
+-- ---------- Claims: paid from advance or own money ----------
+alter table expense_claims add column if not exists paid_from text not null default 'Own money';
+alter table expense_claims drop constraint if exists expense_claims_paid_from_check;
+alter table expense_claims add constraint expense_claims_paid_from_check check (paid_from in ('Own money','Advance'));
+alter table expense_claims add column if not exists advance_id uuid references employee_advances(id) on delete set null;
+
+-- A claim paid from an advance must come from the claimant's own open advance and fit in what is left.
+create or replace function check_claim_advance() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare a record; spent numeric;
+begin
+  if new.paid_from <> 'Advance' then
+    new.advance_id := null;
+    return new;
+  end if;
+  if new.status = 'Rejected' then return new; end if;
+  if tg_op = 'UPDATE' and old.status <> 'Rejected' and new.advance_id is not distinct from old.advance_id
+     and new.amount = old.amount and new.paid_from = old.paid_from then
+    return new;   -- status moves only (Approved, Reimbursed, ...)
+  end if;
+  if new.advance_id is null then raise exception 'Choose which advance this expense is paid from.'; end if;
+  select * into a from employee_advances where id = new.advance_id;
+  if not found or a.employee_id <> new.employee_id then raise exception 'That advance does not belong to this employee.'; end if;
+  if a.status <> 'Open' then raise exception 'That advance is already settled.'; end if;
+  select coalesce(sum(amount), 0) into spent from expense_claims
+    where advance_id = new.advance_id and status <> 'Rejected' and id <> new.id;
+  if a.amount - a.returned_amount - spent < new.amount then
+    raise exception 'Only Rs. % is left in that advance. Submit the rest as "Own money".', (a.amount - a.returned_amount - spent);
+  end if;
+  return new;
+end $$;
+drop trigger if exists claim_advance_check on expense_claims;
+create trigger claim_advance_check before insert or update on expense_claims
+  for each row execute function check_claim_advance();
+
+-- Finance ledger: own-money claims post when Reimbursed (company pays the employee back);
+-- advance claims post when Approved (the cash already left the company as the advance, so
+-- the advance itself is NOT an expense - only what was actually spent is).
+create or replace function sync_reimbursed_expense_to_expenditure() returns trigger as $$
+begin
+  if (new.status = 'Reimbursed' and new.paid_from = 'Own money')
+     or (new.status in ('Approved','Reimbursed') and new.paid_from = 'Advance') then
+    if not exists (select 1 from expenditures where source_claim_id = new.id) then
+      insert into expenditures (category, item, amount, expense_date, notes, linked_order_id, source_claim_id)
+      values (
+        'Other',
+        'Sales expense - ' || new.category || coalesce(' (' || new.transport_mode || ')', '') ||
+          case when new.paid_from = 'Advance' then ' [from advance]' else '' end,
+        new.amount, new.expense_date,
+        coalesce(new.description, 'Sales/field expense'),
+        new.linked_order_id, new.id);
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+do $$ begin alter publication supabase_realtime add table employee_advances; exception when others then null; end $$;
+do $$ begin alter publication supabase_realtime add table vendors; exception when others then null; end $$;
+-- v33: choose which investor funds a salary. Run after migration_36.sql. Safe to re-run.
+alter table payroll add column if not exists investor_id uuid references investors(id) on delete set null;
+
+create or replace function sync_payroll_expenditure() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  emp_name text;
+  paid_on date := (now() at time zone 'Asia/Kolkata')::date;
+begin
+  if new.status = 'Paid' and coalesce(new.net_pay, 0) > 0 then
+    select name into emp_name from employees where id = new.employee_id;
+    if tg_op = 'UPDATE' and old.status = 'Paid' and exists (select 1 from expenditures where payroll_id = new.id) then
+      update expenditures set amount = new.net_pay, investor_id = new.investor_id,
+             item = 'Salary ' || new.month || ' - ' || coalesce(emp_name, 'employee')
+       where payroll_id = new.id;
+    else
+      insert into expenditures (category, item, vendor, amount, expense_date, notes, payroll_id, investor_id, created_by)
+      values ('Salary', 'Salary ' || new.month || ' - ' || coalesce(emp_name, 'employee'), emp_name, new.net_pay, paid_on,
+              'Auto-posted from Payroll when marked paid', new.id, new.investor_id, auth.uid())
+      on conflict (payroll_id) where payroll_id is not null
+      do update set amount = excluded.amount, item = excluded.item, investor_id = excluded.investor_id;
+      update payroll set paid_at = now() where id = new.id and paid_at is null;
+    end if;
+  else
+    delete from expenditures where payroll_id = new.id;
+  end if;
+  return null;
+end $$;
+
+-- Back-fill: salaries already posted before this update keep "no investor" until you pick one in Payroll.
+-- v34: daily workforce per order, delay RCA gate, customer agreement link, customer feedback link.
+-- Run after migration_37.sql. Safe to re-run.
+
+-- ================= 1. Who worked on which order on a day =================
+-- Combines Manpower assignments (Orders -> people icon) and the Operation log.
+-- Labour cost = employee's daily wage (monthly base / days in month), split across the orders the
+-- person worked on that day. Wages are only returned to Admin / HR; everyone else gets NULL.
+create or replace function daily_order_workforce(p_date date)
+returns table(order_id uuid, employee_id uuid, employee_name text, employee_role text, wage_share numeric)
+language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare v_admin boolean := is_admin();
+begin
+  if not (is_tl_or_above() or v_admin) then raise exception 'Not allowed'; end if;
+  return query
+  with pairs as (
+    select l.order_id, l.employee_id from order_labor l where l.work_date = p_date
+    union
+    select o.order_id, o.employee_id from operation_output o
+      where o.work_date = p_date and o.order_id is not null and o.employee_id is not null
+  ), cnt as (select pairs.employee_id, count(*) as n from pairs group by pairs.employee_id)
+  select p.order_id, p.employee_id, e.name, e.role,
+         case when v_admin then round((coalesce(e.base_salary, 0)
+              / extract(day from (date_trunc('month', p_date) + interval '1 month - 1 day'))) / c.n, 2)
+              else null end
+  from pairs p join employees e on e.id = p.employee_id join cnt c on c.employee_id = p.employee_id;
+end $$;
+grant execute on function daily_order_workforce(date) to authenticated;
+
+-- ================= 2. Delay RCA + lessons learned =================
+create table if not exists order_delay_rca (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null unique references orders(id) on delete cascade,
+  causes jsonb not null default '[]',      -- [{cause, days, notes}]
+  root_cause text not null,
+  lessons_learned text not null,
+  corrective_action text,
+  days_late integer,
+  submitted_by uuid references profiles(id) on delete set null,
+  submitted_by_name text,
+  submitted_at timestamptz default now()
+);
+alter table order_delay_rca enable row level security;
+drop policy if exists "rca_select" on order_delay_rca;
+drop policy if exists "rca_insert" on order_delay_rca;
+drop policy if exists "rca_update" on order_delay_rca;
+drop policy if exists "rca_delete" on order_delay_rca;
+create policy "rca_select" on order_delay_rca for select using (is_admin() or is_tl_or_above() or my_role() = 'quality_manager');
+create policy "rca_insert" on order_delay_rca for insert with check (is_admin() or my_role() in ('gm','pm','tl'));
+create policy "rca_update" on order_delay_rca for update using (is_admin() or my_role() in ('gm','pm','tl'));
+create policy "rca_delete" on order_delay_rca for delete using (is_admin());
+
+-- An order past its due date cannot move to Completed / Shipped until the RCA is on file.
+create or replace function block_late_completion_without_rca() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare today_ist date := (now() at time zone 'Asia/Kolkata')::date;
+begin
+  if new.status in ('Completed','Shipped') and old.status is distinct from new.status
+     and old.status not in ('Completed','Shipped')
+     and new.due_date is not null and new.due_date < today_ist
+     and not exists (select 1 from order_delay_rca r where r.order_id = new.id) then
+    raise exception 'This order is past its due date. Submit the delay RCA and lessons learned before completing it.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists orders_require_rca on orders;
+create trigger orders_require_rca before update on orders
+  for each row execute function block_late_completion_without_rca();
+
+-- ================= 3. Customer agreement (agree / disagree link) =================
+alter table orders add column if not exists agreement_status text not null default 'Not sent';
+alter table orders drop constraint if exists orders_agreement_status_check;
+alter table orders add constraint orders_agreement_status_check check (agreement_status in ('Not sent','Sent','Agreed','Disagreed'));
+alter table orders add column if not exists agreement_sent_at timestamptz;
+alter table orders add column if not exists agreement_responded_at timestamptz;
+alter table orders add column if not exists agreement_responder text;
+alter table orders add column if not exists agreement_comment text;
+alter table orders add column if not exists feedback_sent_at timestamptz;
+
+create or replace function public_agreement(p_order_number text, p_tracking_code text)
+returns json language plpgsql security definer set search_path = public as $$
+declare o record; a record;
+begin
+  select * into o from orders where order_number = p_order_number and tracking_code = p_tracking_code;
+  if not found then return null; end if;
+  select * into a from order_agreements where order_id = o.id order by created_at desc limit 1;
+  return json_build_object(
+    'order_number', o.order_number, 'customer_name', o.customer_name, 'order_date', o.order_date,
+    'due_date', o.due_date, 'agreement_status', o.agreement_status, 'responded_at', o.agreement_responded_at,
+    'responder', o.agreement_responder,
+    'items', (select coalesce(json_agg(json_build_object(
+        'description', it->>'description', 'quantity', (it->>'quantity')::numeric,
+        'rate', (select (r->>'rate')::numeric from jsonb_array_elements(coalesce(a.item_rates,'[]'::jsonb)) r where r->>'description' = it->>'description' limit 1)
+      )), '[]'::json) from jsonb_array_elements(o.items) it),
+    'terms', case when a.id is null then null else json_build_object(
+        'gst_percent', a.gst_percent, 'advance_pct', a.advance_pct, 'before_dispatch_pct', a.before_dispatch_pct,
+        'balance_pct', a.balance_pct, 'balance_days', a.balance_days, 'transportation', a.transportation,
+        'unclaimed_goods_days', a.unclaimed_goods_days) end
+  );
+end $$;
+
+create or replace function public_agreement_respond(p_order_number text, p_tracking_code text, p_decision text, p_name text, p_comment text)
+returns json language plpgsql security definer set search_path = public as $$
+declare o record;
+begin
+  select * into o from orders where order_number = p_order_number and tracking_code = p_tracking_code;
+  if not found then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  if p_decision not in ('Agreed','Disagreed') then return json_build_object('ok', false, 'error', 'bad_decision'); end if;
+  if o.agreement_status <> 'Sent' then return json_build_object('ok', false, 'error', 'not_open', 'status', o.agreement_status); end if;
+  if length(trim(coalesce(p_name,''))) < 2 then return json_build_object('ok', false, 'error', 'name_required'); end if;
+  if p_decision = 'Disagreed' and length(trim(coalesce(p_comment,''))) < 3 then return json_build_object('ok', false, 'error', 'comment_required'); end if;
+  update orders set agreement_status = p_decision, agreement_responded_at = now(),
+         agreement_responder = left(trim(p_name), 120), agreement_comment = nullif(left(trim(coalesce(p_comment,'')), 1000), '')
+   where id = o.id;
+  return json_build_object('ok', true, 'status', p_decision);
+end $$;
+grant execute on function public_agreement(text, text) to anon, authenticated;
+grant execute on function public_agreement_respond(text, text, text, text, text) to anon, authenticated;
+
+-- ================= 4. Customer feedback =================
+create table if not exists order_feedback (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null unique references orders(id) on delete cascade,
+  ratings jsonb not null default '{}',     -- {fabric_quality: 1-5, ...}
+  delivery_timing text,                    -- On time / Slightly delayed / Very delayed
+  would_reorder text,                      -- Yes / Maybe / No
+  issues text,
+  comments text,
+  respondent_name text,
+  submitted_at timestamptz default now()
+);
+alter table order_feedback enable row level security;
+drop policy if exists "feedback_select" on order_feedback;
+drop policy if exists "feedback_delete" on order_feedback;
+create policy "feedback_select" on order_feedback for select using (is_admin() or is_tl_or_above() or my_role() = 'quality_manager');
+create policy "feedback_delete" on order_feedback for delete using (is_admin());
+
+create or replace function public_feedback_status(p_order_number text, p_tracking_code text)
+returns json language plpgsql security definer set search_path = public as $$
+declare o record;
+begin
+  select * into o from orders where order_number = p_order_number and tracking_code = p_tracking_code;
+  if not found then return null; end if;
+  return json_build_object('order_number', o.order_number, 'customer_name', o.customer_name, 'status', o.status,
+    'open', o.status in ('Completed','Shipped'),
+    'already_submitted', exists (select 1 from order_feedback f where f.order_id = o.id));
+end $$;
+
+create or replace function public_feedback_submit(p_order_number text, p_tracking_code text, p_payload jsonb)
+returns json language plpgsql security definer set search_path = public as $$
+declare o record; k text; v numeric; r jsonb := '{}'::jsonb;
+begin
+  select * into o from orders where order_number = p_order_number and tracking_code = p_tracking_code;
+  if not found then return json_build_object('ok', false, 'error', 'not_found'); end if;
+  if o.status not in ('Completed','Shipped') then return json_build_object('ok', false, 'error', 'not_open'); end if;
+  if exists (select 1 from order_feedback where order_id = o.id) then return json_build_object('ok', false, 'error', 'already_submitted'); end if;
+  for k in select jsonb_object_keys(coalesce(p_payload->'ratings','{}'::jsonb)) loop
+    v := (p_payload->'ratings'->>k)::numeric;
+    if v between 1 and 5 and k ~ '^[a-z_]{1,40}$' then r := r || jsonb_build_object(k, v); end if;
+  end loop;
+  if r = '{}'::jsonb then return json_build_object('ok', false, 'error', 'no_ratings'); end if;
+  insert into order_feedback (order_id, ratings, delivery_timing, would_reorder, issues, comments, respondent_name)
+  values (o.id, r, left(p_payload->>'delivery_timing', 40), left(p_payload->>'would_reorder', 20),
+          nullif(left(p_payload->>'issues', 1500), ''), nullif(left(p_payload->>'comments', 1500), ''),
+          nullif(left(p_payload->>'respondent_name', 120), ''));
+  return json_build_object('ok', true);
+end $$;
+grant execute on function public_feedback_status(text, text) to anon, authenticated;
+grant execute on function public_feedback_submit(text, text, jsonb) to anon, authenticated;
+
+do $$ begin alter publication supabase_realtime add table order_delay_rca; exception when others then null; end $$;
+do $$ begin alter publication supabase_realtime add table order_feedback; exception when others then null; end $$;

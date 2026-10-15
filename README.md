@@ -537,3 +537,22 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 - Salary lines show "from Payroll" in Finance -> Expenditures (change them in Payroll).
 - Quarterly Report counts paid salaries from expenditures and estimates only months with no salary recorded.
 - Salaries already marked Paid before this update are not posted; toggle them to Pending and back to Paid once.
+
+## v31 changes (needs migration_35.sql, after migration_34)
+- Leave: GM and PM see and approve every request (not their own); TL approves people who report to them; HR/Admin approve all. Nobody can approve their own leave (only the Admin login can). Anyone can raise a request from Leave Requests.
+- Check-in / check-out: GM, PM, TL and HR use **My Attendance**. It needs the login linked to an employee record; the migration links these logins automatically when the name matches exactly, and lists any it couldn't.
+- Insights -> Daily report: tap "Not working" for names grouped as Leave / Absent / Not marked; filter the attendance list by Present, Half Day, Leave, Absent, Not marked or Not working.
+
+## v32 changes (needs migration_36.sql, after migration_35)
+- Sales Team -> **Vendors**: vendor name, supplier type (Fabric, Machines, Accessories, Elastic, Threads... or your own), contact person, designation, contact number, address, email, GSTIN, notes. Search and filter by type; tap the number to call.
+- Sales Team -> **Advances** (Admin/HR): record cash given to an employee for Travel / Marketing / Purchase (optionally for an order). Shows given, spent, returned and what is left; Settle closes an advance.
+- Expense claims: staff choose **My own money** or **Company advance** (and which advance). Advance bills cannot exceed what is left. Own-money bills are reimbursed as before; advance bills need no reimbursement. Both post to Finance -> Expenditures (own money when reimbursed, advance when approved); the advance itself is not counted as an expense.
+
+## v33 changes (needs migration_37.sql, after migration_36)
+- Payroll has a **Funded by** investor per employee row and a "Fund salaries from..." default at the top. The chosen investor is saved on the Salary expenditure in Finance (and shows in Investors -> purchases attributed to them). Changing the investor on an already-paid row updates the expenditure.
+
+## v34 changes (needs migration_38.sql, after migration_37; no new packages)
+- **Daily report** now lists, for each order worked on that day: pieces, number of people, who worked, and labour cost (Admin/HR only). Orders past their due date show in red with days late, plus a red "running past due date" panel. People come from Orders -> Manpower assignments and the Operation log.
+- **Late orders need an RCA**: an order past its due date cannot be set to Completed/Shipped until the delay RCA (reasons: under-estimated, fabric delay, sample approval delay, customer delay, rework, other; days lost; root cause; lessons learned) is saved. Enforced in the database too. Orders list shows red overdue cards.
+- **Customer agreement link** (send icon on an order): customer opens a no-login page, reviews items/rates/terms and taps I agree / I disagree. Status, name, time and comment appear on the order.
+- **Customer feedback link** (star icon, once Completed/Shipped): ratings for fabric, stitching, size matching, durability, pricing, design and colour matching, packing, communication, overall, plus delivery timing, reorder intent and problems. Results show on the order and in Insights -> Feedback & delays, together with all RCAs.

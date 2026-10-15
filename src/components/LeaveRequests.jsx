@@ -11,10 +11,11 @@ const STATUS_COLORS = {
 };
 
 export default function LeaveRequests({ profile }) {
-  const isAdmin = profile?.role === "admin" || profile?.role === "hr";
+  const isAdmin = ["admin", "hr", "gm", "pm", "tl"].includes(profile?.role); // anyone who reviews requests
   const [myRequests, setMyRequests] = useState([]);
   const [toApprove, setToApprove] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
+  const [reviewed, setReviewed] = useState([]);
   const [modal, setModal] = useState(false);
 
   const load = async () => {
@@ -32,6 +33,7 @@ export default function LeaveRequests({ profile }) {
     // "to approve" = pending requests not from me, that RLS already scoped
     // to either my direct reports or (for admin/hr) everyone
     setToApprove((all || []).filter((r) => r.status === "Pending" && r.employee_id !== profile?.employee_id));
+    setReviewed((all || []).filter((r) => r.status !== "Pending" && r.employee_id !== profile?.employee_id).slice(0, 15));
   };
 
   useEffect(() => {
@@ -82,7 +84,24 @@ export default function LeaveRequests({ profile }) {
                 </div>
               </Card>
             ))}
-            {toApprove.length === 0 && <Card className="p-4 text-center text-stone-400 text-sm">Nothing pending right now.</Card>}
+            {toApprove.length === 0 && <Card className="p-4 text-center text-stone-400 text-sm">Nothing pending right now.{profile?.role === "tl" ? " (You see requests from people who report to you.)" : ""}</Card>}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && reviewed.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-sm mb-2">Recently reviewed</h3>
+          <div className="grid gap-2">
+            {reviewed.map((r) => (
+              <Card key={r.id} className="p-3 flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="text-sm font-medium">{employeeNames[r.employee_id] || "—"}</div>
+                  <div className="text-xs text-stone-500">{r.start_date} → {r.end_date}{r.reviewed_by ? ` · by ${r.reviewed_by}` : ""}</div>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[r.status]}`}>{r.status}</span>
+              </Card>
+            ))}
           </div>
         </div>
       )}

@@ -274,3 +274,28 @@ export const reverseGeocode = async (lat, lng) => {
 };
 
 export const googleMapsLink = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+
+// ---- delay RCA + customer feedback (v34) ----
+export const DELAY_CAUSES = [
+  "Under-estimated (time / capacity)",
+  "Fabric delay",
+  "Sample approval delay",
+  "Delay from the customer",
+  "Delay due to rework",
+  "Other",
+];
+export const FEEDBACK_ITEMS = [
+  ["fabric_quality", "Quality of fabric"],
+  ["stitching_quality", "Quality of stitching"],
+  ["size_matching", "Size matching"],
+  ["durability", "Durability"],
+  ["pricing", "Pricing / value for money"],
+  ["design_matching", "Design matching (against sample)"],
+  ["color_matching", "Colour matching"],
+  ["packing", "Packing and finishing"],
+  ["communication", "Communication and support"],
+  ["overall", "Overall experience"],
+];
+export const DELIVERY_TIMINGS = ["On time", "Slightly delayed", "Very delayed"];
+export const isOrderOverdue = (o, today) => !!o?.due_date && o.due_date < today && !["Completed", "Shipped"].includes(o.status);
+export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);

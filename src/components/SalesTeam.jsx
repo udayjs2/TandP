@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Receipt, Upload, X, Check, Users2, Wallet } from "lucide-react";
+import { Receipt, Upload, X, Check, Users2, Wallet, Store, Banknote } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Field, inputCls, Btn, Modal } from "./ui";
 import { fmtMoney, monthKey, todayStr, EXPENSE_CATEGORIES, TRANSPORT_MODES, EXPENSE_STATUS_COLORS } from "../lib/helpers";
 import CustomerManagement from "./CustomerManagement";
+import Vendors from "./Vendors";
+import Advances, { advanceBalance } from "./Advances";
 
 export default function SalesTeam({ profile }) {
   const isAdmin = ["admin", "hr", "gm", "pm"].includes(profile?.role);
@@ -11,11 +13,14 @@ export default function SalesTeam({ profile }) {
   const tabs = isAdmin
     ? [
         { id: "targets", label: "Targets & Expenses", icon: Wallet },
+        ...(["admin", "hr"].includes(profile?.role) ? [{ id: "advances", label: "Advances", icon: Banknote }] : []),
         { id: "customers", label: "Customers", icon: Users2 },
+        { id: "vendors", label: "Vendors", icon: Store },
       ]
     : [
         { id: "expenses", label: "My Expenses", icon: Wallet },
         { id: "customers", label: "Customers", icon: Users2 },
+        ...(profile?.role === "sales" ? [{ id: "vendors", label: "Vendors", icon: Store }] : []),
       ];
 
   return (
@@ -38,7 +43,9 @@ export default function SalesTeam({ profile }) {
       </div>
       {sub === "targets" && isAdmin && <AdminSalesTeam />}
       {sub === "expenses" && !isAdmin && <MyExpenses profile={profile} />}
+      {sub === "advances" && ["admin", "hr"].includes(profile?.role) && <Advances />}
       {sub === "customers" && <CustomerManagement profile={profile} />}
+      {sub === "vendors" && <Vendors profile={profile} />}
     </div>
   );
 }
@@ -168,7 +175,7 @@ function AdminSalesTeam() {
               {claims.map((c) => (
                 <tr key={c.id} className="hover:bg-stone-50 cursor-pointer" onClick={() => setViewClaim(c)}>
                   <td className="px-4 py-2.5 font-medium">{employeeName(c.employee_id)}</td>
-                  <td className="px-4 py-2.5">{c.category}{c.transport_mode ? ` · ${c.transport_mode}` : ""}</td>
+                  <td className="px-4 py-2.5">{c.category}{c.transport_mode ? ` · ${c.transport_mode}` : ""}<div className={`text-[10px] ${c.paid_from === "Advance" ? "text-indigo-700" : "text-amber-700"}`}>{c.paid_from === "Advance" ? "From advance" : "Own money"}</div></td>
                   <td className="px-4 py-2.5 text-stone-500 text-xs">{orderLabel(c.linked_order_id)}</td>
                   <td className="px-4 py-2.5 text-stone-500">{c.expense_date}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(c.amount)}</td>
@@ -214,6 +221,7 @@ function ClaimReviewModal({ claim, employeeName, orderLabel, onClose, onSetStatu
         <div className="flex justify-between"><span className="text-stone-500">Employee</span><span className="font-medium">{employeeName}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Category</span><span>{claim.category}{claim.transport_mode ? ` · ${claim.transport_mode}` : ""}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Relates to</span><span>{orderLabel}</span></div>
+        <div className="flex justify-between"><span className="text-stone-500">Paid from</span><span className="font-medium">{claim.paid_from === "Advance" ? "Company advance" : "Employee's own money"}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Date</span><span>{claim.expense_date}</span></div>
         <div className="flex justify-between"><span className="text-stone-500">Amount</span><span className="font-mono font-semibold">{fmtMoney(claim.amount)}</span></div>
         {claim.description && <div className="pt-1"><span className="text-stone-500 block text-xs mb-0.5">Notes from staff</span>{claim.description}</div>}
@@ -236,7 +244,9 @@ function ClaimReviewModal({ claim, employeeName, orderLabel, onClose, onSetStatu
         <Btn variant="ghost" onClick={() => onSetStatus(claim.id, "Approved", notes)}>
           <Check size={14} /> Approve
         </Btn>
-        <Btn onClick={() => onSetStatus(claim.id, "Reimbursed", notes)}>Mark reimbursed</Btn>
+        {claim.paid_from === "Advance"
+          ? <p className="text-xs text-stone-500 self-center">Paid from the employee's advance, so there is nothing to reimburse. Approving records it in Expenditures.</p>
+          : <Btn onClick={() => onSetStatus(claim.id, "Reimbursed", notes)}>Mark reimbursed (pay employee back)</Btn>}
       </div>
     </Modal>
   );
@@ -246,6 +256,7 @@ function ClaimReviewModal({ claim, employeeName, orderLabel, onClose, onSetStatu
 function MyExpenses({ profile }) {
   const [claims, setClaims] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [advances, setAdvances] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -260,10 +271,12 @@ function MyExpenses({ profile }) {
       setLoading(false);
       return;
     }
-    const [{ data }, { data: ord }] = await Promise.all([
+    const [{ data }, { data: ord }, { data: adv }] = await Promise.all([
       supabase.from("expense_claims").select("*").eq("employee_id", profile.employee_id).order("created_at", { ascending: false }),
       supabase.from("orders").select("id, order_number, customer_name"),
+      supabase.from("employee_advances").select("*").eq("employee_id", profile.employee_id).order("given_date", { ascending: false }),
     ]);
+    setAdvances(adv || []);
     setClaims(data || []);
     setOrders(ord || []);
     setLoading(false);
@@ -274,6 +287,7 @@ function MyExpenses({ profile }) {
     const ch = supabase
       .channel("my-expenses-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "expense_claims" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "employee_advances" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,6 +323,20 @@ function MyExpenses({ profile }) {
           <Upload size={15} /> Submit a bill
         </Btn>
       </div>
+      {advances.filter((a) => a.status === "Open").length > 0 && (
+        <div className="grid sm:grid-cols-2 gap-2">
+          {advances.filter((a) => a.status === "Open").map((a) => {
+            const b = advanceBalance(a, claims);
+            return (
+              <Card key={a.id} className="p-3.5 border-indigo-200">
+                <div className="text-xs text-stone-500">Advance for {a.purpose} · {a.given_date}</div>
+                <div className="font-mono text-lg font-semibold">{fmtMoney(b.left)} <span className="text-xs font-normal text-stone-400">left of {fmtMoney(a.amount)}</span></div>
+                {a.notes && <div className="text-xs text-stone-400">{a.notes}</div>}
+              </Card>
+            );
+          })}
+        </div>
+      )}
       <div className="grid gap-2">
         {claims.map((c) => (
           <Card key={c.id} className="p-3.5">
@@ -319,6 +347,7 @@ function MyExpenses({ profile }) {
                 </div>
                 <div className="text-xs text-stone-500 mt-0.5">{c.expense_date}{c.description ? ` · ${c.description}` : ""}</div>
                 <div className="text-xs text-stone-400 mt-0.5">{orderLabel(c.linked_order_id)}</div>
+                <div className={`text-xs mt-0.5 ${c.paid_from === "Advance" ? "text-indigo-700" : "text-amber-700"}`}>{c.paid_from === "Advance" ? "Paid from company advance" : "Paid from my own money"}</div>
                 {c.admin_notes && <div className="text-xs text-stone-500 mt-1 italic">Admin: {c.admin_notes}</div>}
               </div>
               <div className="flex flex-col items-end gap-1.5">
@@ -341,12 +370,12 @@ function MyExpenses({ profile }) {
         ))}
         {claims.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No claims submitted yet.</Card>}
       </div>
-      {showForm && <SubmitClaimModal profile={profile} onClose={() => setShowForm(false)} onSaved={load} />}
+      {showForm && <SubmitClaimModal profile={profile} advances={advances} claims={claims} onClose={() => setShowForm(false)} onSaved={load} />}
     </div>
   );
 }
 
-function SubmitClaimModal({ profile, onClose, onSaved }) {
+function SubmitClaimModal({ profile, advances, claims, onClose, onSaved }) {
   const [category, setCategory] = useState("Food");
   const [transportMode, setTransportMode] = useState("");
   const [amount, setAmount] = useState("");
@@ -354,6 +383,9 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
   const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
   const [linkedOrderId, setLinkedOrderId] = useState("");
+  const usable = (advances || []).filter((a) => a.status === "Open").map((a) => ({ a, left: advanceBalance(a, claims).left })).filter((x) => x.left > 0);
+  const [paidFrom, setPaidFrom] = useState("Own money");
+  const [advanceId, setAdvanceId] = useState("");
   const [orders, setOrders] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -372,6 +404,11 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
     e.preventDefault();
     setError("");
     if (!amount || Number(amount) <= 0) return setError("Enter a valid amount.");
+    if (paidFrom === "Advance") {
+      const pick = usable.find((x) => x.a.id === advanceId);
+      if (!pick) return setError("Choose which advance this was paid from.");
+      if (Number(amount) > pick.left) return setError(`Only ${fmtMoney(pick.left)} is left in that advance. Submit the extra as a separate "My own money" bill.`);
+    }
     setSaving(true);
     try {
       let receiptPath = null;
@@ -392,6 +429,8 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
         submitted_by: profile.id,
         status: "Submitted",
         linked_order_id: linkedOrderId || null,
+        paid_from: paidFrom,
+        advance_id: paidFrom === "Advance" ? advanceId : null,
       });
       if (insErr) throw insErr;
       onSaved();
@@ -422,6 +461,20 @@ function SubmitClaimModal({ profile, onClose, onSaved }) {
             </select>
           </Field>
         )}
+        <Field label="Paid from">
+          <div className="flex gap-2">
+            {[["Own money", "My own money"], ["Advance", "Company advance"]].map(([v, l]) => (
+              <button type="button" key={v} onClick={() => { setPaidFrom(v); if (v === "Advance" && !advanceId && usable[0]) setAdvanceId(usable[0].a.id); }}
+                className={`flex-1 text-sm px-3 py-2 rounded-lg border ${paidFrom === v ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-700 border-stone-200"}`}>{l}</button>
+            ))}
+          </div>
+          {paidFrom === "Own money" && <p className="text-xs text-stone-400 mt-1">The company will reimburse you once approved.</p>}
+          {paidFrom === "Advance" && (usable.length === 0
+            ? <p className="text-xs text-rose-600 mt-1">You have no advance with money left. Ask your admin to record the advance, or choose "My own money".</p>
+            : <select className={inputCls + " mt-2"} value={advanceId} onChange={(e) => setAdvanceId(e.target.value)}>
+                {usable.map(({ a, left }) => <option key={a.id} value={a.id}>{a.purpose} · {a.given_date} · {fmtMoney(left)} left</option>)}
+              </select>)}
+        </Field>
         <Field label="Amount (₹)">
           <input type="number" min="0" required className={inputCls} value={amount} onChange={(e) => setAmount(e.target.value)} />
         </Field>

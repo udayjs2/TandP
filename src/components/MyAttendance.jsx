@@ -115,7 +115,7 @@ export default function MyAttendance({ profile }) {
     return (
       <Card className="p-6 text-sm text-stone-600">
         Your login isn't linked to an employee record yet, so self check-in isn't available here. Ask your admin to
-        link your account (Payroll tab → admin).
+        link your account (Payroll tab → Account column). This is needed for check-in, check-out and leave requests.
       </Card>
     );
   }

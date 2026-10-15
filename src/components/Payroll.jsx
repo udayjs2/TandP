@@ -19,18 +19,22 @@ function AdminPayroll() {
   const [profiles, setProfiles] = useState([]);
   const [settings, setSettings] = useState({});
   const [payslip, setPayslip] = useState(null);
+  const [investors, setInvestors] = useState([]);
+  const [defaultInvestor, setDefaultInvestor] = useState(""); // used when "Mark paid" is clicked on a row with no investor
   const totalDays = daysInMonth(mk);
 
   const load = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-${String(totalDays).padStart(2, "0")}`;
-    const [{ data: emp }, { data: att }, { data: pay }, { data: profs }, { data: set }] = await Promise.all([
+    const [{ data: emp }, { data: att }, { data: pay }, { data: profs }, { data: set }, { data: inv }] = await Promise.all([
       supabase.from("employees").select("*").order("created_at", { ascending: true }),
       supabase.from("attendance").select("employee_id, date, status").gte("date", start).lte("date", end),
       supabase.from("payroll").select("*").eq("month", mk),
       supabase.from("profiles").select("*"),
       supabase.from("settings").select("*").eq("id", 1).single(),
+      supabase.from("investors").select("id, name").order("name"),
     ]);
+    setInvestors(inv || []);
     setEmployees(emp || []);
     setProfiles(profs || []);
     setSettings(set || {});
@@ -69,8 +73,10 @@ function AdminPayroll() {
     const daily = (Number(emp?.base_salary) || 0) / totalDays;
     next.net_pay = Math.max(0, Math.round((daily * att.present + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
     delete next.paid_at;
+    if (next.status === "Paid" && !next.investor_id && defaultInvestor) next.investor_id = defaultInvestor;
+    if (!next.investor_id) next.investor_id = null;
     if (next.status === "Paid" && next.net_pay <= 0) { alert("Net pay is 0, so there is nothing to record as paid."); return; }
-    if (next.status === "Paid" && existing.status !== "Paid" && !confirm(`Mark ${emp?.name || "employee"} as paid ${fmtMoney(next.net_pay)}? This is recorded in Finance as a Salary expenditure.`)) return;
+    if (next.status === "Paid" && existing.status !== "Paid" && !confirm(`Mark ${emp?.name || "employee"} as paid ${fmtMoney(next.net_pay)}? This is recorded in Finance as a Salary expenditure${next.investor_id ? `, funded by ${investors.find((i) => i.id === next.investor_id)?.name || "the selected investor"}` : " (no investor selected)"}.`)) return;
     if (existing.status === "Paid" && next.status !== "Paid" && !confirm("Mark as Pending? The salary entry will be removed from Finance expenditures.")) return;
     const { error } = await supabase.from("payroll").upsert(next, { onConflict: "employee_id,month" });
     if (error) alert("Couldn't save payroll: " + error.message + "\n(If it mentions net_pay, run migration_34.sql.)");
@@ -105,6 +111,10 @@ function AdminPayroll() {
         <h2 className="text-lg font-semibold">Payroll</h2>
         <div className="flex items-center gap-2">
           <input type="month" value={mk} onChange={(e) => setMk(e.target.value)} className={inputCls + " w-auto"} />
+          <select className={inputCls + " w-auto"} value={defaultInvestor} onChange={(e) => setDefaultInvestor(e.target.value)} title="Used when you click Mark paid on a row that has no investor chosen">
+            <option value="">Funded by: choose per row</option>
+            {investors.map((i) => <option key={i.id} value={i.id}>Fund salaries from {i.name}</option>)}
+          </select>
           <span className="text-sm text-stone-500 font-mono">Total: {fmtMoney(totalPayout)}</span>
         </div>
       </div>
@@ -119,6 +129,7 @@ function AdminPayroll() {
               <th className="text-right px-4 py-2.5">Deductions (₹)</th>
               <th className="text-right px-4 py-2.5">Net pay</th>
               <th className="text-left px-4 py-2.5">Status</th>
+              <th className="text-left px-4 py-2.5">Funded by</th>
               <th className="text-left px-4 py-2.5">Login account</th>
               <th className="px-4 py-2.5"></th>
             </tr>
@@ -159,6 +170,12 @@ function AdminPayroll() {
                   >
                     {entry.status === "Paid" ? "Paid" : "Mark paid"}
                   </button>
+                </td>
+                <td className="px-4 py-2.5">
+                  <select className={inputCls + " w-auto min-w-[8rem] text-xs"} value={entry.investor_id || ""} onChange={(e) => updateEntry(emp.id, { investor_id: e.target.value || null })}>
+                    <option value="">{defaultInvestor ? "Default investor" : "— none —"}</option>
+                    {investors.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                  </select>
                 </td>
                 <td className="px-4 py-2.5">
                   <select

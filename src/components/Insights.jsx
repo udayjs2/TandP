@@ -6,12 +6,14 @@ import ChartCanvas from "./ChartCanvas";
 import ExportBar from "./ExportBar";
 import DailyReport from "./DailyReport";
 import OperationLog from "./OperationLog";
+import CustomerInsights from "./CustomerInsights";
 import { analyse, periodRange, PERIODS, shortDate } from "../lib/analytics";
 
 const SUBS = [
   { id: "daily", label: "Daily report" },
   { id: "why", label: "Why did output change?" },
   { id: "ops", label: "Operation log" },
+  { id: "cust", label: "Feedback & delays" },
 ];
 
 export default function Insights({ profile }) {
@@ -32,6 +34,7 @@ export default function Insights({ profile }) {
       {sub === "daily" && <DailyReport />}
       {sub === "why" && <WhyChanged />}
       {sub === "ops" && <OperationLog profile={profile} />}
+      {sub === "cust" && <CustomerInsights />}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users, FileText } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users, FileText, Send, Star, AlertTriangle } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney } from "../lib/helpers";
+import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, DELAY_CAUSES, FEEDBACK_ITEMS, isOrderOverdue, daysBetween } from "../lib/helpers";
 import { AgreementModal } from "./OrderAgreement";
 
 export default function Orders({ profile }) {
@@ -13,6 +13,11 @@ export default function Orders({ profile }) {
   const [trackOrder, setTrackOrder] = useState(null);
   const [laborOrder, setLaborOrder] = useState(null);
   const [agreementOrder, setAgreementOrder] = useState(null);
+  const [rcaOrder, setRcaOrder] = useState(null); // { order, nextStatus }
+  const [sendAgreementOrder, setSendAgreementOrder] = useState(null);
+  const [feedbackOrder, setFeedbackOrder] = useState(null);
+  const [rcaByOrder, setRcaByOrder] = useState({});
+  const [feedbackByOrder, setFeedbackByOrder] = useState({});
   const [settings, setSettings] = useState({});
   const [todayTotals, setTodayTotals] = useState({});
   const [progressByOrder, setProgressByOrder] = useState({});
@@ -24,13 +29,17 @@ export default function Orders({ profile }) {
     setOrders(data || []);
 
     const today = todayStr();
-    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }, { data: set }] = await Promise.all([
+    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }, { data: set }, { data: rcas }, { data: fbs }] = await Promise.all([
       supabase.from("order_progress").select("order_id, quantity").eq("date", today),
       supabase.from("order_progress").select("order_id, item_description, quantity"),
       supabase.from("order_deliveries").select("order_id, item_description, quantity"),
       supabase.from("settings").select("*").eq("id", 1).single(),
+      supabase.from("order_delay_rca").select("*"),
+      supabase.from("order_feedback").select("*"),
     ]);
     setSettings(set || {});
+    setRcaByOrder(Object.fromEntries((rcas || []).map((r) => [r.order_id, r])));
+    setFeedbackByOrder(Object.fromEntries((fbs || []).map((r) => [r.order_id, r])));
 
     const totals = {};
     (todayProg || []).forEach((p) => (totals[p.order_id] = (totals[p.order_id] || 0) + Number(p.quantity || 0)));
@@ -58,6 +67,8 @@ export default function Orders({ profile }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_progress" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_deliveries" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_delay_rca" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_feedback" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -82,7 +93,13 @@ export default function Orders({ profile }) {
     load();
   };
 
+  const needsRca = (o) => !!o.due_date && o.due_date < todayStr() && !rcaByOrder[o.id];
   const setStatus = async (id, status) => {
+    const ord = orders.find((x) => x.id === id);
+    if (ord && (status === "Completed" || status === "Shipped") && !["Completed", "Shipped"].includes(ord.status) && needsRca(ord)) {
+      setRcaOrder({ order: ord, nextStatus: status }); // RCA first, then the status change
+      return;
+    }
     const { error } = await supabase.from("orders").update({ status }).eq("id", id);
     if (error) alert(error.message);
     load();
@@ -103,18 +120,36 @@ export default function Orders({ profile }) {
           const totalDelivered = breakdown.reduce((s, b) => s + b.delivered, 0);
           const totalPending = breakdown.reduce((s, b) => s + b.pending, 0);
           const todayDone = todayTotals[o.id] || 0;
+          const overdue = isOrderOverdue(o, todayStr());
+          const daysLate = overdue ? daysBetween(o.due_date, todayStr()) : 0;
+          const rca = rcaByOrder[o.id];
+          const fb = feedbackByOrder[o.id];
+          const fbAvg = fb ? (() => { const v = Object.values(fb.ratings || {}).map(Number); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0; })() : 0;
+          const agr = o.agreement_status || "Not sent";
           return (
-            <Card key={o.id} className="p-4">
+            <Card key={o.id} className={`p-4 ${overdue ? "border-rose-400 bg-rose-50/60 ring-1 ring-rose-200" : ""}`}>
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <div className="font-semibold">{o.order_number} — {o.customer_name}</div>
+                  <div className="font-semibold flex items-center gap-2 flex-wrap">
+                    <span className={overdue ? "text-rose-700" : ""}>{o.order_number} — {o.customer_name}</span>
+                    {overdue && <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-rose-600 text-white flex items-center gap-1"><AlertTriangle size={11} /> {daysLate} day{daysLate === 1 ? "" : "s"} overdue</span>}
+                    {(overdue || rca) && (
+                      <button onClick={() => setRcaOrder({ order: o, nextStatus: null })} className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${rca ? "bg-stone-100 text-stone-600" : "bg-rose-100 text-rose-800"}`}>
+                        {rca ? "RCA done" : "RCA needed"}
+                      </button>
+                    )}
+                    <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${agr === "Agreed" ? "bg-emerald-100 text-emerald-800" : agr === "Disagreed" ? "bg-rose-600 text-white" : agr === "Sent" ? "bg-amber-100 text-amber-800" : "bg-stone-100 text-stone-500"}`}>
+                      {agr === "Agreed" ? "Customer agreed" : agr === "Disagreed" ? "Customer disagreed" : agr === "Sent" ? "Agreement sent" : "Agreement not sent"}
+                    </span>
+                    {fb && <span className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">Feedback {fbAvg.toFixed(1)}★</span>}
+                  </div>
                   <div className="text-sm text-stone-500">
                     {(o.items || []).map((it) => `${it.description} × ${it.quantity}`).join(", ") || "No items"}
                   </div>
                   <div className="text-xs text-stone-400 mt-1 flex flex-wrap gap-x-3">
                     <span>Ordered {o.order_date}</span>
                     <span>Planned {o.planned_start_date || "—"} → {o.planned_end_date || "—"}</span>
-                    <span>Due {o.due_date || "—"}</span>
+                    <span className={overdue ? "text-rose-700 font-semibold" : ""}>Due {o.due_date || "—"}</span>
                   </div>
                   {o.daily_target > 0 && (
                     <div className="text-xs text-stone-500 mt-1">Today: {todayDone}/{o.daily_target} items</div>
@@ -138,6 +173,12 @@ export default function Orders({ profile }) {
                   </span>
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
                     <LinkIcon size={14} />
+                  </button>
+                  <button onClick={() => setSendAgreementOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Send agreement to customer (agree / disagree link)">
+                    <Send size={14} />
+                  </button>
+                  <button onClick={() => setFeedbackOrder(o)} className="text-stone-400 hover:text-amber-600 p-1" title="Customer feedback link">
+                    <Star size={14} />
                   </button>
                   <button onClick={() => setAgreementOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Generate order agreement">
                     <FileText size={14} />
@@ -182,17 +223,20 @@ export default function Orders({ profile }) {
         })}
         {orders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
       </div>
-      {modal && <OrderModal order={modal} onClose={() => setModal(null)} onSave={save} count={orders.length} />}
+      {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} />}
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
       {laborOrder && <LaborModal order={laborOrder} onClose={() => setLaborOrder(null)} />}
+      {rcaOrder && <RcaModal order={rcaOrder.order} existing={rcaByOrder[rcaOrder.order.id]} nextStatus={rcaOrder.nextStatus} profile={profile} onClose={() => setRcaOrder(null)} onDone={() => { setRcaOrder(null); load(); }} />}
+      {sendAgreementOrder && <SendAgreementModal order={orders.find((x) => x.id === sendAgreementOrder.id) || sendAgreementOrder} onClose={() => setSendAgreementOrder(null)} onChanged={load} />}
+      {feedbackOrder && <FeedbackLinkModal order={feedbackOrder} feedback={feedbackByOrder[feedbackOrder.id]} onClose={() => setFeedbackOrder(null)} onChanged={load} />}
       {agreementOrder && <AgreementModal order={agreementOrder} settings={settings} onClose={() => setAgreementOrder(null)} />}
     </div>
   );
 }
 
-function OrderModal({ order, onClose, onSave, count }) {
+function OrderModal({ order, onClose, onSave, count, rcaBlocked }) {
   const [f, setF] = useState({
     id: order.id || null,
     order_number: order.order_number || `ORD-${String(count + 1).padStart(4, "0")}`,
@@ -284,7 +328,7 @@ function OrderModal({ order, onClose, onSave, count }) {
         <Field label="Status">
           <select className={inputCls} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
             {ORDER_STATUSES.map((s) => (
-              <option key={s} disabled={s === "Shipped" && order.quality_status !== "Approved"}>{s}{s === "Shipped" && order.quality_status !== "Approved" ? " (needs QC approval)" : ""}</option>
+              <option key={s} disabled={(s === "Shipped" && order.quality_status !== "Approved") || (rcaBlocked && (s === "Completed" || s === "Shipped") && order.status !== s)}>{s}{s === "Shipped" && order.quality_status !== "Approved" ? " (needs QC approval)" : ""}{rcaBlocked && (s === "Completed" || s === "Shipped") && order.status !== s ? " (submit RCA first)" : ""}</option>
             ))}
           </select>
         </Field>
@@ -663,6 +707,183 @@ function LaborModal({ order, onClose }) {
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
+    </Modal>
+  );
+}
+
+
+// ===================== Delay RCA + lessons learned =====================
+function RcaModal({ order, existing, nextStatus, profile, onClose, onDone }) {
+  const late = order.due_date ? Math.max(0, daysBetween(order.due_date, todayStr())) : 0;
+  const [causes, setCauses] = useState(() => {
+    const m = {};
+    (existing?.causes || []).forEach((c) => (m[c.cause] = { days: c.days ?? "", notes: c.notes || "" }));
+    return m;
+  });
+  const [rootCause, setRootCause] = useState(existing?.root_cause || "");
+  const [lessons, setLessons] = useState(existing?.lessons_learned || "");
+  const [action, setAction] = useState(existing?.corrective_action || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const toggle = (c) => {
+    const next = { ...causes };
+    if (next[c]) delete next[c]; else next[c] = { days: "", notes: "" };
+    setCauses(next);
+  };
+  const setCause = (c, patch) => setCauses({ ...causes, [c]: { ...causes[c], ...patch } });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    const list = Object.entries(causes).map(([cause, v]) => ({ cause, days: v.days === "" ? null : Number(v.days), notes: v.notes || "" }));
+    if (list.length === 0) return setError("Select at least one reason for the delay.");
+    if (rootCause.trim().length < 5) return setError("Describe the root cause.");
+    if (lessons.trim().length < 5) return setError("Write the lessons learned.");
+    setSaving(true);
+    const row = { order_id: order.id, causes: list, root_cause: rootCause.trim(), lessons_learned: lessons.trim(), corrective_action: action.trim() || null, days_late: late, submitted_by: profile?.id || null, submitted_by_name: profile?.name || null, submitted_at: new Date().toISOString() };
+    const { error: err } = await supabase.from("order_delay_rca").upsert(row, { onConflict: "order_id" });
+    if (err) { setSaving(false); return setError(err.message + " (run migration_38.sql if the table is missing)"); }
+    if (nextStatus) {
+      const { error: stErr } = await supabase.from("orders").update({ status: nextStatus }).eq("id", order.id);
+      if (stErr) { setSaving(false); return setError("RCA saved, but the status change failed: " + stErr.message); }
+    }
+    setSaving(false);
+    onDone();
+  };
+
+  return (
+    <Modal title={`Delay RCA — ${order.order_number}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="text-sm text-stone-600 mb-3">
+          Due {order.due_date}{late > 0 ? <> — <b className="text-rose-700">{late} day{late === 1 ? "" : "s"} late</b></> : null}.{" "}
+          {nextStatus ? <>Submit the RCA to mark this order <b>{nextStatus}</b>.</> : "Late orders need an RCA before they can be completed."}
+        </p>
+        <div className="mb-3">
+          <span className="block text-xs font-medium text-stone-600 mb-1">Why was it delayed? (select all that apply)</span>
+          <div className="space-y-2">
+            {DELAY_CAUSES.map((c) => (
+              <div key={c} className={`border rounded-lg p-2.5 ${causes[c] ? "border-indigo-300 bg-indigo-50/40" : "border-stone-200"}`}>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={!!causes[c]} onChange={() => toggle(c)} /> {c}
+                </label>
+                {causes[c] && (
+                  <div className="grid grid-cols-[6rem_1fr] gap-2 mt-2">
+                    <input type="number" min="0" className={inputCls} placeholder="Days lost" value={causes[c].days} onChange={(e) => setCause(c, { days: e.target.value })} />
+                    <input className={inputCls} placeholder="What happened?" value={causes[c].notes} onChange={(e) => setCause(c, { notes: e.target.value })} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <Field label="Root cause (why did it really happen?)"><textarea rows={3} className={inputCls} value={rootCause} onChange={(e) => setRootCause(e.target.value)} /></Field>
+        <Field label="Lessons learned"><textarea rows={3} className={inputCls} value={lessons} onChange={(e) => setLessons(e.target.value)} placeholder="What will we do differently on the next order?" /></Field>
+        <Field label="Corrective action / owner (optional)"><input className={inputCls} value={action} onChange={(e) => setAction(e.target.value)} /></Field>
+        {existing?.submitted_by_name && <p className="text-xs text-stone-400 mb-2">Last saved by {existing.submitted_by_name}</p>}
+        {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
+        <div className="flex justify-end gap-2 mt-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : nextStatus ? `Save RCA and mark ${nextStatus}` : "Save RCA"}</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ===================== Customer agreement link =====================
+function ShareBox({ url, text }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* link stays visible */ }
+  };
+  return (
+    <>
+      <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 text-xs break-all font-mono mb-3">{url}</div>
+      <div className="flex gap-2">
+        <Btn onClick={copy} className="flex-1 justify-center">{copied ? <><Check size={15} /> Copied</> : <><Copy size={15} /> Copy link</>}</Btn>
+        <a href={`https://wa.me/?text=${encodeURIComponent(`${text} ${url}`)}`} target="_blank" rel="noreferrer" className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700">WhatsApp</a>
+      </div>
+    </>
+  );
+}
+
+function SendAgreementModal({ order, onClose, onChanged }) {
+  const url = `${window.location.origin}/?agree=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
+  const st = order.agreement_status || "Not sent";
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("orders").update({ agreement_status: "Sent", agreement_sent_at: new Date().toISOString(), agreement_responded_at: null, agreement_responder: null, agreement_comment: null }).eq("id", order.id);
+    setBusy(false);
+    if (error) return alert(error.message + "\n(run migration_38.sql if columns are missing)");
+    onChanged();
+  };
+  return (
+    <Modal title={`Customer agreement — ${order.order_number}`} onClose={onClose}>
+      <p className="text-sm text-stone-600 mb-3">The customer sees the items, quantities, rates and payment terms (generate the agreement first so rates and terms are included), then taps <b>I agree</b> or <b>I disagree</b>. Their answer appears on this order.</p>
+      <div className="flex items-center gap-2 mb-3 text-sm">
+        Status:
+        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st === "Agreed" ? "bg-emerald-100 text-emerald-800" : st === "Disagreed" ? "bg-rose-600 text-white" : st === "Sent" ? "bg-amber-100 text-amber-800" : "bg-stone-100 text-stone-600"}`}>{st}</span>
+      </div>
+      {(st === "Agreed" || st === "Disagreed") && (
+        <div className="text-sm bg-stone-50 border border-stone-200 rounded-lg p-3 mb-3">
+          <div><b>{order.agreement_responder || "Customer"}</b> {st === "Agreed" ? "agreed" : "disagreed"} on {order.agreement_responded_at ? new Date(order.agreement_responded_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}</div>
+          {order.agreement_comment && <div className="text-stone-600 mt-1">“{order.agreement_comment}”</div>}
+        </div>
+      )}
+      {st === "Not sent" ? (
+        <Btn onClick={open} disabled={busy} className="w-full justify-center"><Send size={14} /> Open for customer confirmation</Btn>
+      ) : (
+        <>
+          <ShareBox url={url} text={`Please review and confirm order ${order.order_number}:`} />
+          {st !== "Sent" && <Btn variant="ghost" onClick={open} disabled={busy} className="w-full justify-center mt-2">Reopen / send again (clears the answer)</Btn>}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// ===================== Customer feedback link =====================
+function FeedbackLinkModal({ order, feedback, onClose }) {
+  const url = `${window.location.origin}/?feedback=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
+  const ready = ["Completed", "Shipped"].includes(order.status);
+  const [sentAt, setSentAt] = useState(order.feedback_sent_at);
+  const markSent = async () => {
+    const now = new Date().toISOString();
+    await supabase.from("orders").update({ feedback_sent_at: now }).eq("id", order.id);
+    setSentAt(now);
+  };
+  return (
+    <Modal title={`Customer feedback — ${order.order_number}`} onClose={onClose}>
+      {feedback ? (
+        <div>
+          <p className="text-sm text-stone-600 mb-2">Received {new Date(feedback.submitted_at).toLocaleDateString("en-IN")}{feedback.respondent_name ? ` from ${feedback.respondent_name}` : ""}.</p>
+          <div className="space-y-1 mb-3">
+            {FEEDBACK_ITEMS.filter(([k]) => feedback.ratings?.[k]).map(([k, label]) => (
+              <div key={k} className="flex items-center justify-between text-sm"><span>{label}</span><span className="text-amber-600 font-mono">{"★".repeat(feedback.ratings[k])}<span className="text-stone-300">{"★".repeat(5 - feedback.ratings[k])}</span></span></div>
+            ))}
+          </div>
+          <div className="text-sm space-y-1">
+            {feedback.delivery_timing && <div>Delivery: <b>{feedback.delivery_timing}</b></div>}
+            {feedback.would_reorder && <div>Would reorder: <b>{feedback.would_reorder}</b></div>}
+            {feedback.issues && <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 mt-2"><b>Problems:</b> {feedback.issues}</div>}
+            {feedback.comments && <div className="text-stone-600 mt-1">“{feedback.comments}”</div>}
+          </div>
+        </div>
+      ) : !ready ? (
+        <p className="text-sm text-stone-600">Feedback can be requested once the order is <b>Completed</b> or <b>Shipped</b>. Current status: {order.status}.</p>
+      ) : (
+        <>
+          <p className="text-sm text-stone-600 mb-3">Send this link after completion or shipping. The customer rates fabric, stitching, size, durability, pricing, design and colour matching, packing and delivery timing.</p>
+          <ShareBox url={url} text={`Thank you for your order ${order.order_number}. We would love your feedback:`} />
+          <div className="flex items-center justify-between mt-3 text-xs text-stone-500">
+            <span>{sentAt ? `Marked sent ${new Date(sentAt).toLocaleDateString("en-IN")}` : "Not marked as sent"}</span>
+            {!sentAt && <button onClick={markSent} className="text-indigo-700 hover:underline">Mark as sent</button>}
+          </div>
+          <p className="text-xs text-stone-400 mt-2">Waiting for the customer to respond.</p>
+        </>
+      )}
     </Modal>
   );
 }
