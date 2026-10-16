@@ -25,7 +25,7 @@ export default function Attendance({ profile }) {
   const totalDays = daysInMonth(mk);
 
   const loadEmployees = async () => {
-    const { data } = await supabase.from("employees").select("*").order("created_at", { ascending: true });
+    const { data } = await supabase.from("employees").select("*").neq("status", "Inactive").order("created_at", { ascending: true });
     setEmployees(data || []);
   };
 

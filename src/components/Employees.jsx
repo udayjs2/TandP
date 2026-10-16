@@ -12,6 +12,8 @@ export default function Employees() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [offerLetterFor, setOfferLetterFor] = useState(null);
+  const [view, setView] = useState("active");
+  const [notice, setNotice] = useState("");
 
   const load = async () => {
     const { data, error } = await supabase.from("employees").select("*").order("created_at", { ascending: true });
@@ -20,6 +22,11 @@ export default function Employees() {
   };
 
   useEffect(() => {
+    // anyone with no attendance marked for 30 days is moved to Inactive (Admin / HR only)
+    supabase.rpc("deactivate_stale_employees").then(({ data }) => {
+      if (data?.ok && data.count > 0) setNotice(`${data.count} employee${data.count === 1 ? " was" : "s were"} moved to Inactive (no attendance marked for 30 days): ${data.names.join(", ")}.`);
+      load();
+    });
     load();
     const ch = supabase
       .channel("employees-changes")
@@ -45,13 +52,31 @@ export default function Employees() {
     load();
   };
 
+  const setActive = async (e, active) => {
+    if (!confirm(active ? `Make ${e.name} active again? They return to attendance, payroll and manpower lists.` : `Make ${e.name} inactive?`)) return;
+    const { data, error } = await supabase.rpc("set_employee_active", { p_id: e.id, p_active: active });
+    if (error || !data?.ok) alert(error?.message || data?.error || "Couldn't update");
+    load();
+  };
+  const activeList = employees.filter((e) => (e.status || "Active") === "Active");
+  const inactiveList = employees.filter((e) => e.status === "Inactive");
+  const list = view === "active" ? activeList : inactiveList;
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-stone-200">
+        {[["active", `Active (${activeList.length})`], ["inactive", `Inactive (${inactiveList.length})`]].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`px-3 py-2 text-sm border-b-2 -mb-px ${view === id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>{label}</button>
+        ))}
+      </div>
+      {notice && <div className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">{notice}</div>}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Employees ({employees.length})</h2>
-        <Btn onClick={() => setModal({})}>
-          <Plus size={15} /> Add employee
-        </Btn>
+        <h2 className="text-lg font-semibold">{view === "active" ? `Employees (${activeList.length})` : `Inactive employees (${inactiveList.length})`}</h2>
+        {view === "active" && (
+          <Btn onClick={() => setModal({})}>
+            <Plus size={15} /> Add employee
+          </Btn>
+        )}
       </div>
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -64,11 +89,12 @@ export default function Employees() {
               <th className="text-left px-4 py-2.5">Phone</th>
               <th className="text-left px-4 py-2.5">Joined</th>
               <th className="text-right px-4 py-2.5">Base salary</th>
+              {view === "inactive" && <th className="text-left px-4 py-2.5">Inactive since</th>}
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {employees.map((e) => (
+            {list.map((e) => (
               <tr key={e.id} className="hover:bg-stone-50">
                 <td className="px-4 py-2.5 text-stone-500 font-mono">{e.employee_number || "—"}</td>
                 <td className="px-4 py-2.5 font-medium">{e.name}</td>
@@ -77,7 +103,11 @@ export default function Employees() {
                 <td className="px-4 py-2.5 text-stone-500">{e.phone || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{e.join_date || "—"}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(e.base_salary)}</td>
+                {view === "inactive" && <td className="px-4 py-2.5 text-xs text-stone-500">{e.inactive_since || "—"}<div className="text-stone-400">{e.inactive_reason}</div></td>}
                 <td className="px-4 py-2.5">
+                  {view === "inactive" ? (
+                    <div className="flex justify-end"><Btn onClick={() => setActive(e, true)}>Make active</Btn></div>
+                  ) : (
                   <div className="flex justify-end gap-1">
                     <button onClick={() => setOfferLetterFor(e)} className="text-stone-400 hover:text-indigo-700 p-1" title="Generate offer letter">
                       <FileText size={14} />
@@ -85,17 +115,19 @@ export default function Employees() {
                     <button onClick={() => setModal(e)} className="text-stone-400 hover:text-indigo-700 p-1">
                       <Pencil size={14} />
                     </button>
+                    <button onClick={() => setActive(e, false)} className="text-xs text-stone-400 hover:text-amber-700 px-1" title="Move to Inactive">Inactive</button>
                     <button onClick={() => remove(e.id)} className="text-stone-400 hover:text-rose-700 p-1">
                       <Trash2 size={14} />
                     </button>
                   </div>
+                  )}
                 </td>
               </tr>
             ))}
-            {!loading && employees.length === 0 && (
+            {!loading && list.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-stone-400">
-                  No employees yet. Add your first one.
+                <td colSpan={9} className="px-4 py-8 text-center text-stone-400">
+                  {view === "inactive" ? "Nobody is inactive." : "No employees yet. Add your first one."}
                 </td>
               </tr>
             )}

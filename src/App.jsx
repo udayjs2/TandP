@@ -34,7 +34,7 @@ const TABS = [
   { id: "floor-display", label: "Floor Display", icon: Tv, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"] },
   { id: "employees", label: "Employees", icon: Users, roles: FULL },
   { id: "orders", label: "Orders", icon: Package, roles: [...FULL, "gm", "pm", "tl"] },
-  { id: "invoices", label: "Invoices", icon: Receipt, roles: [...FULL, "gm"] },
+  { id: "invoices", label: "Invoices", icon: Receipt, roles: ["admin"] }, // Admin only (HR and GM removed)
   { id: "cutting", label: "Cutting", icon: Scissors, roles: [...FULL, "gm", "pm", "cutting_master"] },
   { id: "output", label: "Output", icon: BarChart3, roles: [...FULL, "gm", "pm", "tl", "quality_manager"] },
   { id: "insights", label: "Insights", icon: Activity, roles: [...FULL, "gm", "pm", "tl"] },
@@ -45,7 +45,7 @@ const TABS = [
   { id: "leave-requests", label: "Leave Requests", icon: CalendarDays, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"] },
   { id: "payroll", label: "Payroll", icon: Wallet, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"] },
   { id: "sales", label: "Sales Team", icon: TrendingUp, roles: [...FULL, "gm", "pm", "sales", "user"] },
-  { id: "finance", label: "Finance", icon: Landmark, roles: [...FULL, "gm", "pm"] },
+  { id: "finance", label: "Finance", icon: Landmark, roles: [...FULL, "gm", "pm"] }, // HR: Expenditures + Purchase Requests only; GM/PM: Purchase Requests only
   { id: "users", label: "User Management", icon: ShieldCheck, roles: [...FULL, "gm", "pm"] },
   { id: "planner", label: "Planner", icon: CalendarClock, roles: [...FULL, "gm", "pm"] },
 ];
@@ -113,7 +113,7 @@ export default function App() {
   const isAdmin = FULL.includes(role); // Admin or HR — same access everywhere
   const canAttendance = FULL.includes(role); // full roster attendance marking (not GM/PM/TL — they get My Attendance self check-in)
   const canOrders = isAdmin || ["gm", "pm", "tl"].includes(role);
-  const canInvoices = isAdmin || role === "gm";
+  const canInvoices = role === "admin";
   const canCutting = isAdmin || ["gm", "pm", "cutting_master"].includes(role);
   const canFinance = isAdmin || ["gm", "pm"].includes(role); // GM/PM see only Purchase Requests inside Finance
   const canPlanner = isAdmin || ["gm", "pm"].includes(role);

@@ -8,6 +8,7 @@ export default function Dashboard({ profile }) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const isAdmin = profile?.role === "admin" || profile?.role === "hr";
+  const isFinanceAdmin = profile?.role === "admin"; // invoice figures: Admin only
 
   const load = async () => {
     const today = todayStr();
@@ -24,11 +25,11 @@ export default function Dashboard({ profile }) {
       { data: todaysLabor },
       { data: allEmployees },
     ] = await Promise.all([
-      supabase.from("employees").select("id, role"),
+      supabase.from("employees").select("id, role").neq("status", "Inactive"),
       supabase.from("attendance").select("employee_id, status").eq("date", today),
       supabase.from("orders").select("id, status, order_number, customer_name, daily_target, items"),
       // Unpaid/overdue invoice figures are financial data — only fetch for admins.
-      isAdmin
+      isFinanceAdmin
         ? supabase.from("invoices").select("id, amount, status, due_date, invoice_number, customer_name")
         : Promise.resolve({ data: [] }),
       supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
@@ -118,7 +119,7 @@ export default function Dashboard({ profile }) {
           tone={stats.employeeCount && stats.presentToday / stats.employeeCount < 0.7 ? "warn" : "good"}
         />
         <StatCard label="Orders in progress" value={stats.pendingOrders} icon={Package} />
-        {isAdmin ? (
+        {isFinanceAdmin ? (
           <StatCard
             label="Unpaid invoices"
             value={fmtMoney(stats.unpaidAmount)}
@@ -152,7 +153,7 @@ export default function Dashboard({ profile }) {
           )}
         </Card>
 
-        {isAdmin && (
+        {isFinanceAdmin && (
           <Card className="p-4">
             <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
               {stats.overdue.length > 0 && <AlertTriangle size={14} className="text-rose-600" />}

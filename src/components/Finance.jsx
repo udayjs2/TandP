@@ -3,6 +3,7 @@ import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Ba
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
 import QuarterlyReport from "./QuarterlyReport";
+import ActualCostModal from "./ActualCost";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
 
 const SUB_TABS = [
@@ -17,15 +18,17 @@ const SUB_TABS = [
 ];
 
 export default function Finance({ profile }) {
-  // GM / PM only see Purchase Requests; Admin and HR see everything.
-  const limited = !["admin", "hr"].includes(profile?.role);
-  const tabs = limited ? SUB_TABS.filter((t) => t.id === "purchase") : SUB_TABS;
-  const [sub, setSub] = useState(limited ? "purchase" : "overview");
+  // Admin: everything. HR: Expenditures + Purchase Requests only. GM / PM: Purchase Requests only.
+  const role = profile?.role;
+  const allowed = role === "admin" ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "purchase"] : ["purchase"];
+  const limited = role !== "admin";
+  const tabs = SUB_TABS.filter((t) => allowed.includes(t.id));
+  const [sub, setSub] = useState(allowed[0] === "overview" ? "overview" : allowed[0]);
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold mb-1">Finance</h2>
-        <p className="text-xs text-stone-500 mb-3">{limited ? "Raise and approve purchase requests." : "Investor capital, business expenditures, purchase requests, and per-order profit & loss."}</p>
+        <p className="text-xs text-stone-500 mb-3">{limited ? (role === "hr" ? "Business expenditures and purchase requests." : "Raise and approve purchase requests.") : "Investor capital, business expenditures, purchase requests, and per-order profit & loss."}</p>
         <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
@@ -354,7 +357,7 @@ function Expenditures() {
     const [{ data, error }, { data: ord }, { data: inv }] = await Promise.all([
       supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false }),
       supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
-      supabase.from("investors").select("id, name").order("name", { ascending: true }),
+      supabase.rpc("investor_names"),
     ]);
     if (error) console.error("Failed to load expenditures:", error.message);
     setItems(data || []);
@@ -523,6 +526,7 @@ function OrderProfitability() {
   const [laborByOrder, setLaborByOrder] = useState({});
   const [employeesById, setEmployeesById] = useState({});
   const [materialByOrder, setMaterialByOrder] = useState({});
+  const [costFor, setCostFor] = useState(null);
 
   const load = async () => {
     const [{ data: ord }, { data: finance }, { data: invoices }, { data: payments }, { data: labor }, { data: employees }, { data: linkedExpenditures }] = await Promise.all([
@@ -623,7 +627,9 @@ function OrderProfitability() {
         {rows.map(({ order, fin, autoLabor, laborCost, autoMaterial, materialCost, revenue, advancePending, totalCost, profit, margin }) => (
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-              <div className="font-semibold text-sm">{order.order_number} — {order.customer_name}</div>
+              <div className="font-semibold text-sm flex items-center gap-2">{order.order_number} — {order.customer_name}
+                <button onClick={() => setCostFor({ order, revenue })} className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800 hover:bg-indigo-100">Actual cost</button>
+              </div>
               <div className="text-sm">
                 <span className="text-stone-500">Revenue </span>
                 <span className="font-mono">{fmtMoney(revenue)}</span>
@@ -684,6 +690,7 @@ function OrderProfitability() {
         ))}
         {rows.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
       </div>
+      {costFor && <ActualCostModal order={costFor.order} revenue={costFor.revenue} onClose={() => setCostFor(null)} />}
     </div>
   );
 }
@@ -911,13 +918,18 @@ function LoanPaymentModal({ loan, payments, onClose, onChanged }) {
 function Payments({ profile }) {
   const [orders, setOrders] = useState([]);
   const [paymentsByOrder, setPaymentsByOrder] = useState({});
+  const [invoicedByOrder, setInvoicedByOrder] = useState({});
   const [paymentOrder, setPaymentOrder] = useState(null);
 
   const load = async () => {
-    const [{ data: ord }, { data: pay }] = await Promise.all([
+    const [{ data: ord }, { data: pay }, { data: inv }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, status, due_date").order("order_date", { ascending: false }),
       supabase.from("order_payments").select("order_id, amount"),
+      supabase.from("invoices").select("linked_order_id, amount").not("linked_order_id", "is", null),
     ]);
+    const invd = {};
+    (inv || []).forEach((i) => (invd[i.linked_order_id] = (invd[i.linked_order_id] || 0) + Number(i.amount || 0)));
+    setInvoicedByOrder(invd);
     setOrders(ord || []);
     const totals = {};
     (pay || []).forEach((p) => (totals[p.order_id] = (totals[p.order_id] || 0) + Number(p.amount || 0)));
@@ -929,6 +941,7 @@ function Payments({ profile }) {
     const ch = supabase
       .channel("finance-payments-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "order_payments" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -949,25 +962,36 @@ function Payments({ profile }) {
               <th className="text-left px-4 py-2.5">Order</th>
               <th className="text-left px-4 py-2.5">Status</th>
               <th className="text-left px-4 py-2.5">Due date</th>
+              <th className="text-right px-4 py-2.5">Invoiced</th>
               <th className="text-right px-4 py-2.5">Received so far</th>
+              <th className="text-right px-4 py-2.5">Balance</th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {orders.map((o) => (
+            {orders.map((o) => {
+              const invoiced = invoicedByOrder[o.id] || 0;
+              const received = paymentsByOrder[o.id] || 0;
+              const balance = invoiced - received;
+              return (
               <tr key={o.id} className="hover:bg-stone-50">
                 <td className="px-4 py-2.5 font-medium">{o.order_number} — {o.customer_name}</td>
                 <td className="px-4 py-2.5 text-stone-500">{o.status}</td>
                 <td className="px-4 py-2.5 text-stone-500">{o.due_date || "—"}</td>
-                <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(paymentsByOrder[o.id] || 0)}</td>
+                <td className="px-4 py-2.5 text-right font-mono text-stone-500">{invoiced ? fmtMoney(invoiced) : "—"}</td>
+                <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(received)}</td>
+                <td className={`px-4 py-2.5 text-right font-mono font-semibold ${!invoiced ? "text-stone-300" : balance <= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {!invoiced ? "—" : balance <= 0 ? "Paid in full" : fmtMoney(balance)}
+                </td>
                 <td className="px-4 py-2.5 text-right">
-                  <Btn variant="ghost" onClick={() => setPaymentOrder(o)}>Log / view</Btn>
+                  <Btn variant="ghost" onClick={() => setPaymentOrder({ ...o, invoiced })}>Log / view</Btn>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-stone-400">No orders yet.</td>
+                <td colSpan={7} className="px-4 py-8 text-center text-stone-400">No orders yet.</td>
               </tr>
             )}
           </tbody>
@@ -1027,9 +1051,23 @@ function PaymentModal({ order, profile, onClose, onChanged }) {
 
   return (
     <Modal title={`Advance / payments — ${order.order_number}`} onClose={onClose}>
-      <div className="bg-stone-50 rounded-lg p-3 mb-4 text-center">
-        <div className="text-lg font-mono font-semibold">{fmtMoney(total)}</div>
-        <div className="text-[11px] text-stone-500">Total received so far</div>
+      <div className={`grid ${order.invoiced ? "grid-cols-3" : "grid-cols-1"} gap-2 mb-4 text-center`}>
+        {order.invoiced > 0 && (
+          <div className="bg-stone-50 rounded-lg p-3">
+            <div className="text-lg font-mono font-semibold">{fmtMoney(order.invoiced)}</div>
+            <div className="text-[11px] text-stone-500">Invoice total</div>
+          </div>
+        )}
+        <div className="bg-stone-50 rounded-lg p-3">
+          <div className="text-lg font-mono font-semibold">{fmtMoney(total)}</div>
+          <div className="text-[11px] text-stone-500">Received so far</div>
+        </div>
+        {order.invoiced > 0 && (
+          <div className={`rounded-lg p-3 ${order.invoiced - total <= 0 ? "bg-emerald-50" : "bg-rose-50"}`}>
+            <div className={`text-lg font-mono font-semibold ${order.invoiced - total <= 0 ? "text-emerald-700" : "text-rose-700"}`}>{order.invoiced - total <= 0 ? "Paid" : fmtMoney(order.invoiced - total)}</div>
+            <div className="text-[11px] text-stone-500">{order.invoiced - total <= 0 ? "Invoice fully paid" : "Balance to receive"}</div>
+          </div>
+        )}
       </div>
 
       <form onSubmit={addPayment} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">

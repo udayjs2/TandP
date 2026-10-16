@@ -26,15 +26,17 @@ function AdminPayroll() {
   const load = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-${String(totalDays).padStart(2, "0")}`;
-    const [{ data: emp }, { data: att }, { data: pay }, { data: profs }, { data: set }, { data: inv }] = await Promise.all([
+    const [{ data: empAll }, { data: att }, { data: pay }, { data: profs }, { data: set }, { data: inv }] = await Promise.all([
       supabase.from("employees").select("*").order("created_at", { ascending: true }),
       supabase.from("attendance").select("employee_id, date, status").gte("date", start).lte("date", end),
       supabase.from("payroll").select("*").eq("month", mk),
       supabase.from("profiles").select("*"),
       supabase.from("settings").select("*").eq("id", 1).single(),
-      supabase.from("investors").select("id, name").order("name"),
+      supabase.rpc("investor_names"),
     ]);
     setInvestors(inv || []);
+    // inactive employees drop off the list unless they already have payroll for this month
+    const emp = (empAll || []).filter((e) => e.status !== "Inactive" || (pay || []).some((p) => p.employee_id === e.id));
     setEmployees(emp || []);
     setProfiles(profs || []);
     setSettings(set || {});

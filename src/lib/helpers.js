@@ -82,7 +82,7 @@ export const ORDER_STATUS_COLORS = {
   Shipped: "bg-indigo-100 text-indigo-800",
 };
 
-export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Salary", "Other"];
+export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Transport", "Packing", "Salary", "Other"];
 export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Card", "Other"];
 
 // Standard shift rules: 9 AM to 6 PM, must be present at least 9 hours to

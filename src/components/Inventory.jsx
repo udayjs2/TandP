@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Wrench } from "lucide-react";
+import { Plus, Trash2, Pencil, Wrench, ArrowRightLeft, Undo2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { fmtMoney } from "../lib/helpers";
 
 const MODELS = ["JUKI", "ZOJE", "JIN", "JACK", "KANSAI", "OTHER"];
 const CONDITIONS = ["Working", "Needs service", "Under repair", "Not working"];
@@ -25,7 +26,7 @@ const SUBTABS = [
 const fmt = (d) => (d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—");
 
 export default function Inventory({ profile }) {
-  const canEdit = ["admin", "hr", "gm", "pm"].includes(profile?.role);
+  const canEdit = ["admin", "hr"].includes(profile?.role); // GM / PM / TL view only
   const [sub, setSub] = useState("machines");
   const [rows, setRows] = useState({ machines: [], fabric: [], items: [] });
   const [usage, setUsage] = useState([]);
@@ -33,16 +34,23 @@ export default function Inventory({ profile }) {
   const [partsFor, setPartsFor] = useState(null);
   const [orderNames, setOrderNames] = useState({});
   const [modal, setModal] = useState(null); // { kind, row }
+  const [issueItem, setIssueItem] = useState(null);
+  const [issued, setIssued] = useState([]);
+  const [liveOrders, setLiveOrders] = useState([]);
+  const canIssue = ["admin", "hr", "gm", "pm", "tl", "cutting_master"].includes(profile?.role); // issuing stock to an order is not editing the stock records
 
   const load = async () => {
     const [m, f, i] = await Promise.all(
       SUBTABS.map((t) => supabase.from(t.table).select("*").order("created_at", { ascending: false }))
     );
-    const [{ data: u }, { data: sp }, { data: ord }] = await Promise.all([
+    const [{ data: u }, { data: sp }, { data: ord }, { data: iss }] = await Promise.all([
       supabase.from("fabric_usage").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("inventory_spare_parts").select("*").order("created_at", { ascending: false }),
-      supabase.from("orders").select("id, order_number"),
+      supabase.from("orders").select("id, order_number, customer_name, status"),
+      supabase.from("order_material_usage").select("*").order("created_at", { ascending: false }).limit(60),
     ]);
+    setIssued(iss || []);
+    setLiveOrders((ord || []).filter((o) => !["Completed", "Shipped"].includes(o.status)));
     setUsage(u || []);
     setParts(sp || []);
     setOrderNames(Object.fromEntries((ord || []).map((o) => [o.id, o.order_number])));
@@ -54,7 +62,7 @@ export default function Inventory({ profile }) {
   useEffect(() => {
     load();
     const ch = supabase.channel("inventory-changes");
-    [...SUBTABS.map((t) => t.table), "fabric_usage", "inventory_spare_parts"].forEach((tbl) =>
+    [...SUBTABS.map((t) => t.table), "fabric_usage", "inventory_spare_parts", "order_material_usage"].forEach((tbl) =>
       ch.on("postgres_changes", { event: "*", schema: "public", table: tbl }, load)
     );
     ch.subscribe();
@@ -65,6 +73,13 @@ export default function Inventory({ profile }) {
     if (!window.confirm("Delete this entry?")) return;
     const { error } = await supabase.from(SUBTABS.find((t) => t.id === tab).table).delete().eq("id", id);
     if (error) alert(`Couldn't delete:\n${error.message}`);
+    load();
+  };
+
+  const returnIssued = async (u) => {
+    if (!window.confirm(`Return ${u.quantity} ${u.unit || ""} of ${u.item_name} to stock and remove it from the order's cost?`)) return;
+    const { data, error } = await supabase.rpc("return_material_usage", { p_id: u.id });
+    if (error || !data?.ok) alert(error?.message || data?.error || "Couldn't return");
     load();
   };
 
@@ -157,6 +172,8 @@ export default function Inventory({ profile }) {
                   <th className="text-right px-3 py-2.5">Weight (GSM)</th>
                   <th className="text-right px-3 py-2.5">Available (kg)</th>
                   <th className="text-right px-3 py-2.5">Available (m)</th>
+                  <th className="text-right px-3 py-2.5">₹ / kg</th>
+                  <th className="text-right px-3 py-2.5">₹ / m</th>
                   <th className="text-left px-3 py-2.5">Supplier</th>
                   {canEdit && <th />}
                 </tr>
@@ -169,11 +186,13 @@ export default function Inventory({ profile }) {
                     <td className="px-3 py-2 text-right font-mono">{f.weight_gsm ?? "—"}</td>
                     <td className="px-3 py-2 text-right font-mono">{f.stock_kg ?? 0}</td>
                     <td className="px-3 py-2 text-right font-mono">{f.stock_meters ?? 0}</td>
+                    <td className="px-3 py-2 text-right font-mono">{f.price_per_kg ? fmtMoney(f.price_per_kg) : <span className="text-amber-600 text-xs">not set</span>}</td>
+                    <td className="px-3 py-2 text-right font-mono">{f.price_per_meter ? fmtMoney(f.price_per_meter) : <span className="text-stone-300">—</span>}</td>
                     <td className="px-3 py-2">{f.supplier || "—"}</td>
                     {actions("fabric", f)}
                   </tr>
                 ))}
-                {rows.fabric.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">No fabric added yet.</td></tr>}
+                {rows.fabric.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-400">No fabric added yet.</td></tr>}
               </tbody>
             </table>
           </Card>
@@ -215,7 +234,8 @@ export default function Inventory({ profile }) {
         </>
       )}
 
-      {sub === "items" && (
+      {sub === "items" && (<>
+        <p className="text-xs text-stone-500">Issue thread, elastic, buttons and other trims to an order as they are used. Stock reduces automatically and the cost is charged to that order (Actual cost).</p>
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -224,8 +244,9 @@ export default function Inventory({ profile }) {
                 <th className="text-left px-3 py-2.5">Item</th>
                 <th className="text-right px-3 py-2.5">Quantity</th>
                 <th className="text-left px-3 py-2.5">Unit</th>
+                <th className="text-right px-3 py-2.5">₹ / unit</th>
                 <th className="text-left px-3 py-2.5">Notes</th>
-                {canEdit && <th />}
+                {(canEdit || canIssue) && <th />}
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -235,16 +256,47 @@ export default function Inventory({ profile }) {
                   <td className="px-3 py-2 font-medium">{i.name}</td>
                   <td className="px-3 py-2 text-right font-mono">{i.quantity}</td>
                   <td className="px-3 py-2">{i.unit}</td>
+                  <td className="px-3 py-2 text-right font-mono">{i.unit_price ? fmtMoney(i.unit_price) : <span className="text-amber-600 text-xs">not set</span>}</td>
                   <td className="px-3 py-2 text-stone-500">{i.notes || "—"}</td>
-                  {actions("items", i)}
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    {canIssue && <button onClick={() => setIssueItem(i)} className="text-xs text-indigo-700 hover:underline mr-3 inline-flex items-center gap-1"><ArrowRightLeft size={12} /> Issue to order</button>}
+                    {canEdit && (<>
+                      <button onClick={() => setModal({ kind: "items", row: i })} className="text-stone-400 hover:text-indigo-600 mr-2" title="Edit"><Pencil size={14} /></button>
+                      <button onClick={() => remove("items", i.id)} className="text-stone-400 hover:text-rose-600" title="Delete"><Trash2 size={14} /></button>
+                    </>)}
+                  </td>
                 </tr>
               ))}
-              {rows.items.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-stone-400">No items added yet.</td></tr>}
+              {rows.items.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">No items added yet.</td></tr>}
             </tbody>
           </table>
         </Card>
-      )}
+        <div>
+          <h3 className="font-semibold text-sm mb-2">Issued to orders</h3>
+          <Card className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+                <tr><th className="text-left px-3 py-2.5">Date</th><th className="text-left px-3 py-2.5">Order</th><th className="text-left px-3 py-2.5">Item</th><th className="text-right px-3 py-2.5">Qty</th><th className="text-left px-3 py-2.5">By</th>{canIssue && <th />}</tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {issued.map((u) => (
+                  <tr key={u.id} className={u.returned ? "text-stone-400 line-through" : ""}>
+                    <td className="px-3 py-2">{u.used_on}</td>
+                    <td className="px-3 py-2">{orderNames[u.order_id] || "—"}</td>
+                    <td className="px-3 py-2">{u.item_name}</td>
+                    <td className="px-3 py-2 text-right font-mono">{u.quantity} {u.unit}</td>
+                    <td className="px-3 py-2">{u.used_by || "—"}</td>
+                    {canIssue && <td className="px-3 py-2 text-right">{!u.returned && <button title="Return to stock" onClick={() => returnIssued(u)} className="text-stone-400 hover:text-indigo-700"><Undo2 size={14} /></button>}</td>}
+                  </tr>
+                ))}
+                {issued.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-stone-400">Nothing issued yet.</td></tr>}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+      </>)}
 
+      {issueItem && <IssueModal item={issueItem} orders={liveOrders} onClose={() => setIssueItem(null)} onDone={load} />}
       {partsFor && <SparePartsModal machine={partsFor} parts={parts.filter((p) => p.machine_id === partsFor.id)} canEdit={canEdit} onClose={() => setPartsFor(null)} onSaved={load} />}
       {modal && <InventoryModal kind={modal.kind} row={modal.row} onClose={() => setModal(null)} onSaved={load} />}
     </div>
@@ -255,8 +307,8 @@ function InventoryModal({ kind, row, onClose, onSaved }) {
   const table = SUBTABS.find((t) => t.id === kind).table;
   const defaults = {
     machines: { model: "JUKI", model_other: "", machine_type: "", quantity: 1, working_condition: "Working", purchase_date: "", last_service_date: "", notes: "" },
-    fabric: { fabric_type: "", color: "", weight_gsm: "", stock_kg: "", stock_meters: "", supplier: "", notes: "" },
-    items: { category: "Thread", name: "", quantity: "", unit: "pcs", notes: "" },
+    fabric: { fabric_type: "", color: "", weight_gsm: "", stock_kg: "", stock_meters: "", price_per_kg: "", price_per_meter: "", supplier: "", notes: "" },
+    items: { category: "Thread", name: "", quantity: "", unit: "pcs", unit_price: "", notes: "" },
   }[kind];
   const [f, setF] = useState({ ...defaults, ...(row || {}) });
   const [saving, setSaving] = useState(false);
@@ -277,11 +329,11 @@ function InventoryModal({ kind, row, onClose, onSaved }) {
       if (payload.model !== "OTHER") payload.model_other = null;
     }
     if (kind === "fabric") {
-      ["weight_gsm", "stock_kg", "stock_meters"].forEach((k) => {
+      ["weight_gsm", "stock_kg", "stock_meters", "price_per_kg", "price_per_meter"].forEach((k) => {
         if (payload[k] !== null) payload[k] = Number(payload[k]);
       });
     }
-    if (kind === "items") payload.quantity = Number(payload.quantity) || 0;
+    if (kind === "items") { payload.quantity = Number(payload.quantity) || 0; if (payload.unit_price !== null) payload.unit_price = Number(payload.unit_price); }
 
     const { error } = row
       ? await supabase.from(table).update(payload).eq("id", row.id)
@@ -353,6 +405,15 @@ function InventoryModal({ kind, row, onClose, onSaved }) {
                 <input type="number" min="0" step="any" className={inputCls} value={f.stock_meters ?? ""} onChange={set("stock_meters")} />
               </Field>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Price per kg (₹)">
+                <input type="number" min="0" step="any" className={inputCls} value={f.price_per_kg ?? ""} onChange={set("price_per_kg")} />
+              </Field>
+              <Field label="Price per metre (₹)">
+                <input type="number" min="0" step="any" className={inputCls} value={f.price_per_meter ?? ""} onChange={set("price_per_meter")} />
+              </Field>
+            </div>
+            <p className="text-[11px] text-stone-400 -mt-1 mb-3">Used to cost the fabric an order consumes. Set automatically (weighted average) when fabric is received from a purchase request.</p>
             <Field label="Supplier">
               <input className={inputCls} value={f.supplier || ""} onChange={set("supplier")} />
             </Field>
@@ -375,6 +436,9 @@ function InventoryModal({ kind, row, onClose, onSaved }) {
               </Field>
               <Field label="Unit">
                 <input className={inputCls} value={f.unit || ""} onChange={set("unit")} placeholder="pcs, cones, rolls, m" />
+              </Field>
+              <Field label="Price per unit (₹)">
+                <input type="number" min="0" step="any" className={inputCls} value={f.unit_price ?? ""} onChange={set("unit_price")} />
               </Field>
             </div>
           </>
@@ -481,6 +545,49 @@ function SparePartsModal({ machine, parts, canEdit, onClose, onSaved }) {
         </form>
       )}
       {!canEdit && <div className="flex justify-end mt-2"><Btn variant="ghost" onClick={onClose}>Close</Btn></div>}
+    </Modal>
+  );
+}
+
+
+function IssueModal({ item, orders, onClose, onDone }) {
+  const [orderId, setOrderId] = useState("");
+  const [qty, setQty] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!orderId) return setError("Choose the order.");
+    if (!(Number(qty) > 0)) return setError("Enter the quantity used.");
+    setSaving(true);
+    const { data, error: err } = await supabase.rpc("issue_material_to_order", { p_order: orderId, p_item: item.id, p_qty: Number(qty), p_notes: notes });
+    setSaving(false);
+    if (err || !data?.ok) return setError(err?.message || data?.error || "Couldn't issue");
+    onDone();
+    onClose();
+  };
+  return (
+    <Modal title={`Issue to order — ${item.name}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="text-sm text-stone-600 mb-3">In stock: <b>{item.quantity} {item.unit}</b>{item.unit_price ? <> · ₹{item.unit_price} per {item.unit}</> : <span className="text-amber-700"> · no price set, so it will cost ₹0 until a price is added</span>}</p>
+        <Field label="Order">
+          <select className={inputCls} value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+            <option value="">— select —</option>
+            {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>)}
+          </select>
+        </Field>
+        <Field label={`Quantity used (${item.unit || "units"})`}>
+          <input type="number" min="0" step="any" className={inputCls} value={qty} onChange={(e) => setQty(e.target.value)} />
+        </Field>
+        <Field label="Notes (optional)"><input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Issuing…" : "Issue"}</Btn>
+        </div>
+      </form>
     </Modal>
   );
 }

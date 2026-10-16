@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users, FileText, Send, Star, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, X, ClipboardList, Truck, Link as LinkIcon, Copy, Check, Users, FileText, Send, Star, AlertTriangle, Calculator } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, DELAY_CAUSES, FEEDBACK_ITEMS, isOrderOverdue, daysBetween } from "../lib/helpers";
 import { AgreementModal } from "./OrderAgreement";
+import ActualCostModal from "./ActualCost";
 
 export default function Orders({ profile }) {
   const [orders, setOrders] = useState([]);
@@ -14,6 +15,9 @@ export default function Orders({ profile }) {
   const [laborOrder, setLaborOrder] = useState(null);
   const [agreementOrder, setAgreementOrder] = useState(null);
   const [rcaOrder, setRcaOrder] = useState(null); // { order, nextStatus }
+  const [view, setView] = useState("active"); // active | completed
+  const [doneFilter, setDoneFilter] = useState("All");
+  const [costOrder, setCostOrder] = useState(null);
   const [sendAgreementOrder, setSendAgreementOrder] = useState(null);
   const [feedbackOrder, setFeedbackOrder] = useState(null);
   const [rcaByOrder, setRcaByOrder] = useState({});
@@ -105,16 +109,34 @@ export default function Orders({ profile }) {
     load();
   };
 
+  const isDone = (o) => o.status === "Completed" || o.status === "Shipped";
+  const activeOrders = orders.filter((o) => !isDone(o));
+  const doneOrders = orders.filter(isDone);
+  const shownOrders = view === "active" ? activeOrders : doneOrders.filter((o) => doneFilter === "All" || o.status === doneFilter);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Orders ({orders.length})</h2>
-        <Btn onClick={() => setModal({})}>
-          <Plus size={15} /> New order
-        </Btn>
+      <div className="flex gap-1 border-b border-stone-200">
+        {[["active", `Active (${activeOrders.length})`], ["completed", `Completed (${doneOrders.length})`]].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`px-3 py-2 text-sm border-b-2 -mb-px ${view === id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>{label}</button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${activeOrders.length})` : `Completed orders (${shownOrders.length})`}</h2>
+        {view === "completed" ? (
+          <div className="flex gap-1.5">
+            {["All", "Completed", "Shipped"].map((f) => (
+              <button key={f} onClick={() => setDoneFilter(f)} className={`text-xs px-2.5 py-1 rounded-full border ${doneFilter === f ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-200"}`}>{f}</button>
+            ))}
+          </div>
+        ) : (
+          <Btn onClick={() => setModal({})}>
+            <Plus size={15} /> New order
+          </Btn>
+        )}
       </div>
       <div className="grid gap-3">
-        {orders.map((o) => {
+        {shownOrders.map((o) => {
           const breakdown = buildItemBreakdown(o.items, progressByOrder[o.id] || [], deliveriesByOrder[o.id] || []);
           const totalRequired = orderItemsRequired(o.items);
           const totalDelivered = breakdown.reduce((s, b) => s + b.delivered, 0);
@@ -174,6 +196,11 @@ export default function Orders({ profile }) {
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
                     <LinkIcon size={14} />
                   </button>
+                  {profile?.role === "admin" && (
+                    <button onClick={() => setCostOrder({ order: o, made: breakdown.reduce((sum, b) => sum + b.completed, 0) })} className="text-stone-400 hover:text-emerald-700 p-1" title="Actual cost of this order">
+                      <Calculator size={14} />
+                    </button>
+                  )}
                   <button onClick={() => setSendAgreementOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Send agreement to customer (agree / disagree link)">
                     <Send size={14} />
                   </button>
@@ -221,13 +248,14 @@ export default function Orders({ profile }) {
             </Card>
           );
         })}
-        {orders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
+        {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{view === "completed" ? "No completed orders yet. Orders move here when their status is set to Completed or Shipped." : "No active orders. Add a new order."}</Card>}
       </div>
       {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} />}
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
       {laborOrder && <LaborModal order={laborOrder} onClose={() => setLaborOrder(null)} />}
+      {costOrder && <ActualCostModal order={costOrder.order} piecesMade={costOrder.made} onClose={() => setCostOrder(null)} />}
       {rcaOrder && <RcaModal order={rcaOrder.order} existing={rcaByOrder[rcaOrder.order.id]} nextStatus={rcaOrder.nextStatus} profile={profile} onClose={() => setRcaOrder(null)} onDone={() => { setRcaOrder(null); load(); }} />}
       {sendAgreementOrder && <SendAgreementModal order={orders.find((x) => x.id === sendAgreementOrder.id) || sendAgreementOrder} onClose={() => setSendAgreementOrder(null)} onChanged={load} />}
       {feedbackOrder && <FeedbackLinkModal order={feedbackOrder} feedback={feedbackByOrder[feedbackOrder.id]} onClose={() => setFeedbackOrder(null)} onChanged={load} />}
@@ -345,8 +373,23 @@ function ProgressModal({ order, onClose, profile }) {
   const [date, setDate] = useState(todayStr());
   const [rows, setRows] = useState({});
   const [allProgress, setAllProgress] = useState([]);
+  const [crew, setCrew] = useState(null); // people allocated to this order on the chosen date (null = loading)
+  const [allocOpen, setAllocOpen] = useState(false);
   const items = order.items || [];
   const required = orderItemsRequired(items);
+
+  const loadCrew = async () => {
+    const { data } = await supabase.from("order_labor").select("id, employee_id").eq("order_id", order.id).eq("work_date", date);
+    setCrew(data || []);
+    return data || [];
+  };
+  // Hourly progress can only be entered once resources are allocated for that day.
+  useEffect(() => {
+    setCrew(null);
+    loadCrew().then((d) => { if (d.length === 0) setAllocOpen(true); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id, date]);
+  const blocked = crew !== null && crew.length === 0;
 
   const load = async () => {
     const { data } = await supabase.from("order_progress").select("*").eq("order_id", order.id);
@@ -365,6 +408,7 @@ function ProgressModal({ order, onClose, profile }) {
   }, [allProgress, date]);
 
   const saveCell = async (hourKey, itemDesc, value) => {
+    if (blocked) { setAllocOpen(true); return; }
     const quantity = Number(value) || 0;
     await supabase.from("order_progress").upsert(
       { order_id: order.id, date, hour_slot: hourKey, item_description: itemDesc, quantity, updated_by: profile?.name || null },
@@ -389,7 +433,19 @@ function ProgressModal({ order, onClose, profile }) {
             {order.daily_target > 0 && <span className="text-xs text-stone-500 font-mono">{todayTotal} / {order.daily_target} today</span>}
           </div>
 
-          <div className="border border-stone-200 rounded-lg overflow-x-auto mb-4">
+          {blocked ? (
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3 text-sm text-amber-900">
+              <span>No people are allocated to {order.order_number} on {date}, so progress can't be updated yet.</span>
+              <Btn onClick={() => setAllocOpen(true)}>Allocate resources</Btn>
+            </div>
+          ) : crew !== null ? (
+            <div className="flex items-center justify-between text-xs text-stone-500 mb-3">
+              <span>{crew.length} {crew.length === 1 ? "person" : "people"} allocated on {date}</span>
+              <button onClick={() => setAllocOpen(true)} className="text-indigo-700 hover:underline">Change</button>
+            </div>
+          ) : null}
+
+          <div className={`border border-stone-200 rounded-lg overflow-x-auto mb-4 ${blocked ? "opacity-40 pointer-events-none select-none" : ""}`}>
             <table className="w-full text-sm">
               <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
                 <tr>
@@ -446,6 +502,7 @@ function ProgressModal({ order, onClose, profile }) {
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
+      {allocOpen && <AllocateResourcesModal order={order} date={date} onClose={() => setAllocOpen(false)} onSaved={() => { setAllocOpen(false); loadCrew(); }} />}
     </Modal>
   );
 }
@@ -608,7 +665,7 @@ function LaborModal({ order, onClose }) {
 
   const load = async () => {
     const [{ data: emp }, { data: assign }] = await Promise.all([
-      supabase.from("employees").select("id, name, department, base_salary").order("name", { ascending: true }),
+      supabase.from("employees").select("id, name, department, base_salary, status").order("name", { ascending: true }),
       supabase.from("order_labor").select("*").eq("order_id", order.id).order("work_date", { ascending: false }),
     ]);
     setEmployees(emp || []);
@@ -672,7 +729,7 @@ function LaborModal({ order, onClose }) {
         <div className="text-xs font-semibold text-stone-600 uppercase mb-2">Assign staff for a date</div>
         <input type="date" className={inputCls + " mb-2"} value={date} onChange={(e) => setDate(e.target.value)} />
         <div className="max-h-40 overflow-y-auto border border-stone-100 rounded mb-2 divide-y divide-stone-100">
-          {employees.map((e) => (
+          {employees.filter((e) => e.status !== "Inactive").map((e) => (
             <label key={e.id} className="flex items-center gap-2 px-2 py-1.5 text-sm cursor-pointer hover:bg-stone-50">
               <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggleSelected(e.id)} />
               <span>{e.name}</span>
@@ -884,6 +941,73 @@ function FeedbackLinkModal({ order, feedback, onClose }) {
           <p className="text-xs text-stone-400 mt-2">Waiting for the customer to respond.</p>
         </>
       )}
+    </Modal>
+  );
+}
+
+
+// ===================== Allocate resources popup (required before hourly progress) =====================
+function AllocateResourcesModal({ order, date, onClose, onSaved }) {
+  const [employees, setEmployees] = useState([]);
+  const [attendance, setAttendance] = useState({});
+  const [existing, setExisting] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: emp }, { data: att }, { data: cur }] = await Promise.all([
+        supabase.from("employees").select("id, name, department, status").neq("status", "Inactive").order("name"),
+        supabase.from("attendance").select("employee_id, status").eq("date", date),
+        supabase.from("order_labor").select("id, employee_id").eq("order_id", order.id).eq("work_date", date),
+      ]);
+      setEmployees(emp || []);
+      setAttendance(Object.fromEntries((att || []).map((a) => [a.employee_id, a.status])));
+      setExisting(cur || []);
+      setSelected((cur || []).map((c) => c.employee_id));
+    })();
+  }, [order.id, date]);
+
+  const toggle = (id) => setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  const save = async () => {
+    setError("");
+    if (selected.length === 0) return setError("Select at least one person to continue.");
+    setSaving(true);
+    const keep = new Set(selected);
+    const removeIds = existing.filter((e) => !keep.has(e.employee_id)).map((e) => e.id);
+    if (removeIds.length) await supabase.from("order_labor").delete().in("id", removeIds);
+    const have = new Set(existing.map((e) => e.employee_id));
+    const rows = selected.filter((id) => !have.has(id)).map((employee_id) => ({ order_id: order.id, employee_id, work_date: date }));
+    if (rows.length) {
+      const { error: err } = await supabase.from("order_labor").insert(rows);
+      if (err) { setSaving(false); return setError(err.message); }
+    }
+    setSaving(false);
+    onSaved();
+  };
+  const BADGE = { Present: "bg-emerald-100 text-emerald-800", "Half Day": "bg-amber-100 text-amber-800", Leave: "bg-sky-100 text-sky-800", Absent: "bg-rose-100 text-rose-800" };
+
+  return (
+    <Modal title="Allocate resources first" onClose={onClose}>
+      <p className="text-sm text-stone-600 mb-3">
+        Choose who is working on <b>{order.order_number}</b> on <b>{date}</b>. Hourly progress can be updated once at least one person is allocated.
+      </p>
+      <div className="max-h-64 overflow-y-auto border border-stone-100 rounded-lg divide-y divide-stone-100 mb-3">
+        {employees.map((e) => (
+          <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-stone-50">
+            <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggle(e.id)} />
+            <span className="flex-1">{e.name}{e.department && <span className="text-xs text-stone-400"> · {e.department}</span>}</span>
+            {attendance[e.id] && <span className={`text-[11px] px-1.5 py-0.5 rounded-full ${BADGE[attendance[e.id]] || "bg-stone-100"}`}>{attendance[e.id]}</span>}
+          </label>
+        ))}
+        {employees.length === 0 && <p className="text-xs text-stone-400 px-3 py-3">No active employees found.</p>}
+      </div>
+      {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Btn variant="ghost" onClick={onClose}>Not now</Btn>
+        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : `Allocate ${selected.length || ""} and continue`}</Btn>
+      </div>
     </Modal>
   );
 }

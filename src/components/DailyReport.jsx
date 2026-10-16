@@ -27,13 +27,14 @@ export default function DailyReport() {
   const load = async () => {
     try {
       const [employees, attendance, progress, orders, ops] = await Promise.all([
-        fetchAll(() => supabase.from("employees").select("id, name, role").order("name")),
+        fetchAll(() => supabase.from("employees").select("id, name, role, status").order("name")),
         fetchAll(() => supabase.from("attendance").select("employee_id, status, check_in, check_out").eq("date", date).order("id")),
         fetchAll(() => supabase.from("order_progress").select("order_id, hour_slot, item_description, quantity").eq("date", date).order("id")),
         fetchAll(() => supabase.from("orders").select("id, order_number, customer_name, status, daily_target, due_date").order("id")),
         supabase.from("operation_output").select("operation, quantity").eq("work_date", date).then((r) => r.data || []),
       ]);
-      setData({ ...dailySummary({ date, employees, attendance, progress, orders, ops }), orders });
+      const activeEmployees = employees.filter((e) => e.status !== "Inactive" || attendance.some((a) => a.employee_id === e.id));
+      setData({ ...dailySummary({ date, employees: activeEmployees, attendance, progress, orders, ops }), orders });
       // who worked on which order (Manpower assignments + Operation log); wages only come back for Admin/HR
       const [wf, rca] = await Promise.all([
         supabase.rpc("daily_order_workforce", { p_date: date }),

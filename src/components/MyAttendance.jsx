@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MapPin, Clock, CheckCircle2, AlertTriangle, LogIn, LogOut } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Btn } from "./ui";
+import { Card, Btn, Modal } from "./ui";
 import { todayStr, computeShiftStats, reverseGeocode, googleMapsLink } from "../lib/helpers";
 
 export default function MyAttendance({ profile }) {
@@ -11,6 +11,7 @@ export default function MyAttendance({ profile }) {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState(null);
+  const [missedCheckout, setMissedCheckout] = useState(null); // yesterday row with a check-in but no check-out
 
   const load = async () => {
     if (!profile?.employee_id) {
@@ -27,6 +28,14 @@ export default function MyAttendance({ profile }) {
         .limit(7),
       supabase.from("settings").select("geofence_radius_meters").eq("id", 1).single(),
     ]);
+    // yesterday (IST): checked in but never checked out -> gentle reminder, once per day
+    try {
+      const y = new Date(new Date(todayStr() + "T00:00:00Z").getTime() - 86400000).toISOString().slice(0, 10);
+      const { data: yRow } = await supabase.from("attendance").select("date, check_in, check_out").eq("employee_id", profile.employee_id).eq("date", y).maybeSingle();
+      let dismissed = false;
+      try { dismissed = localStorage.getItem("missed-checkout-" + todayStr()) === "1"; } catch { /* storage unavailable */ }
+      setMissedCheckout(yRow && yRow.check_in && !yRow.check_out && !dismissed ? yRow : null);
+    } catch { /* reminder is optional */ }
     setToday(todayRow || null);
     setHistory(recent || []);
     setRadius(Number(settings?.geofence_radius_meters) || 200);
@@ -121,9 +130,24 @@ export default function MyAttendance({ profile }) {
   }
 
   const stats = today ? computeShiftStats(today.check_in, today.check_out) : {};
+  const dismissReminder = () => {
+    try { localStorage.setItem("missed-checkout-" + todayStr(), "1"); } catch { /* ignore */ }
+    setMissedCheckout(null);
+  };
 
   return (
     <div className="space-y-4 max-w-md">
+      {missedCheckout && (
+        <Modal title="You didn't check out yesterday" onClose={dismissReminder}>
+          <p className="text-sm text-stone-700 mb-2">
+            Yesterday ({missedCheckout.date}) you checked in at <b>{String(missedCheckout.check_in).slice(0, 5)}</b> but there is no check-out recorded.
+          </p>
+          <p className="text-sm text-stone-600 mb-4">
+            Please remember to <b>check in when you arrive</b> and <b>check out before you leave</b> every day. It keeps your hours, overtime and salary correct. If you did leave on time, tell your HR so they can correct it.
+          </p>
+          <div className="flex justify-end"><Btn onClick={dismissReminder}>Got it</Btn></div>
+        </Modal>
+      )}
       <h2 className="text-lg font-semibold">My Attendance</h2>
 
       <Card className="p-5 text-center">

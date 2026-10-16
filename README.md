@@ -556,3 +556,12 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 - **Late orders need an RCA**: an order past its due date cannot be set to Completed/Shipped until the delay RCA (reasons: under-estimated, fabric delay, sample approval delay, customer delay, rework, other; days lost; root cause; lessons learned) is saved. Enforced in the database too. Orders list shows red overdue cards.
 - **Customer agreement link** (send icon on an order): customer opens a no-login page, reviews items/rates/terms and taps I agree / I disagree. Status, name, time and comment appear on the order.
 - **Customer feedback link** (star icon, once Completed/Shipped): ratings for fabric, stitching, size matching, durability, pricing, design and colour matching, packing, communication, overall, plus delivery timing, reorder intent and problems. Results show on the order and in Insights -> Feedback & delays, together with all RCAs.
+
+## v35 changes (needs migration_39.sql, after migration_38; no new packages)
+- **Access**: Invoices and the financial tables (investors, loans, payments, order costing) are now Admin only. HR sees only Expenditures and Purchase Requests inside Finance (Payroll stays with HR). GM loses Invoices. Inventory is view-only for GM, PM and TL (Admin/HR edit).
+- **Orders -> Completed tab**: Completed and Shipped orders move out of the Active list.
+- **Invoices**: Paid and Balance per invoice from payments logged for the order (oldest invoice first); fully covered = Paid automatically. Finance -> Payments shows Invoiced / Received / Balance.
+- **Hourly progress** needs people allocated to the order for that date; otherwise a popup asks you to allocate first.
+- **Employees**: no attendance for 30 days -> Inactive tab; Admin/HR can Make active. Inactive people are left out of attendance, payroll, manpower lists.
+- **My Attendance**: reminder popup when yesterday has a check-in but no check-out.
+- **Actual order cost** (Admin): fabric used x inventory price + trims issued from Inventory x unit price + order-tagged expenditures (incl. Transport) + manpower. Inventory has price fields and "Issue to order".

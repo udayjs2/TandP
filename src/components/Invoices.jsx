@@ -12,14 +12,38 @@ export default function Invoices({ isAdmin }) {
   const [modal, setModal] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [printInvoice, setPrintInvoice] = useState(null);
+  const [payments, setPayments] = useState([]);
   const today = todayStr();
 
+  // Payments logged against an order are applied to that order's invoices, oldest first.
+  const amountOf = (i) => (i.items?.length ? itemsTotal(i.items) : Number(i.amount) || 0);
+  const paidById = (() => {
+    const pool = {};
+    payments.forEach((p) => (pool[p.order_id] = (pool[p.order_id] || 0) + Number(p.amount || 0)));
+    const out = {};
+    [...invoices]
+      .sort((a, b) => (a.issue_date || "").localeCompare(b.issue_date || "") || (a.created_at || "").localeCompare(b.created_at || ""))
+      .forEach((i) => {
+        const total = amountOf(i);
+        if (i.linked_order_id) {
+          const share = Math.min(pool[i.linked_order_id] || 0, total);
+          pool[i.linked_order_id] = (pool[i.linked_order_id] || 0) - share;
+          out[i.id] = i.status === "Paid" ? Math.max(share, total) : share; // a manually-marked Paid invoice counts as fully paid
+        } else {
+          out[i.id] = i.status === "Paid" ? total : Number(i.advance_received || 0);
+        }
+      });
+    return out;
+  })();
+
   const load = async () => {
-    const [{ data: inv, error: invErr }, { data: ord }, { data: set, error: setErr }] = await Promise.all([
+    const [{ data: inv, error: invErr }, { data: ord }, { data: set, error: setErr }, { data: pay }] = await Promise.all([
       supabase.from("invoices").select("*").order("issue_date", { ascending: false }),
       supabase.from("orders").select("*"),
       supabase.from("settings").select("*").eq("id", 1).single(),
+      supabase.from("order_payments").select("order_id, amount"),
     ]);
+    setPayments(pay || []);
     if (invErr) console.error("Failed to load invoices:", invErr.message);
     if (setErr) console.error("Failed to load business settings:", setErr.message);
     setInvoices(inv || []);
@@ -32,6 +56,7 @@ export default function Invoices({ isAdmin }) {
     const ch = supabase
       .channel("invoices-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_payments" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "settings" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -93,16 +118,19 @@ export default function Invoices({ isAdmin }) {
               <th className="text-left px-4 py-2.5">Issued</th>
               <th className="text-left px-4 py-2.5">Due</th>
               <th className="text-right px-4 py-2.5">Amount</th>
-              <th className="text-right px-4 py-2.5">Balance Due</th>
+              <th className="text-right px-4 py-2.5">Paid</th>
+              <th className="text-right px-4 py-2.5">Balance</th>
               <th className="text-left px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
             {invoices.map((i) => {
-              const overdue = i.status !== "Paid" && i.due_date && i.due_date < today;
-              const amount = i.items?.length ? itemsTotal(i.items) : Number(i.amount) || 0;
-              const balanceDue = amount - Number(i.advance_received || 0);
+              const amount = amountOf(i);
+              const paid = paidById[i.id] || 0;
+              const balanceDue = Math.max(0, amount - paid);
+              const isPaid = i.status === "Paid" || (amount > 0 && balanceDue <= 0);
+              const overdue = !isPaid && i.due_date && i.due_date < today;
               return (
                 <tr key={i.id} className="hover:bg-stone-50">
                   <td className="px-4 py-2.5 font-medium">{i.invoice_number}</td>
@@ -110,22 +138,23 @@ export default function Invoices({ isAdmin }) {
                   <td className="px-4 py-2.5 text-stone-500">{i.issue_date}</td>
                   <td className="px-4 py-2.5 text-stone-500">{i.due_date || "—"}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(amount)}</td>
-                  <td className="px-4 py-2.5 text-right font-mono font-semibold">{fmtMoney(balanceDue)}</td>
+                  <td className="px-4 py-2.5 text-right font-mono text-emerald-700">{fmtMoney(paid)}</td>
+                  <td className={`px-4 py-2.5 text-right font-mono font-semibold ${balanceDue > 0 ? "text-rose-700" : "text-stone-400"}`}>{fmtMoney(balanceDue)}</td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        i.status === "Paid" ? "bg-emerald-100 text-emerald-800" : overdue ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"
+                        isPaid ? "bg-emerald-100 text-emerald-800" : overdue ? "bg-rose-100 text-rose-800" : paid > 0 ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-800"
                       }`}
                     >
-                      {i.status === "Paid" ? "Paid" : overdue ? "Overdue" : "Unpaid"}
+                      {isPaid ? "Paid" : overdue ? "Overdue" : paid > 0 ? "Part paid" : "Unpaid"}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex justify-end gap-1">
-                      <button onClick={() => setPrintInvoice(i)} className="text-stone-400 hover:text-indigo-700 p-1" title="Print">
+                      <button onClick={() => setPrintInvoice({ ...i, advance_received: i.linked_order_id ? paid : i.advance_received })} className="text-stone-400 hover:text-indigo-700 p-1" title="Print">
                         <Receipt size={14} />
                       </button>
-                      {i.status !== "Paid" && (
+                      {!isPaid && (
                         <button onClick={() => markPaid(i.id)} className="text-stone-400 hover:text-emerald-700 p-1" title="Mark paid">
                           <Check size={14} />
                         </button>
@@ -143,7 +172,7 @@ export default function Invoices({ isAdmin }) {
             })}
             {invoices.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-stone-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-stone-400">
                   No invoices yet.
                 </td>
               </tr>
@@ -151,6 +180,7 @@ export default function Invoices({ isAdmin }) {
           </tbody>
         </table>
       </Card>
+      <p className="text-xs text-stone-400">Paid = payments logged for the order in Finance → Payments, applied to its invoices oldest first. When an invoice is fully covered its status changes to Paid automatically.</p>
       {modal && <InvoiceModal inv={modal} orders={orders} onClose={() => setModal(null)} onSave={save} count={invoices.length} />}
       {settingsOpen && <BusinessSettingsModal settings={settings} onClose={() => setSettingsOpen(false)} onSave={saveSettings} />}
       {printInvoice && <PrintInvoice invoice={printInvoice} settings={settings} onClose={() => setPrintInvoice(null)} />}
