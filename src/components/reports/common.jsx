@@ -37,6 +37,8 @@ export const PRESETS = [
   { id: "this_month", label: "This month" },
   { id: "last_month", label: "Last month" },
   { id: "last_30", label: "Last 30 days" },
+  { id: "last_6m", label: "Last 6 months" },
+  { id: "last_12m", label: "Last 12 months" },
   { id: "this_quarter", label: "This quarter" },
   { id: "last_quarter", label: "Last quarter" },
   { id: "this_fy", label: "This financial year" },
@@ -51,6 +53,13 @@ export const presetRange = (id, today = todayStr()) => {
     const [y, m] = [Number(ym.slice(0, 4)), Number(ym.slice(5, 7))];
     const pm = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
     return { from: `${pm}-01`, to: lastDay(pm), label: monthLabel(pm) };
+  }
+  if (id === "last_6m" || id === "last_12m") {
+    const back = id === "last_6m" ? 5 : 11;
+    let y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) - back;
+    while (m < 1) { m += 12; y -= 1; }
+    const start = `${y}-${String(m).padStart(2, "0")}`;
+    return { from: `${start}-01`, to: lastDay(ym), label: id === "last_6m" ? "Last 6 months" : "Last 12 months" };
   }
   if (id === "last_30") return { from: addDays(today, -29), to: today, label: "Last 30 days" };
   if (id === "this_quarter") { const r = periodRangeFor("quarter", fy, q); return { from: r.from, to: r.to, label: r.label }; }

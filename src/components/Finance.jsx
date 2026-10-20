@@ -15,22 +15,22 @@ const SUB_TABS = [
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
-  { id: "purchase", label: "Purchase Requests", icon: ShoppingCart },
   { id: "advances", label: "Advances", icon: Wallet },
 ];
 
 export default function Finance({ profile }) {
-  // Admin: everything. HR: Expenditures + Purchase Requests + Advances. GM / PM: Purchase Requests only.
+  // Admin and Finance: everything. HR: Expenditures + Advances only. (Purchase Requests now live in Inventory & Procurement.)
   const role = profile?.role;
-  const allowed = role === "admin" ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "purchase", "advances"] : ["purchase"];
-  const limited = role !== "admin";
+  const fullAccess = ["admin", "finance"].includes(role);
+  const allowed = fullAccess ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "advances"] : [];
+  const limited = !fullAccess;
   const tabs = SUB_TABS.filter((t) => allowed.includes(t.id));
   const [sub, setSub] = useState(allowed[0] === "overview" ? "overview" : allowed[0]);
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold mb-1">Finance &amp; Accounts</h1>
-        <p className="text-xs text-stone-500 mb-3">{limited ? (role === "hr" ? "Business expenditures, purchase requests and employee advances." : "Raise and approve purchase requests.") : "Invoices, payments, investor capital, expenditures, purchase requests, advances, loans and per-order profit & loss."}</p>
+        <p className="text-xs text-stone-500 mb-3">{limited ? "Business expenditures and employee advances." : "Invoices, payments, investor capital, expenditures, advances, loans and per-order profit & loss."}</p>
         <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
@@ -54,8 +54,7 @@ export default function Finance({ profile }) {
       {sub === "payments" && <Payments profile={profile} />}
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
-      {sub === "purchase" && <PurchaseRequests profile={profile} />}
-      {sub === "invoices" && role === "admin" && <Invoices isAdmin={true} />}
+      {sub === "invoices" && fullAccess && <Invoices isAdmin={role === "admin"} />}
       {sub === "advances" && <Advances />}
     </div>
   );
@@ -1125,7 +1124,7 @@ const PR_STATUS_COLORS = {
   Rejected: "bg-rose-100 text-rose-800",
 };
 
-function PurchaseRequests({ profile }) {
+export function PurchaseRequests({ profile }) {
   const role = profile?.role;
   const isGM = role === "gm";
   const isAdminish = ["admin", "hr"].includes(role);

@@ -8,7 +8,7 @@ export default function Dashboard({ profile }) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
   const isAdmin = profile?.role === "admin" || profile?.role === "hr";
-  const isFinanceAdmin = profile?.role === "admin"; // invoice figures: Admin only
+  const isFinanceAdmin = profile?.role === "admin" || profile?.role === "finance"; // invoice figures: Admin and Finance only
 
   const load = async () => {
     const today = todayStr();

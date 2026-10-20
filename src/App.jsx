@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Users, Package, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
+  LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
   MapPinned, Tv, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
@@ -12,7 +12,7 @@ import Orders from "./components/Orders";
 import Attendance from "./components/Attendance";
 import Payroll from "./components/Payroll";
 import SalesTeam from "./components/SalesTeam";
-import Finance from "./components/Finance";
+import Finance, { PurchaseRequests } from "./components/Finance";
 import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
 import MyAttendance from "./components/MyAttendance";
@@ -29,19 +29,18 @@ import ModuleShell from "./components/ModuleShell";
 // Full access roles: Admin and HR (HR was explicitly made equal to Admin)
 const FULL = ["admin", "hr"];
 
-const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"];
+const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "finance", "user"];
 
 // Top-level modules. Sub-tabs inside each module are filtered by role below.
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ALL },
   { id: "floor-display", label: "Floor Display", icon: Tv, roles: ALL },
-  { id: "orders", label: "Orders", icon: Package, roles: [...FULL, "gm", "pm", "tl"] },
   { id: "production", label: "Production Management", icon: Factory, roles: [...FULL, "gm", "pm", "tl", "cutting_master", "quality_manager"] },
   { id: "hr", label: "HR & Workforce", icon: UsersRound, roles: ALL },
   { id: "sales", label: "CRM & Sales", icon: Handshake, roles: [...FULL, "gm", "pm", "sales", "user"] },
   { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: [...FULL, "gm", "pm", "tl", "cutting_master"] },
-  { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: [...FULL, "gm", "pm"] }, // Admin: all; HR: Expenditures, Purchase Requests, Advances; GM/PM: Purchase Requests
-  { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: [...FULL, "gm", "pm", "tl", "quality_manager", "sales"] },
+  { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: [...FULL, "finance"] }, // Admin / Finance: all; HR: Expenditures + Advances
+  { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: [...FULL, "gm", "pm", "tl", "quality_manager", "sales", "finance"] },
   { id: "users", label: "User Management", icon: ShieldCheck, roles: [...FULL, "gm", "pm"] },
   { id: "planner", label: "Planner", icon: CalendarClock, roles: [...FULL, "gm", "pm"] },
 ];
@@ -112,9 +111,14 @@ export default function App() {
 
   // sub-tabs of the Production Management and HR & Workforce modules
   const productionTabs = [
+    { id: "orders", label: "Orders", icon: Package, roles: [...FULL, "gm", "pm", "tl"], render: () => <Orders profile={profile} /> },
     { id: "cutting", label: "Cutting", icon: Scissors, roles: [...FULL, "gm", "pm", "cutting_master"], render: () => <Cutting profile={profile} /> },
     { id: "output", label: "Output", icon: BarChart3, roles: [...FULL, "gm", "pm", "tl", "quality_manager"], render: () => <Output /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: [...FULL, "gm", "pm", "tl", "quality_manager"], render: () => <Quality profile={profile} /> },
+  ].filter((t) => t.roles.includes(role));
+  const inventoryTabs = [
+    { id: "inventory", label: "Inventory", icon: Boxes, roles: [...FULL, "gm", "pm", "tl", "cutting_master"], render: () => <Inventory profile={profile} /> },
+    { id: "purchase", label: "Purchase Requests", icon: ShoppingCart, roles: [...FULL, "gm", "pm"], render: () => <PurchaseRequests profile={profile} /> },
   ].filter((t) => t.roles.includes(role));
   const hrTabs = [
     { id: "employees", label: "Employees", icon: Users, roles: FULL, render: () => <Employees /> },
@@ -136,11 +140,10 @@ export default function App() {
       <Header tabs={visibleTabs} tab={activeTab} setTab={setTab} profile={profile} onLogout={logout} saving={false} />
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === "dashboard" && <Dashboard profile={profile} />}
-        {activeTab === "orders" && <Orders profile={profile} />}
-        {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Cutting, daily output and quality inspection." tabs={productionTabs} />}
+        {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Orders, cutting, daily output and quality inspection." tabs={productionTabs} />}
         {activeTab === "hr" && <ModuleShell title="HR & Workforce Management" subtitle="Employees, attendance, leave and payroll." tabs={hrTabs} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
-        {activeTab === "inventory" && <Inventory profile={profile} />}
+        {activeTab === "inventory" && <ModuleShell title="Inventory & Procurement" subtitle="Fabric, accessories, machines and spare parts, and purchase requests." tabs={inventoryTabs} />}
         {activeTab === "finance" && <Finance profile={profile} />}
         {activeTab === "reports" && <Reports profile={profile} />}
         {activeTab === "users" && canUsers && <UserManagement profile={profile} />}

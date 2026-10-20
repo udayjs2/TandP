@@ -204,6 +204,7 @@ export const computeOrderProjection = (order, completedByItem, rates, startDate)
 export const ROLE_LABELS = {
   admin: "Admin",
   hr: "HR",
+  finance: "Finance",
   gm: "General Manager",
   pm: "Production Manager",
   tl: "Team Lead",
@@ -212,7 +213,7 @@ export const ROLE_LABELS = {
   sales: "Sales",
   user: "Staff",
 };
-export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "user"];
+export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "finance", "user"];
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of
 // employees by id (must include base_salary), compute manpower count,

@@ -1,7 +1,7 @@
 {
   "name": "tp-textiles-erp",
   "private": true,
-  "version": "1.0.0",
+  "version": "37.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

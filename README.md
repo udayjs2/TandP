@@ -595,3 +595,21 @@ Approved / Paid rows never change when rules change.
 
 Existing orders can be linked to a salesperson and an order value from Orders → edit (Admin / GM / PM).
 HR has no access to order values or commission (financial data).
+
+## v37 — Finance login, module regrouping, KPI dashboard and Phase 3 analytics
+
+**Run `supabase/migration_41.sql`** (after migration_40). No `npm install` needed.
+
+- **Finance user type.** Create the user in User Management with role *Finance*. Finance sees Dashboard, HR & Workforce
+  self-service tabs (My Attendance, Leave, Payroll), Finance & Accounts (Overview, Investors, Expenditures, Invoices,
+  Payments, Order Profitability, Loans, Advances) and the financial reports. No Purchase Requests, CRM or payroll admin.
+  Commission *rules* stay Admin-only.
+- **Purchase Requests** moved from Finance & Accounts to Inventory & Procurement (Admin/HR/GM/PM). GM/PM no longer have a
+  Finance tab; HR keeps Finance → Expenditures + Advances.
+- **Orders** moved into Production Management (Orders, Cutting, Output, Quality).
+- **Reports & Analytics → KPI Dashboard:** employee productivity, quality defects, fabric wastage, inventory ageing,
+  lead conversion, commission.
+- **Phase 3 reports:** Profit Trends (moving average + 3-month projection), Production Forecast (4-week output forecast and
+  projected finish date of each open order), Customer Profitability, Cost Variance (cost sheet vs actual), Delivery
+  Performance (on-time %, days late, causes), Management Presentation (executive deck, PowerPoint / PDF).
+  Forecasts are simple trend projections, not guarantees.

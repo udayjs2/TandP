@@ -182,15 +182,19 @@ export function drawChart(canvas, spec, width = 720, height = 320, scale = 1) {
         ctx.strokeStyle = c;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
+        let pen = false; // null / undefined values leave a gap in the line
         s.values.forEach((v, i) => {
+          if (v === null || v === undefined) { pen = false; return; }
           const x = left + slot * i + slot / 2;
           const y = yOf(Number(v) || 0);
-          if (i === 0) ctx.moveTo(x, y);
+          if (!pen) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
+          pen = true;
         });
         ctx.stroke();
         ctx.fillStyle = c;
         s.values.forEach((v, i) => {
+          if (v === null || v === undefined) return;
           const x = left + slot * i + slot / 2;
           ctx.beginPath();
           ctx.arc(x, yOf(Number(v) || 0), 3.5, 0, Math.PI * 2);
