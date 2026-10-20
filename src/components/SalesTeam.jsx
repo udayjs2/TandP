@@ -1,52 +1,36 @@
 import { useEffect, useState } from "react";
-import { Receipt, Upload, X, Check, Users2, Wallet, Store, Banknote } from "lucide-react";
+import { Upload, X, Check, Users2, Wallet, Store, Target, PackageSearch, BadgeIndianRupee } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Field, inputCls, Btn, Modal } from "./ui";
 import { fmtMoney, monthKey, todayStr, EXPENSE_CATEGORIES, TRANSPORT_MODES, EXPENSE_STATUS_COLORS } from "../lib/helpers";
 import CustomerManagement from "./CustomerManagement";
 import Vendors from "./Vendors";
-import Advances, { advanceBalance } from "./Advances";
+import { advanceBalance } from "./Advances";
+import ModuleShell from "./ModuleShell";
+import Leads from "./Leads";
+import SalesOrders from "./SalesOrders";
+import Commission from "./Commission";
 
 export default function SalesTeam({ profile }) {
-  const isAdmin = ["admin", "hr", "gm", "pm"].includes(profile?.role);
-  const [sub, setSub] = useState(isAdmin ? "targets" : "expenses");
-  const tabs = isAdmin
-    ? [
-        { id: "targets", label: "Targets & Expenses", icon: Wallet },
-        ...(["admin", "hr"].includes(profile?.role) ? [{ id: "advances", label: "Advances", icon: Banknote }] : []),
-        { id: "customers", label: "Customers", icon: Users2 },
-        { id: "vendors", label: "Vendors", icon: Store },
-      ]
-    : [
-        { id: "expenses", label: "My Expenses", icon: Wallet },
-        { id: "customers", label: "Customers", icon: Users2 },
-        ...(profile?.role === "sales" ? [{ id: "vendors", label: "Vendors", icon: Store }] : []),
-      ];
-
+  const role = profile?.role;
+  const isAdmin = ["admin", "hr", "gm", "pm"].includes(role);
+  const isSales = role === "sales";
+  const tabs = [
+    ...(isAdmin || isSales ? [{ id: "leads", label: "Leads", icon: Target, render: () => <Leads profile={profile} /> }] : []),
+    ...(["admin", "gm", "pm", "sales"].includes(role) ? [{ id: "orders", label: "Sales Orders", icon: PackageSearch, render: () => <SalesOrders profile={profile} /> }] : []),
+    ...(["admin", "gm", "pm", "sales"].includes(role) ? [{ id: "commission", label: "Commission", icon: BadgeIndianRupee, render: () => <Commission profile={profile} /> }] : []),
+    isAdmin
+      ? { id: "targets", label: "Targets & Expenses", icon: Wallet, render: () => <AdminSalesTeam /> }
+      : { id: "expenses", label: "My Expenses", icon: Wallet, render: () => <MyExpenses profile={profile} /> },
+    { id: "customers", label: "Customers", icon: Users2, render: () => <CustomerManagement profile={profile} /> },
+    ...(isAdmin || isSales ? [{ id: "vendors", label: "Vendors", icon: Store, render: () => <Vendors profile={profile} /> }] : []),
+  ];
   return (
-    <div className="space-y-4">
-      <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setSub(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 ${
-                sub === t.id ? "border-indigo-900 text-indigo-900" : "border-transparent text-stone-500 hover:text-stone-800"
-              }`}
-            >
-              <Icon size={14} /> {t.label}
-            </button>
-          );
-        })}
-      </div>
-      {sub === "targets" && isAdmin && <AdminSalesTeam />}
-      {sub === "expenses" && !isAdmin && <MyExpenses profile={profile} />}
-      {sub === "advances" && ["admin", "hr"].includes(profile?.role) && <Advances />}
-      {sub === "customers" && <CustomerManagement profile={profile} />}
-      {sub === "vendors" && <Vendors profile={profile} />}
-    </div>
+    <ModuleShell
+      title="CRM & Sales"
+      subtitle="Track every customer from the first marketing visit to the finished order, and the salesperson's commission."
+      tabs={tabs}
+    />
   );
 }
 

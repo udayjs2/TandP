@@ -13,6 +13,8 @@ export default function Invoices({ isAdmin }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [printInvoice, setPrintInvoice] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [view, setView] = useState("open"); // open | paid
+  const [q, setQ] = useState("");
   const today = todayStr();
 
   // Payments logged against an order are applied to that order's invoices, oldest first.
@@ -94,10 +96,26 @@ export default function Invoices({ isAdmin }) {
     load();
   };
 
+  const paidFlag = (i) => {
+    const amount = amountOf(i);
+    return i.status === "Paid" || (amount > 0 && Math.max(0, amount - (paidById[i.id] || 0)) <= 0);
+  };
+  const openInvoices = invoices.filter((i) => !paidFlag(i));
+  const paidInvoices = invoices.filter(paidFlag);
+  const needle = q.trim().toLowerCase();
+  const shownInvoices = (view === "open" ? openInvoices : paidInvoices).filter(
+    (i) => !needle || [i.invoice_number, i.customer_name, i.issue_date, i.status].some((v) => String(v || "").toLowerCase().includes(needle))
+  );
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-stone-200">
+        {[["open", `Unpaid & part paid (${openInvoices.length})`], ["paid", `Paid (${paidInvoices.length})`]].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`px-3 py-2 text-sm border-b-2 -mb-px ${view === id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>{label}</button>
+        ))}
+      </div>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-lg font-semibold">Invoices ({invoices.length})</h2>
+        <h2 className="text-lg font-semibold">{view === "open" ? "Invoices" : "Paid invoices"} ({shownInvoices.length})</h2>
         <div className="flex gap-2">
           {isAdmin && (
             <Btn variant="ghost" onClick={() => setSettingsOpen(true)}>
@@ -109,6 +127,7 @@ export default function Invoices({ isAdmin }) {
           </Btn>
         </div>
       </div>
+      <input className={inputCls} placeholder="Search by invoice number, customer or date…" value={q} onChange={(e) => setQ(e.target.value)} />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -125,7 +144,7 @@ export default function Invoices({ isAdmin }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {invoices.map((i) => {
+            {shownInvoices.map((i) => {
               const amount = amountOf(i);
               const paid = paidById[i.id] || 0;
               const balanceDue = Math.max(0, amount - paid);
@@ -170,10 +189,10 @@ export default function Invoices({ isAdmin }) {
                 </tr>
               );
             })}
-            {invoices.length === 0 && (
+            {shownInvoices.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-stone-400">
-                  No invoices yet.
+                  {q ? "No invoice matches your search." : view === "paid" ? "No paid invoices yet." : "No unpaid invoices."}
                 </td>
               </tr>
             )}

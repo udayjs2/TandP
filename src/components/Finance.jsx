@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
+import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, Receipt, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
-import QuarterlyReport from "./QuarterlyReport";
+import Invoices from "./Invoices";
+import Advances from "./Advances";
 import ActualCostModal from "./ActualCost";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
 
@@ -10,25 +11,26 @@ const SUB_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "investors", label: "Investors", icon: Landmark },
   { id: "expenditures", label: "Expenditures", icon: Wallet },
+  { id: "invoices", label: "Invoices", icon: Receipt },
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
   { id: "purchase", label: "Purchase Requests", icon: ShoppingCart },
-  { id: "quarterly", label: "Quarterly Report", icon: TrendingUp },
+  { id: "advances", label: "Advances", icon: Wallet },
 ];
 
 export default function Finance({ profile }) {
-  // Admin: everything. HR: Expenditures + Purchase Requests only. GM / PM: Purchase Requests only.
+  // Admin: everything. HR: Expenditures + Purchase Requests + Advances. GM / PM: Purchase Requests only.
   const role = profile?.role;
-  const allowed = role === "admin" ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "purchase"] : ["purchase"];
+  const allowed = role === "admin" ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "purchase", "advances"] : ["purchase"];
   const limited = role !== "admin";
   const tabs = SUB_TABS.filter((t) => allowed.includes(t.id));
   const [sub, setSub] = useState(allowed[0] === "overview" ? "overview" : allowed[0]);
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold mb-1">Finance</h2>
-        <p className="text-xs text-stone-500 mb-3">{limited ? (role === "hr" ? "Business expenditures and purchase requests." : "Raise and approve purchase requests.") : "Investor capital, business expenditures, purchase requests, and per-order profit & loss."}</p>
+        <h1 className="text-xl font-semibold mb-1">Finance &amp; Accounts</h1>
+        <p className="text-xs text-stone-500 mb-3">{limited ? (role === "hr" ? "Business expenditures, purchase requests and employee advances." : "Raise and approve purchase requests.") : "Invoices, payments, investor capital, expenditures, purchase requests, advances, loans and per-order profit & loss."}</p>
         <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
@@ -53,7 +55,8 @@ export default function Finance({ profile }) {
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
       {sub === "purchase" && <PurchaseRequests profile={profile} />}
-      {sub === "quarterly" && <QuarterlyReport />}
+      {sub === "invoices" && role === "admin" && <Invoices isAdmin={true} />}
+      {sub === "advances" && <Advances />}
     </div>
   );
 }

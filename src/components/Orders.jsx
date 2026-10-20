@@ -17,6 +17,9 @@ export default function Orders({ profile }) {
   const [rcaOrder, setRcaOrder] = useState(null); // { order, nextStatus }
   const [view, setView] = useState("active"); // active | completed
   const [doneFilter, setDoneFilter] = useState("All");
+  const [q, setQ] = useState("");
+  const [monthF, setMonthF] = useState(""); // "" = all months, else YYYY-MM (by order date)
+  const [sortDir, setSortDir] = useState("desc"); // newest first by default
   const [costOrder, setCostOrder] = useState(null);
   const [sendAgreementOrder, setSendAgreementOrder] = useState(null);
   const [feedbackOrder, setFeedbackOrder] = useState(null);
@@ -78,14 +81,21 @@ export default function Orders({ profile }) {
   }, []);
 
   const save = async (order) => {
-    if (order.id) {
-      const { id, ...rest } = order;
+    const { salesLink, ...orderRow } = order;
+    let orderId = orderRow.id;
+    if (orderRow.id) {
+      const { id, ...rest } = orderRow;
       const { error } = await supabase.from("orders").update(rest).eq("id", id);
       if (error) { alert(`Couldn't save this order:\n${error.message}`); return; }
     } else {
-      const { id, ...rest } = order;
-      const { error } = await supabase.from("orders").insert(rest);
+      const { id, ...rest } = orderRow;
+      const { data, error } = await supabase.from("orders").insert(rest).select("id").single();
       if (error) { alert(`Couldn't save this order:\n${error.message}`); return; }
+      orderId = data?.id;
+    }
+    if (salesLink && orderId) {
+      const { data, error } = await supabase.rpc("set_order_sales", { p_order: orderId, p_salesperson: salesLink.salesperson || null, p_value: Number(salesLink.value) || 0, p_lead: null });
+      if (error || !data?.ok) alert(`The order was saved, but linking it to the salesperson failed:\n${error?.message || data?.error} (run migration_40.sql if needed)`);
     }
     setModal(null);
     load();
@@ -112,7 +122,18 @@ export default function Orders({ profile }) {
   const isDone = (o) => o.status === "Completed" || o.status === "Shipped";
   const activeOrders = orders.filter((o) => !isDone(o));
   const doneOrders = orders.filter(isDone);
-  const shownOrders = view === "active" ? activeOrders : doneOrders.filter((o) => doneFilter === "All" || o.status === doneFilter);
+  const needle = q.trim().toLowerCase();
+  const matches = (o) =>
+    (!needle || [o.order_number, o.customer_name, o.status, ...(o.items || []).map((i) => i.description)].some((v) => String(v || "").toLowerCase().includes(needle))) &&
+    (!monthF || (o.order_date || "").startsWith(monthF));
+  const shownOrders = (view === "active" ? activeOrders : doneOrders.filter((o) => doneFilter === "All" || o.status === doneFilter))
+    .filter(matches)
+    .sort((a, b) => {
+      const c = String(a.order_date || "").localeCompare(String(b.order_date || "")) || String(a.order_number || "").localeCompare(String(b.order_number || ""));
+      return sortDir === "asc" ? c : -c;
+    });
+  const monthOptions = [...new Set(orders.map((o) => (o.order_date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  const monthLabel = (mk) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mk.slice(5, 7)) - 1] + " " + mk.slice(0, 4);
 
   return (
     <div className="space-y-4">
@@ -122,7 +143,7 @@ export default function Orders({ profile }) {
         ))}
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${activeOrders.length})` : `Completed orders (${shownOrders.length})`}</h2>
+        <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${shownOrders.length}${shownOrders.length !== activeOrders.length ? ` of ${activeOrders.length}` : ""})` : `Completed orders (${shownOrders.length})`}</h2>
         {view === "completed" ? (
           <div className="flex gap-1.5">
             {["All", "Completed", "Shipped"].map((f) => (
@@ -134,6 +155,18 @@ export default function Orders({ profile }) {
             <Plus size={15} /> New order
           </Btn>
         )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={inputCls + " flex-1 min-w-[200px]"} placeholder="Search by order name / number, customer or item…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className={inputCls + " w-auto"} value={monthF} onChange={(e) => setMonthF(e.target.value)}>
+          <option value="">All months</option>
+          {monthOptions.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}
+        </select>
+        <select className={inputCls + " w-auto"} value={sortDir} onChange={(e) => setSortDir(e.target.value)}>
+          <option value="desc">Date: newest first</option>
+          <option value="asc">Date: oldest first</option>
+        </select>
+        {(q || monthF) && <button onClick={() => { setQ(""); setMonthF(""); }} className="text-xs text-indigo-700 hover:underline">Clear</button>}
       </div>
       <div className="grid gap-3">
         {shownOrders.map((o) => {
@@ -248,9 +281,9 @@ export default function Orders({ profile }) {
             </Card>
           );
         })}
-        {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{view === "completed" ? "No completed orders yet. Orders move here when their status is set to Completed or Shipped." : "No active orders. Add a new order."}</Card>}
+        {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{(q || monthF) ? "No orders match your search or month filter." : view === "completed" ? "No completed orders yet. Orders move here when their status is set to Completed or Shipped." : "No active orders. Add a new order."}</Card>}
       </div>
-      {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} />}
+      {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} canLinkSales={["admin", "gm", "pm"].includes(profile?.role)} />}
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
@@ -264,7 +297,17 @@ export default function Orders({ profile }) {
   );
 }
 
-function OrderModal({ order, onClose, onSave, count, rcaBlocked }) {
+function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales }) {
+  const [salespeople, setSalespeople] = useState([]);
+  const [sales, setSales] = useState({ salesperson: "", value: "", dirty: false });
+  useEffect(() => {
+    if (!canLinkSales) return;
+    supabase.from("employees").select("id, name, role, status").eq("role", "Sales").order("name").then(({ data }) => setSalespeople((data || []).filter((e) => e.status !== "Inactive")));
+    if (order.id) supabase.from("order_sales").select("salesperson_id, order_value").eq("order_id", order.id).maybeSingle().then(({ data }) => {
+      if (data) setSales({ salesperson: data.salesperson_id || "", value: data.order_value || "", dirty: false });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [f, setF] = useState({
     id: order.id || null,
     order_number: order.order_number || `ORD-${String(count + 1).padStart(4, "0")}`,
@@ -291,7 +334,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked }) {
           const cleanItems = items
             .filter((it) => it.description || it.quantity)
             .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0 }));
-          onSave({ ...f, items: cleanItems, daily_target: Number(f.daily_target) || 0 });
+          onSave({ ...f, items: cleanItems, daily_target: Number(f.daily_target) || 0, salesLink: canLinkSales && sales.dirty ? { salesperson: sales.salesperson, value: sales.value } : null });
         }}
       >
         <Field label="Order number">
@@ -300,6 +343,19 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked }) {
         <Field label="Customer / buyer">
           <input required className={inputCls} value={f.customer_name} onChange={(e) => setF({ ...f, customer_name: e.target.value })} />
         </Field>
+        {canLinkSales && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Salesperson (for commission)">
+              <select className={inputCls} value={sales.salesperson} onChange={(e) => setSales({ ...sales, salesperson: e.target.value, dirty: true })}>
+                <option value="">— none —</option>
+                {salespeople.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Order value (₹)">
+              <input type="number" min="0" className={inputCls} value={sales.value} onChange={(e) => setSales({ ...sales, value: e.target.value, dirty: true })} />
+            </Field>
+          </div>
+        )}
 
         <span className="block text-xs font-medium text-stone-600 mb-1">Items</span>
         <div className="border border-stone-200 rounded-lg overflow-hidden mb-2">

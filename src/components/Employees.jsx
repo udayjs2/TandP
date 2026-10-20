@@ -14,6 +14,7 @@ export default function Employees() {
   const [offerLetterFor, setOfferLetterFor] = useState(null);
   const [view, setView] = useState("active");
   const [notice, setNotice] = useState("");
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const { data, error } = await supabase.from("employees").select("*").order("created_at", { ascending: true });
@@ -60,7 +61,10 @@ export default function Employees() {
   };
   const activeList = employees.filter((e) => (e.status || "Active") === "Active");
   const inactiveList = employees.filter((e) => e.status === "Inactive");
-  const list = view === "active" ? activeList : inactiveList;
+  const needle = q.trim().toLowerCase();
+  const list = (view === "active" ? activeList : inactiveList).filter(
+    (e) => !needle || String(e.name || "").toLowerCase().includes(needle) || String(e.employee_number || "").toLowerCase().includes(needle)
+  );
 
   return (
     <div className="space-y-4">
@@ -78,6 +82,7 @@ export default function Employees() {
           </Btn>
         )}
       </div>
+      <input className={inputCls} placeholder="Search by employee name or Emp #…" value={q} onChange={(e) => setQ(e.target.value)} />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -127,7 +132,7 @@ export default function Employees() {
             {!loading && list.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-4 py-8 text-center text-stone-400">
-                  {view === "inactive" ? "Nobody is inactive." : "No employees yet. Add your first one."}
+                  {q ? "No employee matches your search." : view === "inactive" ? "Nobody is inactive." : "No employees yet. Add your first one."}
                 </td>
               </tr>
             )}

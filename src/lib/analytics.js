@@ -402,3 +402,35 @@ export const currentQuarter = (today = todayStr()) => {
   const q = m >= 4 && m <= 6 ? 1 : m >= 7 && m <= 9 ? 2 : m >= 10 && m <= 12 ? 3 : 4;
   return { fy, q };
 };
+
+// half-years and whole financial years (Indian FY: Apr–Mar)
+const fyLabel = (fy) => `FY ${fy}-${String((fy + 1) % 100).padStart(2, "0")}`;
+const monthsFrom = (startYear, startMonth, n) =>
+  Array.from({ length: n }, (_, i) => {
+    const idx = startMonth - 1 + i;
+    return `${startYear + Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
+  });
+const lastDayOf = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+};
+export const periodRangeFor = (mode, fy, n = 1) => {
+  // mode: quarter (n = 1..4) | half (n = 1..2) | year
+  if (mode === "quarter") return quarterRange(fy, n);
+  const months = mode === "half" ? monthsFrom(fy, n === 1 ? 4 : 10, 6) : monthsFrom(fy, 4, 12);
+  return {
+    from: `${months[0]}-01`,
+    to: lastDayOf(months[months.length - 1]),
+    label: mode === "half" ? `H${n} ${fyLabel(fy)}` : fyLabel(fy),
+    months,
+  };
+};
+export const previousPeriod = (mode, fy, n = 1) => {
+  if (mode === "year") return { fy: fy - 1, n: 1 };
+  const per = mode === "quarter" ? 4 : 2;
+  return n === 1 ? { fy: fy - 1, n: per } : { fy, n: n - 1 };
+};
+export const currentHalf = (today = todayStr()) => {
+  const { fy, q } = currentQuarter(today);
+  return { fy, h: q <= 2 ? 1 : 2 };
+};

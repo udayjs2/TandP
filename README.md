@@ -565,3 +565,33 @@ then run `vercel --prod` to publish. It will ask for the same two environment va
 - **Employees**: no attendance for 30 days -> Inactive tab; Admin/HR can Make active. Inactive people are left out of attendance, payroll, manpower lists.
 - **My Attendance**: reminder popup when yesterday has a check-in but no check-out.
 - **Actual order cost** (Admin): fabric used x inventory price + trims issued from Inventory x unit price + order-tagged expenditures (incl. Transport) + manpower. Inventory has price fields and "Issue to order".
+
+## v36 — modules regrouped, CRM lead-to-commission, Reports & Analytics
+
+**Run `supabase/migration_40.sql` (after migration_39). Push the code. No `npm install` needed.**
+
+Navigation is now grouped into modules, each with sub-tabs filtered by role:
+
+| Module | Sub-tabs |
+|---|---|
+| Orders | Active / Completed, with search, month filter and date sort |
+| Production Management | Cutting (Pending review / Approved & Rejected), Output, Quality |
+| HR & Workforce | Employees (search by name or Emp #), Attendance, My Attendance, Leave Requests, Payroll |
+| CRM & Sales | Leads, Sales Orders, Commission, Targets & Expenses (My Expenses), Customers, Vendors |
+| Inventory & Procurement | (the former Inventory) |
+| Finance & Accounts | Overview, Investors, Expenditures, Invoices (Unpaid / Paid, with search), Payments, Order Profitability, Loans, Purchase Requests, Advances |
+| Reports & Analytics | Business Overview, Sales & CRM, Production, Quality, HR/Attendance/Payroll, Inventory & Procurement, Finance & Profitability, Delivery & Fulfilment, Quarterly / Half-yearly / Yearly, Insights |
+
+**CRM flow:** Lead (New → Contacted → Interested → Quotation Sent → Won / Lost) → visits and follow-ups
+(call / WhatsApp / email / meeting / quotation logs, overdue follow-up reminders) → "Order confirmed — convert" creates
+the customer and a linked sales order (Not Started, appears in Orders) → Sales Orders tab tracks confirmation,
+production, delivery, invoice and payment → Commission.
+
+**Commission rule (Commission → Rules, Admin):** a salesperson's orders in the period are combined; when the combined value
+exceeds ₹5,00,000 every order in that period earns 1% of its value (3 × ₹2 lakh = ₹6 lakh → ₹6,000).
+Defaults: calendar month, only executed orders (Completed / Shipped). Both can be changed. One commission row per order,
+so nothing can be paid twice. Pending → Approved → Paid; marking Paid posts to Expenditures (category Commission).
+Approved / Paid rows never change when rules change.
+
+Existing orders can be linked to a salesperson and an order value from Orders → edit (Admin / GM / PM).
+HR has no access to order values or commission (financial data).

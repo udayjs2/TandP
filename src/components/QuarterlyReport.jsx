@@ -5,19 +5,25 @@ import { Card, StatCard, inputCls } from "./ui";
 import ChartCanvas from "./ChartCanvas";
 import ExportBar from "./ExportBar";
 import { fmtMoney, computeLaborCost } from "../lib/helpers";
-import { quarterRange, currentQuarter } from "../lib/analytics";
+import { periodRangeFor, previousPeriod, currentQuarter, currentHalf } from "../lib/analytics";
 
 const monthName = (mk) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(mk.slice(5, 7)) - 1] + " " + mk.slice(0, 4);
 const pctChange = (a, b) => (b ? ((a - b) / Math.abs(b)) * 100 : null);
 
-export default function QuarterlyReport() {
+// Financial report for a quarter, half-year or full financial year (Indian FY, April–March).
+export default function QuarterlyReport({ initialMode = "quarter" }) {
   const now = currentQuarter();
+  const [mode, setMode] = useState(initialMode); // quarter | half | year
   const [fy, setFy] = useState(now.fy);
   const [q, setQ] = useState(now.q);
+  const [h, setH] = useState(currentHalf().h);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  const range = quarterRange(fy, q);
-  const prevRange = q === 1 ? quarterRange(fy - 1, 4) : quarterRange(fy, q - 1);
+  const n = mode === "quarter" ? q : mode === "half" ? h : 1;
+  const range = periodRangeFor(mode, fy, n);
+  const prev = previousPeriod(mode, fy, n);
+  const prevRange = periodRangeFor(mode, prev.fy, prev.n);
+  const unit = mode === "quarter" ? "quarter" : mode === "half" ? "half-year" : "year";
 
   const load = async () => {
     setData(null);
@@ -43,21 +49,34 @@ export default function QuarterlyReport() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fy, q]);
+  }, [fy, q, h, mode]);
 
   if (error) return <p className="text-sm text-rose-600">Couldn't build the report: {error}</p>;
 
   const picker = (
     <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex rounded-lg border border-stone-300 overflow-hidden">
+        {[["quarter", "Quarterly"], ["half", "Half-yearly"], ["year", "Yearly"]].map(([id, label]) => (
+          <button key={id} type="button" onClick={() => setMode(id)} className={`px-3 py-2 text-sm ${mode === id ? "bg-indigo-900 text-white" : "bg-white text-stone-600 hover:bg-stone-50"}`}>{label}</button>
+        ))}
+      </div>
       <select className={inputCls + " w-auto"} value={fy} onChange={(e) => setFy(Number(e.target.value))}>
         {Array.from({ length: 6 }, (_, i) => now.fy - i).map((y) => <option key={y} value={y}>FY {y}-{String((y + 1) % 100).padStart(2, "0")}</option>)}
       </select>
-      <select className={inputCls + " w-auto"} value={q} onChange={(e) => setQ(Number(e.target.value))}>
-        <option value={1}>Q1 (Apr–Jun)</option>
-        <option value={2}>Q2 (Jul–Sep)</option>
-        <option value={3}>Q3 (Oct–Dec)</option>
-        <option value={4}>Q4 (Jan–Mar)</option>
-      </select>
+      {mode === "quarter" && (
+        <select className={inputCls + " w-auto"} value={q} onChange={(e) => setQ(Number(e.target.value))}>
+          <option value={1}>Q1 (Apr–Jun)</option>
+          <option value={2}>Q2 (Jul–Sep)</option>
+          <option value={3}>Q3 (Oct–Dec)</option>
+          <option value={4}>Q4 (Jan–Mar)</option>
+        </select>
+      )}
+      {mode === "half" && (
+        <select className={inputCls + " w-auto"} value={h} onChange={(e) => setH(Number(e.target.value))}>
+          <option value={1}>H1 (Apr–Sep)</option>
+          <option value={2}>H2 (Oct–Mar)</option>
+        </select>
+      )}
     </div>
   );
   if (!data) return <div className="space-y-4">{picker}<p className="text-sm text-stone-500">Building report…</p></div>;
@@ -133,16 +152,16 @@ export default function QuarterlyReport() {
   const bullets = [
     `Revenue (invoiced) was ${fmtMoney(revenue)}${revChange === null ? "" : `, ${revChange >= 0 ? "up" : "down"} ${Math.abs(Math.round(revChange * 10) / 10)}% on ${prevRange.label}`}.`,
     `Spend was ${fmtMoney(spend)} (logged expenditures) including ${fmtMoney(salaryPaidQ)} of salaries paid${salaryQ ? `, plus an estimated ${fmtMoney(salaryQ)} for months with no salary recorded yet (current base pay)` : ""}. Net ${net >= 0 ? "profit" : "loss"}: ${fmtMoney(Math.abs(net))}${margin === null ? "" : ` (${Math.round(margin * 10) / 10}% of revenue)`}.`,
-    orderRows.length ? `${winners.length} order(s) made a profit and ${losers.length} made a loss.` : "No orders were fully invoiced in this quarter.",
+    orderRows.length ? `${winners.length} order(s) made a profit and ${losers.length} made a loss.` : `No orders were fully invoiced in this ${unit}.`,
     ...(winners[0] ? [`Best order: ${winners[0].order} (${winners[0].customer}) with ${fmtMoney(winners[0].profit)} profit.`] : []),
     ...(losers.length ? [`Biggest loss: ${losers[losers.length - 1].order} (${losers[losers.length - 1].customer}), ${fmtMoney(Math.abs(losers[losers.length - 1].profit))} below cost.`] : []),
-    "Order profit = invoiced amount minus raw material, labour and overhead recorded for that order. An order is counted in the quarter of its latest invoice.",
+    "Order profit = invoiced amount minus raw material, labour and overhead recorded for that order. An order is counted in the period of its latest invoice.",
   ];
 
   const buildReport = () => ({
-    title: `Quarterly financial report - ${range.label}`,
+    title: `${unit === "quarter" ? "Quarterly" : unit === "half-year" ? "Half-yearly" : "Yearly"} financial report - ${range.label}`,
     subtitle: `${range.from} to ${range.to} - T&P Textiles`,
-    filename: `quarterly-report-${range.label.replace(/\s+/g, "-")}`,
+    filename: `${unit}-report-${range.label.replace(/\s+/g, "-")}`,
     sections: [
       {
         heading: "Summary",
@@ -153,7 +172,7 @@ export default function QuarterlyReport() {
           { label: "Est. salaries (unpaid months)", value: fmtMoney(salaryQ) },
           { label: net >= 0 ? "Net profit" : "Net loss", value: fmtMoney(Math.abs(net)) },
           { label: "Profit margin", value: margin === null ? "n/a" : `${Math.round(margin * 10) / 10}%` },
-          { label: "Revenue vs last quarter", value: revChange === null ? "n/a" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}%` },
+          { label: `Revenue vs last ${unit}`, value: revChange === null ? "n/a" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}%` },
           { label: "Profitable orders", value: String(winners.length) },
           { label: "Loss-making orders", value: String(losers.length) },
         ],
@@ -181,9 +200,9 @@ export default function QuarterlyReport() {
       <p className="text-xs text-stone-500">{range.label}: {range.from} to {range.to}. Indian financial year (April–March).</p>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Revenue" value={fmtMoney(revenue)} icon={TrendingUp} tone="good" sub={revChange === null ? "No earlier quarter data" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}% vs ${prevRange.label}`} />
+        <StatCard label="Revenue" value={fmtMoney(revenue)} icon={TrendingUp} tone="good" sub={revChange === null ? "No earlier period data" : `${revChange >= 0 ? "+" : ""}${Math.round(revChange * 10) / 10}% vs ${prevRange.label}`} />
         <StatCard label="Expenditure" value={fmtMoney(spend)} icon={Wallet} sub={`incl. ${fmtMoney(salaryPaidQ)} salaries${salaryQ ? ` + ${fmtMoney(salaryQ)} est.` : ""}`} />
-        <StatCard label={net >= 0 ? "Net profit" : "Net loss"} value={fmtMoney(Math.abs(net))} icon={net >= 0 ? TrendingUp : TrendingDown} tone={net >= 0 ? "good" : "bad"} sub={prevNet ? `Last quarter: ${fmtMoney(prevNet)}` : undefined} />
+        <StatCard label={net >= 0 ? "Net profit" : "Net loss"} value={fmtMoney(Math.abs(net))} icon={net >= 0 ? TrendingUp : TrendingDown} tone={net >= 0 ? "good" : "bad"} sub={prevNet ? `Last ${unit}: ${fmtMoney(prevNet)}` : undefined} />
         <StatCard label="Profit margin" value={margin === null ? "—" : `${Math.round(margin * 10) / 10}%`} icon={Percent} tone={margin !== null && margin < 0 ? "bad" : "good"} sub={`${winners.length} profit · ${losers.length} loss orders`} />
       </div>
 
@@ -217,7 +236,7 @@ export default function QuarterlyReport() {
                 <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.profit >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>{r.result}</span></td>
               </tr>
             ))}
-            {orderRows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">No orders invoiced in this quarter.</td></tr>}
+            {orderRows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">No orders invoiced in this period.</td></tr>}
           </tbody>
         </table>
       </Card>

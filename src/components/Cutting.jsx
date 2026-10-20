@@ -48,6 +48,7 @@ export default function Cutting({ profile }) {
   const [reviewEntry, setReviewEntry] = useState(null);
   const [completeEntry, setCompleteEntry] = useState(null);
   const [fabrics, setFabrics] = useState([]);
+  const [view, setView] = useState("pending"); // pending | reviewed (approved / rejected)
 
   const load = async () => {
     const [{ data: ord }, { data: ent }, { data: fab }] = await Promise.all([
@@ -90,10 +91,19 @@ export default function Cutting({ profile }) {
     load();
   };
 
+  const pendingEntries = entries.filter((e) => e.status === "Submitted");
+  const reviewedEntries = entries.filter((e) => e.status !== "Submitted");
+  const shownEntries = view === "pending" ? pendingEntries : reviewedEntries;
+
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-stone-200">
+        {[["pending", `Pending review (${pendingEntries.length})`], ["reviewed", `Approved / Rejected (${reviewedEntries.length})`]].map(([id, label]) => (
+          <button key={id} onClick={() => setView(id)} className={`px-3 py-2 text-sm border-b-2 -mb-px ${view === id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>{label}</button>
+        ))}
+      </div>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="text-lg font-semibold">Cutting</h2>
+        <h2 className="text-lg font-semibold">{view === "pending" ? "Cutting" : "Approved & rejected cutting"}</h2>
         {isCuttingMaster && (
           <Btn onClick={() => setModal({})}>
             <Scissors size={15} /> Log cutting count
@@ -102,7 +112,7 @@ export default function Cutting({ profile }) {
       </div>
 
       <div className="grid gap-3">
-        {entries.map((entry) => {
+        {shownEntries.map((entry) => {
           const sizes = entry.sizes || {};
           const completed = entry.completed_sizes || {};
           const sizeKeys = Object.keys(sizes).length ? Object.keys(sizes) : SIZES.filter((s) => sizes[s] != null);
@@ -166,7 +176,7 @@ export default function Cutting({ profile }) {
             </Card>
           );
         })}
-        {entries.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No cutting entries logged yet.</Card>}
+        {shownEntries.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{view === "pending" ? "Nothing waiting for review." : "No approved or rejected cutting entries yet."}</Card>}
       </div>
 
       {modal && <CuttingModal orders={orders} fabrics={fabrics} profile={profile} onClose={() => setModal(null)} onSaved={load} />}

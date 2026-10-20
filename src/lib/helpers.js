@@ -82,7 +82,7 @@ export const ORDER_STATUS_COLORS = {
   Shipped: "bg-indigo-100 text-indigo-800",
 };
 
-export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Transport", "Packing", "Salary", "Other"];
+export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Transport", "Packing", "Salary", "Commission", "Other"];
 export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Card", "Other"];
 
 // Standard shift rules: 9 AM to 6 PM, must be present at least 9 hours to
@@ -299,3 +299,31 @@ export const FEEDBACK_ITEMS = [
 export const DELIVERY_TIMINGS = ["On time", "Slightly delayed", "Very delayed"];
 export const isOrderOverdue = (o, today) => !!o?.due_date && o.due_date < today && !["Completed", "Shipped"].includes(o.status);
 export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);
+
+// ---------- CRM ----------
+export const LEAD_TYPES = ["School", "Hospital", "Company", "Retailer", "Other"];
+export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Quotation Sent", "Won", "Lost"];
+export const LEAD_STATUS_COLORS = {
+  New: "bg-stone-100 text-stone-700",
+  Contacted: "bg-sky-100 text-sky-800",
+  Interested: "bg-indigo-100 text-indigo-800",
+  "Quotation Sent": "bg-amber-100 text-amber-800",
+  Won: "bg-emerald-100 text-emerald-800",
+  Lost: "bg-rose-100 text-rose-800",
+};
+export const LEAD_SOURCES = ["Marketing visit", "Referral", "Phone enquiry", "WhatsApp", "Exhibition", "Existing customer", "Other"];
+export const ACTIVITY_KINDS = ["Visit", "Call", "WhatsApp", "Email", "Meeting", "Quotation", "Note"];
+export const COMMISSION_COLORS = {
+  Pending: "bg-amber-100 text-amber-800",
+  Approved: "bg-sky-100 text-sky-800",
+  Paid: "bg-emerald-100 text-emerald-800",
+};
+export const PERIOD_LABELS = { month: "calendar month", quarter: "financial quarter", year: "financial year", all: "all time" };
+export const periodKeyLabel = (k) => {
+  if (!k || k === "all") return "All time";
+  if (/^\d{4}-\d{2}$/.test(k)) return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(k.slice(5, 7)) - 1] + " " + k.slice(0, 4);
+  const m = k.match(/^FY(\d{4})(?:-Q(\d))?$/);
+  if (m) return `${m[2] ? `Q${m[2]} ` : ""}FY ${m[1]}-${String((Number(m[1]) + 1) % 100).padStart(2, "0")}`;
+  return k;
+};
+export const isLeadOverdue = (l, today) => !!l?.next_followup_date && l.next_followup_date <= today && !["Won", "Lost"].includes(l.status) && l.next_followup_date < today;
