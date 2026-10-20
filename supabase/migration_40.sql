@@ -212,7 +212,7 @@ begin
   select * into s from commission_settings where id = 1;
 
   create temp table if not exists _comm_elig (order_id uuid, period_key text, val numeric, order_number text, customer_name text) on commit drop;
-  delete from _comm_elig;
+  delete from _comm_elig where true;
   insert into _comm_elig
   select o.id, commission_period_key(coalesce(o.order_date, (o.created_at at time zone 'Asia/Kolkata')::date), s.period),
          commission_order_value(o.id, os.order_value), o.order_number, o.customer_name

@@ -303,12 +303,15 @@ export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00Z") - ne
 
 // ---------- CRM ----------
 export const LEAD_TYPES = ["School", "Hospital", "Company", "Retailer", "Other"];
-export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Quotation Sent", "Won", "Lost"];
+export const LEAD_STATUSES = ["New", "Contacted", "Interested", "Quotation Sent", "Order Created", "Won", "Lost"];
+// one-click "next stage" in the Leads table; the rest is automatic (Order Created -> Won when the customer agrees)
+export const LEAD_NEXT_STAGE = { New: "Contacted", Contacted: "Interested", Interested: "Quotation Sent" };
 export const LEAD_STATUS_COLORS = {
   New: "bg-stone-100 text-stone-700",
   Contacted: "bg-sky-100 text-sky-800",
   Interested: "bg-indigo-100 text-indigo-800",
   "Quotation Sent": "bg-amber-100 text-amber-800",
+  "Order Created": "bg-violet-100 text-violet-800",
   Won: "bg-emerald-100 text-emerald-800",
   Lost: "bg-rose-100 text-rose-800",
 };

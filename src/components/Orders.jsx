@@ -921,15 +921,15 @@ function ShareBox({ url, text }) {
   );
 }
 
-function SendAgreementModal({ order, onClose, onChanged }) {
+export function SendAgreementModal({ order, onClose, onChanged }) {
   const url = `${window.location.origin}/?agree=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
   const st = order.agreement_status || "Not sent";
   const [busy, setBusy] = useState(false);
   const open = async () => {
     setBusy(true);
-    const { error } = await supabase.from("orders").update({ agreement_status: "Sent", agreement_sent_at: new Date().toISOString(), agreement_responded_at: null, agreement_responder: null, agreement_comment: null }).eq("id", order.id);
+    const { data, error } = await supabase.rpc("send_order_agreement", { p_order: order.id });
     setBusy(false);
-    if (error) return alert(error.message + "\n(run migration_38.sql if columns are missing)");
+    if (error || data?.ok === false) return alert((error?.message || data?.error) + "\n(run migration_42.sql if this function is missing)");
     onChanged();
   };
   return (

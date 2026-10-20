@@ -613,3 +613,21 @@ HR has no access to order values or commission (financial data).
   projected finish date of each open order), Customer Profitability, Cost Variance (cost sheet vs actual), Delivery
   Performance (on-time %, days late, causes), Management Presentation (executive deck, PowerPoint / PDF).
   Forecasts are simple trend projections, not guarantees.
+
+## v38 — access changes, purchase approval chain, lead-to-order flow, best performer
+
+**Run `supabase/migration_42.sql`** (after migration_41). No `npm install` needed.
+
+- **Fix:** linking an order to a salesperson failed with "DELETE requires a WHERE clause" (a delete inside the commission
+  refresh). Fixed in migration_42.
+- **Access:** HR → HR & Workforce + Inventory & Procurement (full). GM / PM → Production Management + Inventory &
+  Procurement (+ their own HR self-service tabs). Sales → CRM & Sales. Finance → Finance & Accounts, Advances (HR tab),
+  Purchase Requests (approval only) and financial reports. User Management is Admin-only. This is enforced in the
+  menus; database permissions for HR are unchanged.
+- **Moves:** Advances → HR & Workforce; Planner → Production Management.
+- **Purchase requests:** approval order is GM → Finance → Admin; the expenditure is created after the third approval.
+- **Leads:** table view (date, organisation, contact person, designation, contact number, salesperson, address), a
+  "Move to next stage" button, and "Convert to order" once the lead is Interested. Convert creates the order in
+  Production Management → Orders with the next order number and sets the lead to *Order Created*. Send the agreement
+  from Orders (or from the lead); when the customer agrees, the lead becomes *Won* and the order appears in Sales Orders.
+- **Floor display:** from 5 PM IST shows the best performer of the day (most pieces logged in Output).

@@ -3,7 +3,6 @@ import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Ba
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
 import Invoices from "./Invoices";
-import Advances from "./Advances";
 import ActualCostModal from "./ActualCost";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
 
@@ -15,14 +14,13 @@ const SUB_TABS = [
   { id: "payments", label: "Payments", icon: CreditCard },
   { id: "profitability", label: "Order Profitability", icon: TrendingUp },
   { id: "loans", label: "Loans", icon: Banknote },
-  { id: "advances", label: "Advances", icon: Wallet },
 ];
 
 export default function Finance({ profile }) {
-  // Admin and Finance: everything. HR: Expenditures + Advances only. (Purchase Requests now live in Inventory & Procurement.)
+  // Admin and Finance: everything. (Purchase Requests live in Inventory & Procurement, Advances in HR & Workforce.)
   const role = profile?.role;
   const fullAccess = ["admin", "finance"].includes(role);
-  const allowed = fullAccess ? SUB_TABS.map((t) => t.id) : role === "hr" ? ["expenditures", "advances"] : [];
+  const allowed = fullAccess ? SUB_TABS.map((t) => t.id) : [];
   const limited = !fullAccess;
   const tabs = SUB_TABS.filter((t) => allowed.includes(t.id));
   const [sub, setSub] = useState(allowed[0] === "overview" ? "overview" : allowed[0]);
@@ -55,7 +53,6 @@ export default function Finance({ profile }) {
       {sub === "profitability" && <OrderProfitability />}
       {sub === "loans" && <Loans />}
       {sub === "invoices" && fullAccess && <Invoices isAdmin={role === "admin"} />}
-      {sub === "advances" && <Advances />}
     </div>
   );
 }
@@ -1128,6 +1125,7 @@ export function PurchaseRequests({ profile }) {
   const role = profile?.role;
   const isGM = role === "gm";
   const isAdminish = ["admin", "hr"].includes(role);
+  const isFinanceRole = role === "finance";
   const [rows, setRows] = useState([]);
   const [orders, setOrders] = useState([]);
   const [investors, setInvestors] = useState([]);
@@ -1196,9 +1194,9 @@ export function PurchaseRequests({ profile }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-xs text-stone-500 max-w-xl">
-          Needs approval from the <b>General Manager</b> and <b>one Admin</b>. Once both approve, the amount is added to Expenditures against the selected order and investor. After that: record payment → vendor invoice → dispatch/tracking → goods received, which adds the stock to Inventory.
+          Approval goes in order: <b>General Manager</b> → <b>Finance</b> → <b>Admin</b>. Once all three approve, the amount is added to Expenditures against the selected order and investor. After that: record payment → vendor invoice → dispatch/tracking → goods received, which adds the stock to Inventory.
         </p>
-        <Btn onClick={() => setModal(true)}><Plus size={15} /> New purchase request</Btn>
+        {!isFinanceRole && <Btn onClick={() => setModal(true)}><Plus size={15} /> New purchase request</Btn>}
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
@@ -1211,9 +1209,11 @@ export function PurchaseRequests({ profile }) {
 
       <div className="grid gap-3">
         {shown.map((r) => {
+          // approval chain: General Manager -> Finance -> Admin
           const canGm = isGM && !r.gm_approved_at;
-          const canAdmin = isAdminish && !r.admin_approved_at;
-          const canReject = (isGM || isAdminish) && r.status === "Pending";
+          const canFin = isFinanceRole && !!r.gm_approved_at && !r.finance_approved_at;
+          const canAdmin = isAdminish && !!r.finance_approved_at && !r.admin_approved_at;
+          const canReject = (isGM || isFinanceRole || isAdminish) && r.status === "Pending";
           const canDelete = r.status === "Pending" && (role === "admin" || r.requested_by === profile?.id);
           return (
             <Card key={r.id} className="p-4">
@@ -1235,8 +1235,11 @@ export function PurchaseRequests({ profile }) {
                 <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${r.gm_approved_at ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-stone-50 border-stone-200 text-stone-500"}`}>
                   {r.gm_approved_at ? <Check size={11} /> : null} General Manager{r.gm_approved_by ? `: ${r.gm_approved_by}` : " — pending"}
                 </span>
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${r.finance_approved_at ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-stone-50 border-stone-200 text-stone-500"}`}>
+                  {r.finance_approved_at ? <Check size={11} /> : null} Finance{r.finance_approved_by ? `: ${r.finance_approved_by}` : r.gm_approved_at ? " — pending" : " — after GM"}
+                </span>
                 <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border ${r.admin_approved_at ? "bg-emerald-50 border-emerald-300 text-emerald-800" : "bg-stone-50 border-stone-200 text-stone-500"}`}>
-                  {r.admin_approved_at ? <Check size={11} /> : null} Admin{r.admin_approved_by ? `: ${r.admin_approved_by}` : " — pending"}
+                  {r.admin_approved_at ? <Check size={11} /> : null} Admin{r.admin_approved_by ? `: ${r.admin_approved_by}` : r.finance_approved_at ? " — pending" : " — after Finance"}
                 </span>
                 {r.status === "Approved" && <span className="text-emerald-700 self-center">Added to expenditures</span>}
               </div>
@@ -1273,7 +1276,7 @@ export function PurchaseRequests({ profile }) {
                       {r.received_at ? `${r.received_at} · by ${r.received_by}${r.received_qty != null ? ` · qty ${r.received_qty}` : ""}${r.inventory_posted ? ` · ${r.inventory_posted}` : ""}` : "Not received yet"}
                     </FulfilStep>
                   </div>
-                  {!r.received_at && (
+                  {!r.received_at && !isFinanceRole && (
                     <div className="flex gap-2 mt-3 flex-wrap">
                       {isAdminish && <Btn variant="ghost" onClick={() => setStage({ kind: "payment", row: r })}><Banknote size={13} /> {r.paid_at ? "Edit payment" : "Record payment"}</Btn>}
                       <Btn variant="ghost" onClick={() => setStage({ kind: "invoice", row: r })}><FileText size={13} /> {r.invoice_number ? "Edit invoice" : "Add vendor invoice"}</Btn>
@@ -1284,9 +1287,9 @@ export function PurchaseRequests({ profile }) {
                 </div>
               )}
 
-              {r.status === "Pending" && (canGm || canAdmin || canReject || canDelete) && (
+              {r.status === "Pending" && (canGm || canFin || canAdmin || canReject || canDelete) && (
                 <div className="flex gap-2 mt-3 flex-wrap">
-                  {(canGm || canAdmin) && <Btn onClick={() => approve(r)}><Check size={13} /> Approve{canGm ? " as GM" : " as Admin"}</Btn>}
+                  {(canGm || canFin || canAdmin) && <Btn onClick={() => approve(r)}><Check size={13} /> Approve{canGm ? " as GM" : canFin ? " as Finance" : " as Admin"}</Btn>}
                   {canReject && <Btn variant="ghost" onClick={() => reject(r)}><X size={13} /> Reject</Btn>}
                   {canDelete && <Btn variant="ghost" onClick={() => remove(r)}><Trash2 size={13} /> Delete</Btn>}
                 </div>

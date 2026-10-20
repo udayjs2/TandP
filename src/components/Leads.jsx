@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, Phone, MapPin, BellRing, MessageSquare, PhoneCall, Mail, Users, FileText, StickyNote, Footprints, ShoppingBag, CircleX } from "lucide-react";
+import { Plus, Pencil, Trash2, BellRing, MessageSquare, PhoneCall, Mail, Users, FileText, StickyNote, Footprints, ShoppingBag, CircleX, ChevronRight, Send } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import {
-  fmtMoney, todayStr, LEAD_TYPES, LEAD_STATUSES, LEAD_STATUS_COLORS, LEAD_SOURCES, ACTIVITY_KINDS,
+  fmtMoney, todayStr, LEAD_TYPES, LEAD_STATUSES, LEAD_STATUS_COLORS, LEAD_SOURCES, ACTIVITY_KINDS, LEAD_NEXT_STAGE,
 } from "../lib/helpers";
+import { SendAgreementModal } from "./Orders";
 
 const KIND_ICONS = { Visit: Footprints, Call: PhoneCall, WhatsApp: MessageSquare, Email: Mail, Meeting: Users, Quotation: FileText, Note: StickyNote };
 const isOpen = (l) => !["Won", "Lost"].includes(l.status);
+const canConvertStatus = (st) => ["Interested", "Quotation Sent", "Won"].includes(st);
+const shortDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" }) : "—");
 
 // Lead management + visit / follow-up log + conversion of a won lead into a customer and sales order.
 export default function Leads({ profile }) {
@@ -22,13 +25,18 @@ export default function Leads({ profile }) {
   const [onlyDue, setOnlyDue] = useState(false);
   const [modal, setModal] = useState(null); // lead being created / edited
   const [detailId, setDetailId] = useState(null);
+  const [orders, setOrders] = useState([]); // orders created from leads (for the agreement status)
+  const [convertLead, setConvertLead] = useState(null);
+  const [agreementId, setAgreementId] = useState(null);
   const [error, setError] = useState("");
 
   const load = async () => {
-    const [{ data, error: e1 }, { data: emps }] = await Promise.all([
+    const [{ data, error: e1 }, { data: emps }, { data: ords }] = await Promise.all([
       supabase.from("sales_leads").select("*").order("created_at", { ascending: false }),
       supabase.from("employees").select("id, name, role, status").order("name"),
+      supabase.from("orders").select("*").not("lead_id", "is", null),
     ]);
+    setOrders(ords || []);
     if (e1) setError(e1.message + " (run migration_40.sql if the table is missing)");
     else setError("");
     setLeads(data || []);
@@ -75,6 +83,15 @@ export default function Leads({ profile }) {
     setModal(null);
     load();
   };
+
+  const advance = async (l) => {
+    const next = LEAD_NEXT_STAGE[l.status];
+    if (!next) return;
+    const { error: err } = await supabase.from("sales_leads").update({ status: next }).eq("id", l.id);
+    if (err) return alert(err.message);
+    load();
+  };
+  const pendingOrders = (l) => orders.filter((o) => o.lead_id === l.id && o.agreement_status !== "Agreed");
 
   const removeLead = async (l) => {
     if (!confirm(`Delete lead ${l.lead_number} (${l.company_name}) and its activity log?`)) return;
@@ -131,48 +148,83 @@ export default function Leads({ profile }) {
 
       {error && <p className="text-sm text-rose-600">{error}</p>}
 
-      <div className="grid gap-2.5">
-        {shown.map((l) => {
-          const late = isOpen(l) && l.next_followup_date && l.next_followup_date < today;
-          return (
-            <Card key={l.id} className={`p-3.5 cursor-pointer hover:border-indigo-300 ${late ? "border-rose-300" : ""}`}>
-              <div onClick={() => setDetailId(l.id)} className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs text-stone-400">{l.lead_number}</span>
-                    <span className="font-semibold text-sm">{l.company_name}</span>
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-600">{l.lead_type}</span>
-                  </div>
-                  <div className="text-xs text-stone-500 mt-0.5 flex flex-wrap gap-x-3">
-                    {l.contact_person && <span>{l.contact_person}{l.designation ? `, ${l.designation}` : ""}</span>}
-                    {l.phone && <span className="inline-flex items-center gap-1"><Phone size={11} />{l.phone}</span>}
-                    {l.address && <span className="inline-flex items-center gap-1"><MapPin size={11} />{l.address}</span>}
-                  </div>
-                  <div className="text-xs text-stone-400 mt-0.5">
-                    Salesperson: {nameOf(l.salesperson_id)} · Source: {l.lead_source || "—"} · First visit: {l.first_visit_date || "—"}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_STATUS_COLORS[l.status]}`}>{l.status}</span>
-                  <div className="font-mono text-sm mt-1">{fmtMoney(l.quotation_value || l.estimated_value)}</div>
-                  <div className="text-[10px] text-stone-400">{Number(l.quotation_value) > 0 ? "quoted" : "estimated"}</div>
-                  {isOpen(l) && l.next_followup_date && (
-                    <div className={`text-xs mt-1 ${late ? "text-rose-700 font-semibold" : "text-stone-500"}`}>
-                      {late ? "Overdue · " : "Follow up "}{l.next_followup_date}
+      <Card className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[1100px]">
+          <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+            <tr>
+              {["Date", "Organisation", "Contact person", "Designation", "Contact number", "Sales person", "Address", "Status", "Next step"].map((h) => (
+                <th key={h} className="px-3 py-2.5 text-left font-medium whitespace-nowrap">{h}</th>
+              ))}
+              <th className="px-2 py-2.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {shown.map((l) => {
+              const late = isOpen(l) && l.next_followup_date && l.next_followup_date < today;
+              const next = LEAD_NEXT_STAGE[l.status];
+              const pend = pendingOrders(l);
+              const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+              return (
+                <tr key={l.id} onClick={() => setDetailId(l.id)} className={`cursor-pointer hover:bg-stone-50 align-top ${late ? "bg-rose-50/40" : ""}`}>
+                  <td className="px-3 py-2.5 whitespace-nowrap text-stone-600">{shortDate(l.created_at)}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="font-semibold">{l.company_name}</div>
+                    <div className="text-[11px] text-stone-400"><span className="font-mono">{l.lead_number}</span> · {l.lead_type}</div>
+                  </td>
+                  <td className="px-3 py-2.5">{l.contact_person || "—"}</td>
+                  <td className="px-3 py-2.5 text-stone-600">{l.designation || "—"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap font-mono text-xs">{l.phone || "—"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{nameOf(l.salesperson_id)}</td>
+                  <td className="px-3 py-2.5 text-stone-600 max-w-[200px]">{l.address || "—"}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${LEAD_STATUS_COLORS[l.status]}`}>{l.status}</span>
+                    {isOpen(l) && l.next_followup_date && (
+                      <div className={`text-[11px] mt-1 ${late ? "text-rose-700 font-semibold" : "text-stone-500"}`}>{late ? "Overdue · " : "Follow up "}{l.next_followup_date}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex flex-col items-start gap-1.5">
+                      {next && (
+                        <button onClick={stop(() => advance(l))} className="inline-flex items-center gap-1 text-xs font-medium border border-indigo-300 text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-2.5 py-1 whitespace-nowrap">
+                          Move to {next} <ChevronRight size={13} />
+                        </button>
+                      )}
+                      {["New", "Contacted", "Interested", "Quotation Sent"].includes(l.status) && (
+                        <button
+                          disabled={!canConvertStatus(l.status)}
+                          onClick={stop(() => setConvertLead(l))}
+                          title={canConvertStatus(l.status) ? "Create the order in Orders" : "Available once the lead is Interested"}
+                          className="inline-flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 whitespace-nowrap bg-indigo-900 text-white hover:bg-indigo-800 disabled:bg-stone-100 disabled:text-stone-400 disabled:cursor-not-allowed"
+                        >
+                          <ShoppingBag size={13} /> Convert to order
+                        </button>
+                      )}
+                      {l.status === "Order Created" && pend.map((o) => (
+                        <button key={o.id} onClick={stop(() => setAgreementId(o.id))} className="inline-flex items-center gap-1 text-xs font-medium border border-violet-300 text-violet-800 bg-violet-50 hover:bg-violet-100 rounded-lg px-2.5 py-1 whitespace-nowrap" title="Send the agreement to the customer">
+                          <Send size={12} /> {o.order_number}: {o.agreement_status === "Not sent" ? "Send agreement" : o.agreement_status === "Sent" ? "Awaiting customer" : "Customer disagreed"}
+                        </button>
+                      ))}
+                      {l.status === "Won" && <span className="text-xs text-emerald-700 font-medium">Order won</span>}
                     </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex justify-end gap-1 mt-1">
-                <button onClick={() => setModal(l)} className="text-stone-400 hover:text-indigo-700 p-1" title="Edit"><Pencil size={14} /></button>
-                {manager && <button onClick={() => removeLead(l)} className="text-stone-400 hover:text-rose-700 p-1" title="Delete"><Trash2 size={14} /></button>}
-              </div>
-            </Card>
-          );
-        })}
-        {shown.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{leads.length ? "No leads match these filters." : "No leads yet. Record a new school, hospital, company or retailer with “New lead”."}</Card>}
-      </div>
+                  </td>
+                  <td className="px-2 py-2.5 whitespace-nowrap text-right">
+                    <button onClick={stop(() => setModal(l))} className="text-stone-400 hover:text-indigo-700 p-1" title="Edit"><Pencil size={14} /></button>
+                    {manager && <button onClick={stop(() => removeLead(l))} className="text-stone-400 hover:text-rose-700 p-1" title="Delete"><Trash2 size={14} /></button>}
+                  </td>
+                </tr>
+              );
+            })}
+            {shown.length === 0 && (
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-stone-400 text-sm">{leads.length ? "No leads match these filters." : "No leads yet. Record a new school, hospital, company or retailer with “New lead”."}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
 
+      {convertLead && <ConvertModal lead={convertLead} onClose={() => setConvertLead(null)} onDone={() => { setConvertLead(null); load(); }} />}
+      {agreementId && orders.find((o) => o.id === agreementId) && (
+        <SendAgreementModal order={orders.find((o) => o.id === agreementId)} onClose={() => setAgreementId(null)} onChanged={load} />
+      )}
       {modal && <LeadModal lead={modal} salespeople={salespeople} manager={manager} myEmpId={myEmpId} onClose={() => setModal(null)} onSave={saveLead} />}
       {detailId && (
         <LeadDetail
@@ -234,10 +286,10 @@ function LeadModal({ lead, salespeople, manager, myEmpId, onClose, onSave }) {
           </Field>
           <Field label="First visit date"><input type="date" className={inputCls} value={f.first_visit_date} onChange={set("first_visit_date")} /></Field>
           <Field label="Estimated order value (₹)"><input type="number" min="0" className={inputCls} value={f.estimated_value} onChange={set("estimated_value")} /></Field>
-          {lead.id && !["Won"].includes(lead.status) && (
+          {lead.id && !["Won", "Order Created"].includes(lead.status) && (
             <Field label="Status">
               <select className={inputCls} value={f.status} onChange={set("status")}>
-                {LEAD_STATUSES.filter((s) => s !== "Won").map((s) => <option key={s}>{s}</option>)}
+                {LEAD_STATUSES.filter((s) => !["Won", "Order Created"].includes(s)).map((s) => <option key={s}>{s}</option>)}
               </select>
             </Field>
           )}
@@ -259,20 +311,22 @@ function LeadDetail({ lead, salespeople, profile, manager, onClose, onChanged })
   const [adding, setAdding] = useState(false);
   const [converting, setConverting] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
+  const [agreementFor, setAgreementFor] = useState(null);
 
   const load = async () => {
     if (!lead) return;
-    const [{ data: acts }, { data: os }] = await Promise.all([
+    const [{ data: acts }, { data: os }, { data: linked }] = await Promise.all([
       supabase.from("lead_activities").select("*").eq("lead_id", lead.id).order("activity_date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("order_sales").select("order_id, order_value").eq("lead_id", lead.id),
+      supabase.from("orders").select("*").eq("lead_id", lead.id),
     ]);
     setActivities(acts || []);
-    const ids = (os || []).map((o) => o.order_id);
-    if (ids.length) {
-      const { data: ords } = await supabase.from("orders").select("id, order_number, status, due_date").in("id", ids);
-      const val = Object.fromEntries((os || []).map((o) => [o.order_id, o.order_value]));
-      setOrders((ords || []).map((o) => ({ ...o, order_value: val[o.id] })));
-    } else setOrders([]);
+    // orders created from this lead (waiting for / past the customer's agreement) plus orders linked the older way
+    const val = Object.fromEntries((os || []).map((o) => [o.order_id, o.order_value]));
+    const extraIds = (os || []).map((o) => o.order_id).filter((id) => !(linked || []).some((o) => o.id === id));
+    let extra = [];
+    if (extraIds.length) ({ data: extra } = await supabase.from("orders").select("*").in("id", extraIds));
+    setOrders([...(linked || []), ...(extra || [])].map((o) => ({ ...o, order_value: val[o.id] ?? o.sales_order_value, inSales: o.id in val })));
   };
   useEffect(() => {
     load();
@@ -319,15 +373,16 @@ function LeadDetail({ lead, salespeople, profile, manager, onClose, onChanged })
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {lead.status !== "Lost" && (
-          <Btn onClick={() => setConverting(true)}>
-            <ShoppingBag size={14} /> {lead.status === "Won" ? "Add another order" : "Order confirmed — convert"}
+        {["New", "Contacted", "Interested", "Quotation Sent", "Won"].includes(lead.status) && (
+          <Btn onClick={() => setConverting(true)} disabled={!canConvertStatus(lead.status)}>
+            <ShoppingBag size={14} /> {lead.status === "Won" ? "Add another order" : "Convert to order"}
           </Btn>
         )}
+        {["New", "Contacted"].includes(lead.status) && <span className="text-xs text-stone-400 self-center">Convert is available once the lead is Interested.</span>}
         <Btn variant="ghost" onClick={() => setAdding(true)}><Plus size={14} /> Log visit / follow-up</Btn>
-        {lead.status !== "Won" && lead.status !== "Lost" && (
+        {!["Won", "Lost", "Order Created"].includes(lead.status) && (
           <select className={inputCls + " w-auto"} value={lead.status} onChange={(e) => setStatus(e.target.value)}>
-            {LEAD_STATUSES.filter((s) => s !== "Won").map((s) => <option key={s}>{s}</option>)}
+            {LEAD_STATUSES.filter((s) => !["Won", "Order Created"].includes(s)).map((s) => <option key={s}>{s}</option>)}
           </select>
         )}
         {lead.status === "Lost" && <Btn variant="ghost" onClick={reopen}>Re-open lead</Btn>}
@@ -337,14 +392,23 @@ function LeadDetail({ lead, salespeople, profile, manager, onClose, onChanged })
 
       {orders.length > 0 && (
         <div className="mb-4">
-          <div className="text-xs font-semibold uppercase text-stone-500 mb-1.5">Orders from this customer ({orders.length})</div>
+          <div className="text-xs font-semibold uppercase text-stone-500 mb-1.5">Orders from this lead ({orders.length})</div>
           <div className="space-y-1">
-            {orders.map((o) => (
-              <div key={o.id} className="flex justify-between text-sm border border-stone-200 rounded-lg px-3 py-1.5">
-                <span className="font-medium">{o.order_number} <span className="text-xs text-stone-400 font-normal">{o.status}{o.due_date ? ` · due ${o.due_date}` : ""}</span></span>
-                <span className="font-mono">{fmtMoney(o.order_value)}</span>
-              </div>
-            ))}
+            {orders.map((o) => {
+              const agr = o.agreement_status || "Not sent";
+              return (
+                <div key={o.id} className="flex justify-between items-center gap-2 text-sm border border-stone-200 rounded-lg px-3 py-1.5 flex-wrap">
+                  <span className="font-medium">{o.order_number} <span className="text-xs text-stone-400 font-normal">{o.status}{o.due_date ? ` · due ${o.due_date}` : ""}</span></span>
+                  <span className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${agr === "Agreed" ? "bg-emerald-100 text-emerald-800" : agr === "Disagreed" ? "bg-rose-600 text-white" : agr === "Sent" ? "bg-amber-100 text-amber-800" : "bg-stone-100 text-stone-600"}`}>
+                      {o.inSales || agr === "Agreed" ? "Agreed · in Sales Orders" : `Agreement: ${agr}`}
+                    </span>
+                    {agr !== "Agreed" && <button onClick={() => setAgreementFor(o)} className="text-xs text-indigo-700 hover:underline inline-flex items-center gap-1"><Send size={11} />{agr === "Not sent" ? "Send agreement" : "Share link"}</button>}
+                    <span className="font-mono">{fmtMoney(o.order_value)}</span>
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -376,6 +440,7 @@ function LeadDetail({ lead, salespeople, profile, manager, onClose, onChanged })
         {activities.length === 0 && <p className="text-xs text-stone-400">Nothing logged yet. Record the first marketing visit.</p>}
       </div>
 
+      {agreementFor && <SendAgreementModal order={orders.find((x) => x.id === agreementFor.id) || agreementFor} onClose={() => setAgreementFor(null)} onChanged={refresh} />}
       {adding && <ActivityModal lead={lead} profile={profile} onClose={() => setAdding(false)} onSaved={refresh} />}
       {converting && <ConvertModal lead={lead} onClose={() => setConverting(false)} onDone={() => { setConverting(false); refresh(); }} />}
     </Modal>
@@ -460,6 +525,7 @@ function ConvertModal({ lead, onClose, onDone }) {
   const [value, setValue] = useState(lead.quotation_value || lead.estimated_value || "");
   const [due, setDue] = useState("");
   const [orderNo, setOrderNo] = useState("");
+  useEffect(() => { supabase.rpc("next_order_number").then(({ data }) => data && setOrderNo(data)); }, []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const update = (i, patch) => setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -470,19 +536,18 @@ function ConvertModal({ lead, onClose, onDone }) {
     if (!clean.length) return setError("Add at least one item.");
     setSaving(true);
     const { data, error: err } = await supabase.rpc("convert_lead_to_order", {
-      p_lead: lead.id, p_items: clean, p_order_value: Number(value) || 0, p_due_date: due || null, p_order_number: orderNo.trim() || null,
+      p_lead: lead.id, p_items: clean, p_order_value: Number(value) || 0, p_due_date: due || null, p_order_number: null,
     });
     setSaving(false);
     if (err || !data?.ok) return setError(err?.message || data?.error || "Couldn't create the order.");
-    alert(`Order ${data.order_number} created and linked to ${lead.lead_number}.`);
+    alert(`Order ${data.order_number} created in Production Management → Orders.\nSend the agreement to the customer; when they agree, the lead becomes Won and the order appears in Sales Orders.`);
     onDone();
   };
   return (
-    <Modal title={lead.status === "Won" ? "Add another order" : "Convert to customer & order"} onClose={onClose}>
+    <Modal title={lead.status === "Won" ? "Add another order" : "Convert to order"} onClose={onClose}>
       <form onSubmit={submit}>
         <p className="text-xs text-stone-500 mb-3">
-          {lead.customer_id ? `${lead.company_name} is already a customer — this adds a new order for them.` : `${lead.company_name} becomes a customer and a sales order is created.`}
-          {" "}The order is linked to this lead and its salesperson, and appears in Orders for production.
+          The order is created in Production Management → Orders, linked to this lead and its salesperson. It reaches Sales Orders (and counts towards commission) once the customer agrees to it.
         </p>
         <div className="text-xs font-medium text-stone-600 mb-1">Items</div>
         {items.map((it, i) => (
@@ -497,7 +562,7 @@ function ConvertModal({ lead, onClose, onDone }) {
           <Field label="Order value (₹)"><input type="number" min="1" required className={inputCls} value={value} onChange={(e) => setValue(e.target.value)} /></Field>
           <Field label="Due date"><input type="date" className={inputCls} value={due} onChange={(e) => setDue(e.target.value)} /></Field>
         </div>
-        <Field label="Order number (optional — auto if blank)"><input className={inputCls} value={orderNo} onChange={(e) => setOrderNo(e.target.value)} placeholder="ORD-0123" /></Field>
+        <Field label="Order number (next in the Orders sequence)"><input className={inputCls + " bg-stone-50 font-mono"} value={orderNo} readOnly /></Field>
         {error && <p className="text-xs text-rose-600 mb-2">{error}</p>}
         <div className="flex justify-end gap-2 mt-3">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>

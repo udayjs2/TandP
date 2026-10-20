@@ -22,6 +22,7 @@ export default function FloorDisplay({ onBack }) {
       { data: settings },
       { data: todaysLabor },
       { data: allEmployees },
+      { data: topOps },
     ] = await Promise.all([
       supabase.from("employees").select("id"),
       supabase.from("attendance").select("status").eq("date", today),
@@ -31,6 +32,7 @@ export default function FloorDisplay({ onBack }) {
       supabase.from("settings").select("business_name").eq("id", 1).single(),
       supabase.from("order_labor").select("order_id, employee_id").eq("work_date", today),
       supabase.from("employees").select("id, name, reporting_manager_id"),
+      supabase.rpc("best_performer_today"),
     ]);
 
     const employeeCount = (employees || []).length;
@@ -69,6 +71,7 @@ export default function FloorDisplay({ onBack }) {
       efficiency,
       salesPct,
       teamsWorkingToday,
+      topOps: topOps || [],
     });
   };
 
@@ -105,6 +108,12 @@ export default function FloorDisplay({ onBack }) {
   if (!stats) {
     return <div className="min-h-screen bg-black flex items-center justify-center text-stone-400">Loading…</div>;
   }
+
+  // End of day (from 5 PM IST): the operator(s) who logged the most pieces in Production -> Output today
+  const hourIST = Number(now.toLocaleString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false }));
+  const endOfDay = hourIST >= 17;
+  const topPieces = stats.topOps[0] ? Number(stats.topOps[0].pieces) : 0;
+  const winners = stats.topOps.filter((o) => Number(o.pieces) === topPieces);
 
   const attendancePct = stats.employeeCount > 0 ? (stats.presentToday / stats.employeeCount) * 100 : null;
 
@@ -158,6 +167,26 @@ export default function FloorDisplay({ onBack }) {
               <div className="text-emerald-400 font-extrabold text-2xl md:text-3xl tracking-wide">SALES TEAM — THIS MONTH</div>
             </div>
             <Row label="TARGET ACHIEVED" value={`${stats.salesPct.toFixed(0)}%`} valueClass={tone(stats.salesPct)} />
+          </>
+        )}
+
+        {/* BEST PERFORMER (end of day) */}
+        {endOfDay && winners.length > 0 && (
+          <>
+            <div className="px-6 py-3 border-y border-stone-800 mt-2">
+              <div className="text-amber-400 font-extrabold text-2xl md:text-3xl tracking-wide">★ BEST PERFORMER OF THE DAY</div>
+            </div>
+            <div className="px-6 py-5 text-center">
+              <div className="text-emerald-400 font-extrabold text-4xl md:text-6xl">{winners.map((w) => w.name).join(" & ")}</div>
+              <div className="text-stone-300 text-lg md:text-2xl mt-2 font-mono">
+                {Number(winners[0].pieces).toLocaleString("en-IN")} pieces{winners.length === 1 ? ` · ${winners[0].operations} operation${Number(winners[0].operations) === 1 ? "" : "s"}` : " each"}
+              </div>
+              {stats.topOps.length > winners.length && (
+                <div className="text-stone-500 text-sm mt-3">
+                  Next: {stats.topOps.filter((o) => Number(o.pieces) !== topPieces).map((o) => `${o.name} (${Number(o.pieces).toLocaleString("en-IN")})`).join(" · ")}
+                </div>
+              )}
+            </div>
           </>
         )}
 
