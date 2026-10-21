@@ -631,3 +631,7 @@ HR has no access to order values or commission (financial data).
   Production Management → Orders with the next order number and sets the lead to *Order Created*. Send the agreement
   from Orders (or from the lead); when the customer agrees, the lead becomes *Won* and the order appears in Sales Orders.
 - **Floor display:** from 5 PM IST shows the best performer of the day (most pieces logged in Output).
+
+## v39
+- Operation Log moved from Reports → Insights into Production Management (Admin, GM, PM, TL).
+- Team Leader no longer sees Inventory & Procurement or Reports & Analytics (Finance & Accounts was already Admin/Finance only). No migration needed.

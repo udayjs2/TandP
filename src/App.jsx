@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
-  MapPinned, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
+  MapPinned, ClipboardList, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -16,6 +16,7 @@ import Finance, { PurchaseRequests } from "./components/Finance";
 import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
 import Advances from "./components/Advances";
+import OperationLog from "./components/OperationLog";
 import MyAttendance from "./components/MyAttendance";
 import FloorDisplay from "./components/FloorDisplay";
 import Cutting from "./components/Cutting";
@@ -39,9 +40,9 @@ const TABS = [
   { id: "production", label: "Production Management", icon: Factory, roles: ["admin", "gm", "pm", "tl", "cutting_master", "quality_manager"] },
   { id: "hr", label: "HR & Workforce", icon: UsersRound, roles: ALL },
   { id: "sales", label: "CRM & Sales", icon: Handshake, roles: ["admin", "sales", "user"] },
-  { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master", "finance"] },
+  { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master", "finance"] },
   { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: ["admin", "finance"] },
-  { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: ["admin", "tl", "quality_manager", "sales", "finance"] },
+  { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: ["admin", "quality_manager", "sales", "finance"] },
   { id: "users", label: "User Management", icon: ShieldCheck, roles: ["admin"] },
 ];
 
@@ -113,10 +114,11 @@ export default function App() {
     { id: "cutting", label: "Cutting", icon: Scissors, roles: ["admin", "gm", "pm", "cutting_master"], render: () => <Cutting profile={profile} /> },
     { id: "output", label: "Output", icon: BarChart3, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <Output /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <Quality profile={profile} /> },
+    { id: "operation-log", label: "Operation Log", icon: ClipboardList, roles: ["admin", "gm", "pm", "tl"], render: () => <OperationLog profile={profile} /> },
     { id: "planner", label: "Planner", icon: CalendarClock, roles: ["admin", "gm", "pm"], render: () => <Planner /> },
   ].filter((t) => t.roles.includes(role));
   const inventoryTabs = [
-    { id: "inventory", label: "Inventory", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "tl", "cutting_master"], render: () => <Inventory profile={profile} /> },
+    { id: "inventory", label: "Inventory", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master"], render: () => <Inventory profile={profile} /> },
     { id: "purchase", label: "Purchase Requests", icon: ShoppingCart, roles: ["admin", "hr", "gm", "pm", "finance"], render: () => <PurchaseRequests profile={profile} /> },
   ].filter((t) => t.roles.includes(role));
   const hrTabs = [
