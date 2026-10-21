@@ -14,12 +14,13 @@
     <meta name="apple-mobile-web-app-title" content="T&amp;P Textiles" />
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      /* sub-module buttons: same navy as the header, white text */
-      .subtab-bar { display: flex; flex-wrap: wrap; gap: .5rem; padding: .1rem 0 .25rem; }
-      .subtab { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem 1.1rem; border-radius: .6rem; font-size: .8rem; font-weight: 500;
-        white-space: nowrap; background: #1e1b4b; color: #fff; border: 2px solid transparent; transition: background .15s; }
-      .subtab:hover { background: #2b2780; }
-      .subtab-active { font-weight: 700; border-bottom-color: #fbbf24; box-shadow: 0 2px 6px rgba(30,27,75,.35); }
+      /* sub-module toolbar: same look as the header toolbar */
+      .subtab-bar { display: flex; gap: .25rem; overflow-x: auto; background: #1e1b4b; border-radius: .6rem; padding: 0 .6rem; scrollbar-width: thin; scrollbar-color: #4f46e5 #1e1b4b; }
+      .subtab { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem .85rem; font-size: .75rem; font-weight: 500; white-space: nowrap;
+        background: transparent; color: #c7d2fe; border-bottom: 2px solid transparent; transition: color .15s; }
+      .subtab:hover { color: #fff; }
+      .subtab-active { color: #fff; border-bottom-color: #fbbf24; }
+      header nav { scrollbar-width: thin; scrollbar-color: #4f46e5 #1e1b4b; }
       /* every data table: navy header row, white letters */
       table thead, table thead tr { background: #1e1b4b !important; }
       table thead th { background: #1e1b4b !important; color: #fff !important; font-weight: 600; }

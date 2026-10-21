@@ -1,0 +1,10 @@
+{
+  "functions": { "api/*.js": { "maxDuration": 60 } },
+  "crons": [
+    { "path": "/api/cron?kind=morning", "schedule": "30 3 * * *" },
+    { "path": "/api/cron?kind=midday", "schedule": "30 7 * * *" },
+    { "path": "/api/cron?kind=evening", "schedule": "0 12 * * *" },
+    { "path": "/api/cron?kind=weekly", "schedule": "30 12 * * 6" },
+    { "path": "/api/cron?kind=monthly", "schedule": "30 13 28-31 * *" }
+  ]
+}

@@ -639,3 +639,29 @@ HR has no access to order values or commission (financial data).
 ## v40
 - My Expenses moved from CRM & Sales to HR & Workforce (everyone except Admin); the plain Staff role no longer has the CRM & Sales module.
 - Sub-module tabs are navy buttons (same navy as the header, white text, amber underline on the active one); every data table header row is navy with white letters (styles are in index.html). No migration needed.
+
+## v41 — AI Factory Manager
+
+**Run `supabase/migration_43.sql`** (after migration_42), then add these environment variables in Vercel → Settings →
+Environment Variables and redeploy:
+
+| Variable | Needed for |
+|---|---|
+| `ANTHROPIC_API_KEY` | everything AI (get one at console.anthropic.com). Optional `ANTHROPIC_MODEL` (default `claude-sonnet-5-5`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | scheduled reports and WhatsApp (Supabase → Project Settings → API). Never put this in a `VITE_` variable |
+| `CRON_SECRET` | any long random string; protects `/api/cron` |
+| `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` | WhatsApp (optional) |
+
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` are taken from your existing `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.
+
+- **AI Factory Manager** (Admin, GM, PM): *Ask AI* (Management, Production, HR & Attendance, Cutting, Quality, Inventory
+  agents; Finance and Sales agents for Admin), *Daily Factory Report* (sections A-F, downloadable as PDF / PowerPoint /
+  Excel, F = AI recommendations on demand), *Scheduled Reports*, and *WhatsApp* (Admin: authorised numbers).
+- In the app the agent reads data as the signed-in user, so database permissions apply. GM / PM never get finance,
+  sales or commission data.
+- **Schedule** (`vercel.json`, India time): 9:00 AM priorities and shortages, 1:00 PM orders at risk, 5:30 PM daily
+  report, Saturday 6:00 PM weekly comparison, last day of month 7:00 PM monthly financials (Admin only). Vercel's free
+  (Hobby) plan runs each job once a day within about an hour of the set time.
+- **WhatsApp:** in Meta for Developers set the webhook to `https://<your-site>/api/whatsapp` with your verify token,
+  subscribe to *messages*, then add numbers under AI Factory Manager → WhatsApp.
+- Sub-module tab bars now use the same navy toolbar style as the main header.

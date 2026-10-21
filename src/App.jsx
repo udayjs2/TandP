@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
-  MapPinned, ClipboardList, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
+  MapPinned, ClipboardList, Bot, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -17,6 +17,7 @@ import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
 import Advances from "./components/Advances";
 import OperationLog from "./components/OperationLog";
+import AiManager from "./components/AiManager";
 import MyAttendance from "./components/MyAttendance";
 import FloorDisplay from "./components/FloorDisplay";
 import Cutting from "./components/Cutting";
@@ -43,6 +44,8 @@ const TABS = [
   { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master", "finance"] },
   { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: ["admin", "finance"] },
   { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: ["admin", "quality_manager", "sales", "finance"] },
+  // AI Factory Manager menu hidden for now. To re-enable, uncomment the next line:
+  // { id: "ai", label: "AI Factory Manager", icon: Bot, roles: ["admin", "gm", "pm"] },
   { id: "users", label: "User Management", icon: ShieldCheck, roles: ["admin"] },
 ];
 
@@ -149,6 +152,7 @@ export default function App() {
         {activeTab === "inventory" && <ModuleShell title="Inventory & Procurement" subtitle="Fabric, accessories, machines and spare parts, and purchase requests." tabs={inventoryTabs} />}
         {activeTab === "finance" && <Finance profile={profile} />}
         {activeTab === "reports" && <Reports profile={profile} />}
+        {activeTab === "ai" && <AiManager profile={profile} />}
         {activeTab === "users" && canUsers && <UserManagement profile={profile} />}
       </main>
     </div>
