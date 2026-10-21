@@ -3,7 +3,7 @@ import { ROLE_LABELS } from "../lib/helpers";
 
 export default function Header({ tabs, tab, setTab, profile, onLogout, saving }) {
   return (
-    <header className="bg-[#2f3f87] text-stone-100 sticky top-0 z-40">
+    <header className="bg-[#232d63] text-stone-100 sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-4 pt-3 pb-0">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
