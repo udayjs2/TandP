@@ -19,9 +19,7 @@ export default function SalesTeam({ profile }) {
     ...(isAdmin || isSales ? [{ id: "leads", label: "Leads", icon: Target, render: () => <Leads profile={profile} /> }] : []),
     ...(["admin", "gm", "pm", "sales"].includes(role) ? [{ id: "orders", label: "Sales Orders", icon: PackageSearch, render: () => <SalesOrders profile={profile} /> }] : []),
     ...(["admin", "gm", "pm", "sales"].includes(role) ? [{ id: "commission", label: "Commission", icon: BadgeIndianRupee, render: () => <Commission profile={profile} /> }] : []),
-    isAdmin
-      ? { id: "targets", label: "Targets & Expenses", icon: Wallet, render: () => <AdminSalesTeam /> }
-      : { id: "expenses", label: "My Expenses", icon: Wallet, render: () => <MyExpenses profile={profile} /> },
+    ...(isAdmin ? [{ id: "targets", label: "Targets & Expenses", icon: Wallet, render: () => <AdminSalesTeam /> }] : []),
     { id: "customers", label: "Customers", icon: Users2, render: () => <CustomerManagement profile={profile} /> },
     ...(isAdmin || isSales ? [{ id: "vendors", label: "Vendors", icon: Store, render: () => <Vendors profile={profile} /> }] : []),
   ];
@@ -237,7 +235,7 @@ function ClaimReviewModal({ claim, employeeName, orderLabel, onClose, onSetStatu
 }
 
 // ==================== STAFF VIEW ====================
-function MyExpenses({ profile }) {
+export function MyExpenses({ profile }) {
   const [claims, setClaims] = useState([]);
   const [orders, setOrders] = useState([]);
   const [advances, setAdvances] = useState([]);

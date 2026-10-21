@@ -68,9 +68,9 @@ export default function Employees() {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-stone-200">
+      <div className="subtab-bar">
         {[["active", `Active (${activeList.length})`], ["inactive", `Inactive (${inactiveList.length})`]].map(([id, label]) => (
-          <button key={id} onClick={() => setView(id)} className={`px-3 py-2 text-sm border-b-2 -mb-px ${view === id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>{label}</button>
+          <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
         ))}
       </div>
       {notice && <div className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">{notice}</div>}

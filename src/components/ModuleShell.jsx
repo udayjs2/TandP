@@ -13,16 +13,14 @@ export default function ModuleShell({ title, subtitle, tabs, initial }) {
         {subtitle && <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>}
       </div>
       {tabs.length > 1 && (
-        <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
+        <div className="subtab-bar">
           {tabs.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setSub(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 ${
-                  active.id === t.id ? "border-indigo-900 text-indigo-900" : "border-transparent text-stone-500 hover:text-stone-800"
-                }`}
+                className={`subtab ${active.id === t.id ? "subtab-active" : ""}`}
               >
                 {Icon && <Icon size={14} />} {t.label}
               </button>

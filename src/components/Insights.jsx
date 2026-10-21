@@ -22,9 +22,9 @@ export default function Insights({ profile }) {
         <h2 className="text-lg font-semibold">Insights</h2>
         <p className="text-xs text-stone-500 mt-0.5">Daily output and attendance, and a plain-language explanation of why production went up or down.</p>
       </div>
-      <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
+      <div className="subtab-bar">
         {SUBS.map((t) => (
-          <button key={t.id} onClick={() => setSub(t.id)} className={`px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-px ${sub === t.id ? "border-indigo-600 text-indigo-700 font-medium" : "border-transparent text-stone-500 hover:text-stone-700"}`}>
+          <button key={t.id} onClick={() => setSub(t.id)} className={`subtab ${sub === t.id ? "subtab-active" : ""}`}>
             {t.label}
           </button>
         ))}

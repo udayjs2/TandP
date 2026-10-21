@@ -29,16 +29,14 @@ export default function Finance({ profile }) {
       <div>
         <h1 className="text-xl font-semibold mb-1">Finance &amp; Accounts</h1>
         <p className="text-xs text-stone-500 mb-3">{limited ? "Business expenditures and employee advances." : "Invoices, payments, investor capital, expenditures, advances, loans and per-order profit & loss."}</p>
-        <div className="flex gap-1 border-b border-stone-200 overflow-x-auto">
+        <div className="subtab-bar">
           {tabs.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setSub(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap border-b-2 ${
-                  sub === t.id ? "border-indigo-900 text-indigo-900" : "border-transparent text-stone-500 hover:text-stone-800"
-                }`}
+                className={`subtab ${sub === t.id ? "subtab-active" : ""}`}
               >
                 <Icon size={14} /> {t.label}
               </button>

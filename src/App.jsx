@@ -11,7 +11,7 @@ import Employees from "./components/Employees";
 import Orders from "./components/Orders";
 import Attendance from "./components/Attendance";
 import Payroll from "./components/Payroll";
-import SalesTeam from "./components/SalesTeam";
+import SalesTeam, { MyExpenses } from "./components/SalesTeam";
 import Finance, { PurchaseRequests } from "./components/Finance";
 import UserManagement from "./components/UserManagement";
 import Planner from "./components/Planner";
@@ -39,7 +39,7 @@ const TABS = [
   { id: "floor-display", label: "Floor Display", icon: Tv, roles: ALL },
   { id: "production", label: "Production Management", icon: Factory, roles: ["admin", "gm", "pm", "tl", "cutting_master", "quality_manager"] },
   { id: "hr", label: "HR & Workforce", icon: UsersRound, roles: ALL },
-  { id: "sales", label: "CRM & Sales", icon: Handshake, roles: ["admin", "sales", "user"] },
+  { id: "sales", label: "CRM & Sales", icon: Handshake, roles: ["admin", "sales"] },
   { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master", "finance"] },
   { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: ["admin", "finance"] },
   { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: ["admin", "quality_manager", "sales", "finance"] },
@@ -127,6 +127,7 @@ export default function App() {
     { id: "my-attendance", label: "My Attendance", icon: MapPinned, roles: ALL, render: () => <MyAttendance profile={profile} /> },
     { id: "leave-requests", label: "Leave Requests", icon: CalendarDays, roles: ALL, render: () => <LeaveRequests profile={profile} /> },
     { id: "payroll", label: "Payroll", icon: Wallet, roles: ALL, render: () => <Payroll profile={profile} /> },
+    { id: "my-expenses", label: "My Expenses", icon: Wallet, roles: ALL.filter((r) => r !== "admin"), render: () => <MyExpenses profile={profile} /> },
     { id: "advances", label: "Advances", icon: Banknote, roles: ["admin", "hr", "finance"], render: () => <Advances /> },
   ].filter((t) => t.roles.includes(role));
 

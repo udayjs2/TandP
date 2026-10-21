@@ -635,3 +635,7 @@ HR has no access to order values or commission (financial data).
 ## v39
 - Operation Log moved from Reports → Insights into Production Management (Admin, GM, PM, TL).
 - Team Leader no longer sees Inventory & Procurement or Reports & Analytics (Finance & Accounts was already Admin/Finance only). No migration needed.
+
+## v40
+- My Expenses moved from CRM & Sales to HR & Workforce (everyone except Admin); the plain Staff role no longer has the CRM & Sales module.
+- Sub-module tabs are navy buttons (same navy as the header, white text, amber underline on the active one); every data table header row is navy with white letters (styles are in index.html). No migration needed.
