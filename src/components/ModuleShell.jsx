@@ -28,7 +28,7 @@ export default function ModuleShell({ title, subtitle, tabs, initial }) {
           })}
         </div>
       )}
-      <div key={active.id}>{active.render()}</div>
+      <div key={active.id} className={tabs.length > 1 ? "has-shell-bar" : ""}>{active.render()}</div>
     </div>
   );
 }

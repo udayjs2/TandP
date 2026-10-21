@@ -15,15 +15,20 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       /* sub-module toolbar: same look as the header toolbar */
-      .subtab-bar { display: flex; gap: .25rem; overflow-x: auto; background: #1e1b4b; border-radius: .6rem; padding: 0 .6rem; scrollbar-width: thin; scrollbar-color: #4f46e5 #1e1b4b; }
+      .subtab-bar { display: flex; gap: .25rem; overflow-x: auto; background: #2f3f87; border-radius: .6rem; padding: 0 .6rem; scrollbar-width: thin; scrollbar-color: #8da2fb #2f3f87; }
       .subtab { display: inline-flex; align-items: center; gap: .4rem; padding: .7rem .85rem; font-size: .75rem; font-weight: 500; white-space: nowrap;
         background: transparent; color: #c7d2fe; border-bottom: 2px solid transparent; transition: color .15s; }
       .subtab:hover { color: #fff; }
       .subtab-active { color: #fff; border-bottom-color: #fbbf24; }
-      header nav { scrollbar-width: thin; scrollbar-color: #4f46e5 #1e1b4b; }
+      /* third level: plain text tabs, no bar */
+      .has-shell-bar .subtab-bar { background: transparent; border-radius: 0; padding: 0; gap: 1.25rem; border-bottom: 1px solid #e7e5e4; }
+      .has-shell-bar .subtab { color: #78716c; padding: .45rem 0; font-size: .8rem; }
+      .has-shell-bar .subtab:hover { color: #1c1917; }
+      .has-shell-bar .subtab-active { color: #2f3f87; font-weight: 600; border-bottom-color: #2f3f87; }
+      header nav { scrollbar-width: thin; scrollbar-color: #8da2fb #2f3f87; }
       /* every data table: navy header row, white letters */
-      table thead, table thead tr { background: #1e1b4b !important; }
-      table thead th { background: #1e1b4b !important; color: #fff !important; font-weight: 600; }
+      table thead, table thead tr { background: #2f3f87 !important; }
+      table thead th { background: #2f3f87 !important; color: #fff !important; font-weight: 600; }
       @media print { table thead, table thead tr, table thead th { background: transparent !important; color: inherit !important; } }
     </style>
   </head>
