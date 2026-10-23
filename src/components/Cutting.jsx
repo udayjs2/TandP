@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send } from "lucide-react";
+import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
@@ -50,17 +50,21 @@ export default function Cutting({ profile }) {
   const [modal, setModal] = useState(null);
   const [reviewEntry, setReviewEntry] = useState(null);
   const [completeEntry, setCompleteEntry] = useState(null);
+  const [logs, setLogs] = useState([]); // day-by-day stitching rows
+  const [openHistory, setOpenHistory] = useState({});
   const [rejectEntry, setRejectEntry] = useState(null);
   const [resendEntry, setResendEntry] = useState(null);
   const [fabrics, setFabrics] = useState([]);
   const [view, setView] = useState("pending"); // pending | approved | rejected
 
   const load = async () => {
-    const [{ data: ord }, { data: ent }, { data: fab }] = await Promise.all([
+    const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", "(Completed,Shipped)"),
       supabase.from("cutting_entries").select("*").order("cut_date", { ascending: false }),
       supabase.from("inventory_fabric").select("id, fabric_type, color, weight_gsm, stock_kg, stock_meters").order("fabric_type"),
+      supabase.from("cutting_stitch_log").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false }),
     ]);
+    setLogs(lg || []);
     setFabrics(fab || []);
     setOrders(ord || []);
     setEntries(ent || []);
@@ -72,6 +76,7 @@ export default function Cutting({ profile }) {
       .channel("cutting-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "cutting_entries" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory_fabric" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cutting_stitch_log" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -92,6 +97,13 @@ export default function Cutting({ profile }) {
       .update({ status: "Approved", reviewed_by: profile?.name || null, reviewed_at: new Date().toISOString() })
       .eq("id", entry.id);
     if (error) alert(`Couldn't update:\n${error.message}`);
+    load();
+  };
+
+  const removeLog = async (row) => {
+    if (!window.confirm(`Remove the stitching logged on ${row.log_date}? The totals are recalculated.`)) return;
+    const { data, error } = await supabase.rpc("delete_stitch_log", { p_id: row.id });
+    if (error || data?.ok === false) alert(`Couldn't remove:\n${error?.message || data?.error}`);
     load();
   };
 
@@ -131,7 +143,9 @@ export default function Cutting({ profile }) {
         {shownEntries.map((entry) => {
           const sizes = entry.sizes || {};
           const completed = entry.completed_sizes || {};
-          const sizeKeys = Object.keys(sizes).length ? Object.keys(sizes) : SIZES.filter((s) => sizes[s] != null);
+          const entryLogs = logs.filter((l) => l.cutting_entry_id === entry.id);
+          const totalCut = Object.values(sizes).reduce((t, v) => t + (Number(v) || 0), 0);
+          const totalDone = Object.values(completed).reduce((t, v) => t + (Number(v) || 0), 0);
           return (
             <Card key={entry.id} className="p-4">
               <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
@@ -172,6 +186,58 @@ export default function Cutting({ profile }) {
                 })}
               </div>
 
+              {entry.status === "Approved" && (
+                <div className="mb-2">
+                  <button
+                    onClick={() => setOpenHistory({ ...openHistory, [entry.id]: !openHistory[entry.id] })}
+                    className="text-xs text-indigo-700 hover:underline inline-flex items-center gap-1"
+                  >
+                    <History size={12} /> Stitching history ({entryLogs.length}) · {totalDone}/{totalCut} stitched
+                  </button>
+                  {openHistory[entry.id] && (
+                    <div className="mt-2 border border-stone-200 rounded-lg overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr>
+                            <th className="text-left px-3 py-1.5">Date</th>
+                            <th className="text-left px-3 py-1.5">Stitched that day</th>
+                            <th className="text-right px-3 py-1.5">Pieces</th>
+                            <th className="text-left px-3 py-1.5">Logged by</th>
+                            {canApprove && <th className="px-3 py-1.5"></th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {entryLogs.map((row) => (
+                            <tr key={row.id}>
+                              <td className="px-3 py-1.5 whitespace-nowrap">{row.log_date}</td>
+                              <td className="px-3 py-1.5">
+                                {Object.entries(row.sizes || {}).map(([k, v]) => `${sizeLabel(k)}: ${v}`).join(", ")}
+                                {row.note ? <div className="text-[11px] text-stone-400">{row.note}</div> : null}
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-mono">{Object.values(row.sizes || {}).reduce((t, v) => t + (Number(v) || 0), 0)}</td>
+                              <td className="px-3 py-1.5 text-stone-500">{row.logged_by || "—"}</td>
+                              {canApprove && (
+                                <td className="px-3 py-1.5 text-right">
+                                  <button onClick={() => removeLog(row)} className="text-stone-400 hover:text-rose-700" title="Remove this day's entry"><Trash2 size={12} /></button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                          {entryLogs.length === 0 && <tr><td colSpan={5} className="px-3 py-3 text-center text-stone-400">Nothing logged yet — use “Add stitching done”.</td></tr>}
+                          {entryLogs.length > 0 && (
+                            <tr className="font-semibold bg-stone-50">
+                              <td className="px-3 py-1.5" colSpan={2}>Total so far</td>
+                              <td className="px-3 py-1.5 text-right font-mono">{totalDone}</td>
+                              <td className="px-3 py-1.5 text-stone-500" colSpan={canApprove ? 2 : 1}>of {totalCut} cut · {Math.max(0, totalCut - totalDone)} remaining</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {entry.status === "Rejected" && (
                 <div className="mb-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
                   Rejected{entry.reviewed_by ? ` by ${entry.reviewed_by}` : ""}: {entry.reject_reason || "no reason given"}
@@ -198,7 +264,7 @@ export default function Cutting({ profile }) {
                 {entry.status === "Approved" && canApprove && (
                   <>
                     <Btn variant="ghost" onClick={() => setCompleteEntry(entry)}>
-                      Log stitching completed
+                      Add stitching done
                     </Btn>
                     <Btn variant="ghost" onClick={() => setRejectEntry(entry)}>
                       <X size={13} /> Reject & send back
@@ -414,46 +480,65 @@ function RejectModal({ entry, orderLabel, onClose, onSaved }) {
 
 function CompleteSizesModal({ entry, onClose, onSaved }) {
   const sizes = entry.sizes || {};
-  const [completed, setCompleted] = useState(
-    Object.fromEntries(Object.keys(sizes).map((s) => [s, entry.completed_sizes?.[s] ?? ""]))
-  );
+  const done = entry.completed_sizes || {};
+  const [day, setDay] = useState(todayStr());
+  const [today, setToday] = useState({});
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const sum = (o) => Object.values(o).reduce((t, v) => t + (Number(v) || 0), 0);
 
   const save = async (e) => {
     e.preventDefault();
+    const clean = Object.fromEntries(Object.entries(today).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)]));
+    if (!Object.keys(clean).length) return alert("Enter the pieces stitched for at least one size.");
     setSaving(true);
-    const cleanCompleted = Object.fromEntries(Object.entries(completed).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v) || 0]));
-    const { error } = await supabase.from("cutting_entries").update({ completed_sizes: cleanCompleted }).eq("id", entry.id);
+    const { data, error } = await supabase.rpc("log_stitching", { p_entry: entry.id, p_date: day, p_sizes: clean, p_note: note || null });
     setSaving(false);
-    if (error) {
-      alert(`Couldn't save:\n${error.message}`);
-      return;
-    }
+    if (error || data?.ok === false) return alert(`Couldn't save:\n${error?.message || data?.error}`);
     onSaved();
     onClose();
   };
 
   return (
-    <Modal title="Log stitching completed (per size)" onClose={onClose}>
-      <p className="text-xs text-stone-500 mb-3">Shown green when it matches the cut count for that size, red when it doesn't.</p>
+    <Modal title="Add stitching done" onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Enter only the pieces stitched on the chosen day. They are added to the earlier days, so you can come back tomorrow and add more — the history keeps each day.
+      </p>
       <form onSubmit={save}>
-        <div className="grid grid-cols-4 gap-2 mb-3">
-          {Object.entries(sizes).map(([s, cutQty]) => (
-            <div key={s}>
-              <span className="block text-[11px] text-stone-500 mb-0.5">{sizeLabel(s)} (cut {cutQty})</span>
-              <input
-                type="number"
-                min="0"
-                className="w-full border border-stone-300 rounded px-2 py-1 text-sm"
-                value={completed[s]}
-                onChange={(e) => setCompleted({ ...completed, [s]: e.target.value })}
-              />
-            </div>
-          ))}
+        <Field label="Date">
+          <input type="date" required max={todayStr()} className={inputCls} value={day} onChange={(e) => setDay(e.target.value)} />
+        </Field>
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-2">
+          {Object.entries(sizes).map(([s, cutQty]) => {
+            const so = Number(done[s]) || 0;
+            const left = Math.max(0, Number(cutQty) - so);
+            return (
+              <div key={s}>
+                <span className="block text-[11px] text-stone-500 mb-0.5">{sizeLabel(s)}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={left}
+                  disabled={left === 0}
+                  placeholder="0"
+                  className="w-full border border-stone-300 rounded px-2 py-1 text-sm disabled:bg-stone-100"
+                  value={today[s] ?? ""}
+                  onChange={(e) => setToday({ ...today, [s]: e.target.value })}
+                />
+                <span className="block text-[10px] text-stone-400 mt-0.5">{so}/{cutQty} done · {left} left</span>
+              </div>
+            );
+          })}
         </div>
+        <p className="text-[11px] text-stone-500 mb-3">
+          Adding {sum(today)} pcs · total after saving {sum(done) + sum(today)} of {sum(sizes)}.
+        </p>
+        <Field label="Note (optional)">
+          <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. night shift" />
+        </Field>
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save for this day"}</Btn>
         </div>
       </form>
     </Modal>
