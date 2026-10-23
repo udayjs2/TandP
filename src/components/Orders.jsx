@@ -6,6 +6,18 @@ import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_
 import { AgreementModal } from "./OrderAgreement";
 import ActualCostModal from "./ActualCost";
 
+// Why an order cannot move to this status yet (empty string = allowed).
+// Shipped needs quality approval and then dispatch approval (PM, then GM); Completed = delivered, only after Shipped.
+export const statusBlock = (o, s) => {
+  if (o.status === s) return "";
+  if (s === "Shipped") {
+    if (o.quality_status !== "Approved") return "needs QC approval";
+    if (o.dispatch_status !== "Approved") return "needs dispatch approval";
+  }
+  if (s === "Completed" && o.status !== "Shipped") return "ship it first";
+  return "";
+};
+
 export default function Orders({ profile }) {
   const [orders, setOrders] = useState([]);
   const [modal, setModal] = useState(null);
@@ -16,7 +28,6 @@ export default function Orders({ profile }) {
   const [agreementOrder, setAgreementOrder] = useState(null);
   const [rcaOrder, setRcaOrder] = useState(null); // { order, nextStatus }
   const [view, setView] = useState("active"); // active | completed
-  const [doneFilter, setDoneFilter] = useState("All");
   const [q, setQ] = useState("");
   const [monthF, setMonthF] = useState(""); // "" = all months, else YYYY-MM (by order date)
   const [sortDir, setSortDir] = useState("desc"); // newest first by default
@@ -119,14 +130,15 @@ export default function Orders({ profile }) {
     load();
   };
 
-  const isDone = (o) => o.status === "Completed" || o.status === "Shipped";
+  // Shipped orders stay in Active (in transit) until the customer has received them -> Completed
+  const isDone = (o) => o.status === "Completed";
   const activeOrders = orders.filter((o) => !isDone(o));
   const doneOrders = orders.filter(isDone);
   const needle = q.trim().toLowerCase();
   const matches = (o) =>
     (!needle || [o.order_number, o.customer_name, o.status, ...(o.items || []).map((i) => i.description)].some((v) => String(v || "").toLowerCase().includes(needle))) &&
     (!monthF || (o.order_date || "").startsWith(monthF));
-  const shownOrders = (view === "active" ? activeOrders : doneOrders.filter((o) => doneFilter === "All" || o.status === doneFilter))
+  const shownOrders = (view === "active" ? activeOrders : doneOrders)
     .filter(matches)
     .sort((a, b) => {
       const c = String(a.order_date || "").localeCompare(String(b.order_date || "")) || String(a.order_number || "").localeCompare(String(b.order_number || ""));
@@ -144,13 +156,7 @@ export default function Orders({ profile }) {
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${shownOrders.length}${shownOrders.length !== activeOrders.length ? ` of ${activeOrders.length}` : ""})` : `Completed orders (${shownOrders.length})`}</h2>
-        {view === "completed" ? (
-          <div className="flex gap-1.5">
-            {["All", "Completed", "Shipped"].map((f) => (
-              <button key={f} onClick={() => setDoneFilter(f)} className={`text-xs px-2.5 py-1 rounded-full border ${doneFilter === f ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-200"}`}>{f}</button>
-            ))}
-          </div>
-        ) : (
+        {view === "completed" ? null : (
           <Btn onClick={() => setModal({})}>
             <Plus size={15} /> New order
           </Btn>
@@ -216,9 +222,10 @@ export default function Orders({ profile }) {
                     onChange={(e) => setStatus(o.id, e.target.value)}
                     className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${ORDER_STATUS_COLORS[o.status]}`}
                   >
-                    {ORDER_STATUSES.map((s) => (
-                      <option key={s} disabled={s === "Shipped" && o.quality_status !== "Approved"}>{s}{s === "Shipped" && o.quality_status !== "Approved" ? " (needs QC approval)" : ""}</option>
-                    ))}
+                    {ORDER_STATUSES.map((s) => {
+                      const why = statusBlock(o, s);
+                      return <option key={s} value={s} disabled={!!why}>{s}{why ? ` (${why})` : ""}</option>;
+                    })}
                   </select>
                   <span
                     className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${o.quality_status === "Approved" ? "bg-emerald-100 text-emerald-800" : o.quality_status === "Rejected" ? "bg-rose-100 text-rose-800" : "bg-stone-100 text-stone-500"}`}
@@ -226,6 +233,22 @@ export default function Orders({ profile }) {
                   >
                     {o.quality_status === "Approved" ? "QC approved" : o.quality_status === "Rejected" ? "QC rejected" : "QC pending"}
                   </span>
+                  {o.quality_status === "Approved" && o.status !== "Completed" && (
+                    <span
+                      className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${o.dispatch_status === "Approved" ? "bg-emerald-100 text-emerald-800" : o.dispatch_status === "Rejected" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}
+                      title="Dispatch approval: Production Manager, then General Manager (Quality tab)"
+                    >
+                      {o.dispatch_status === "Approved" ? "Dispatch approved" : o.dispatch_status === "Pending GM" ? "Dispatch: awaiting GM" : o.dispatch_status === "Rejected" ? "Dispatch rejected" : "Dispatch: awaiting PM"}
+                    </span>
+                  )}
+                  {o.status === "Shipped" && (
+                    <button
+                      onClick={() => { if (window.confirm(`Mark ${o.order_number} as delivered to the customer? It will move to Completed.`)) setStatus(o.id, "Completed"); }}
+                      className="text-[11px] font-medium rounded-full px-2.5 py-1 bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      Mark delivered
+                    </button>
+                  )}
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
                     <LinkIcon size={14} />
                   </button>
@@ -281,7 +304,7 @@ export default function Orders({ profile }) {
             </Card>
           );
         })}
-        {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{(q || monthF) ? "No orders match your search or month filter." : view === "completed" ? "No completed orders yet. Orders move here when their status is set to Completed or Shipped." : "No active orders. Add a new order."}</Card>}
+        {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{(q || monthF) ? "No orders match your search or month filter." : view === "completed" ? "No completed orders yet. Orders move here once they are Shipped and then marked Completed after the customer receives them." : "No active orders. Add a new order."}</Card>}
       </div>
       {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} canLinkSales={["admin", "gm", "pm"].includes(profile?.role)} />}
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
@@ -412,7 +435,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
         <Field label="Status">
           <select className={inputCls} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
             {ORDER_STATUSES.map((s) => (
-              <option key={s} disabled={(s === "Shipped" && order.quality_status !== "Approved") || (rcaBlocked && (s === "Completed" || s === "Shipped") && order.status !== s)}>{s}{s === "Shipped" && order.quality_status !== "Approved" ? " (needs QC approval)" : ""}{rcaBlocked && (s === "Completed" || s === "Shipped") && order.status !== s ? " (submit RCA first)" : ""}</option>
+              <option key={s} value={s} disabled={!!statusBlock(order, s) || (rcaBlocked && s === "Shipped" && order.status !== s)}>{s}{statusBlock(order, s) ? ` (${statusBlock(order, s)})` : ""}{rcaBlocked && s === "Shipped" && order.status !== s && !statusBlock(order, s) ? " (submit RCA first)" : ""}</option>
             ))}
           </select>
         </Field>

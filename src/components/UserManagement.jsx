@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { UserPlus, Trash2, Copy, Check, KeyRound } from "lucide-react";
+import { UserPlus, Trash2, Copy, Check, KeyRound, LayoutGrid } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { ROLE_LABELS, LOGIN_ROLES } from "../lib/helpers";
+import { ROLE_LABELS, LOGIN_ROLES, MODULE_ROLES, GRANTABLE_MODULES } from "../lib/helpers";
 
 export default function UserManagement({ profile }) {
   const canManageRoles = profile?.role === "admin" || profile?.role === "hr";
@@ -12,13 +12,19 @@ export default function UserManagement({ profile }) {
   const [inviteModal, setInviteModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [resetSentFor, setResetSentFor] = useState(null);
-  const isAdminOnly = profile?.role === "admin"; // deletion is Admin-only (HR cannot)
+  const isAdminOnly = profile?.role === "admin"; // deletion and module access are Admin-only (HR cannot)
+  const [access, setAccess] = useState({}); // user_id -> extra modules granted by the Admin
+  const [accessFor, setAccessFor] = useState(null);
 
   const load = async () => {
     const [{ data: profs }, { data: invites }] = await Promise.all([
       supabase.from("profiles").select("*").order("created_at", { ascending: true }),
       canManageRoles ? supabase.from("role_invitations").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
+    if (isAdminOnly) {
+      const { data: acc } = await supabase.from("user_module_access").select("user_id, modules");
+      setAccess(Object.fromEntries((acc || []).map((a) => [a.user_id, a.modules || []])));
+    }
     setProfiles(profs || []);
     setInvitations(invites || []);
     setLoading(false);
@@ -30,6 +36,7 @@ export default function UserManagement({ profile }) {
       .channel("user-management-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "role_invitations" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_module_access" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,8 +168,18 @@ export default function UserManagement({ profile }) {
                     ) : (
                       <span className="text-xs">{ROLE_LABELS[p.role] || p.role}</span>
                     )}
+                    {(access[p.id] || []).filter((m) => !(MODULE_ROLES[m] || []).includes(p.role)).length > 0 && (
+                      <div className="text-[11px] text-indigo-700 mt-1">
+                        + {(access[p.id] || []).filter((m) => !(MODULE_ROLES[m] || []).includes(p.role)).map((m) => GRANTABLE_MODULES.find((g) => g.id === m)?.label || m).join(", ")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
+                    {isAdminOnly && p.role !== "admin" && (
+                      <button onClick={() => setAccessFor(p)} className="mr-3 text-xs text-indigo-700 hover:underline inline-flex items-center gap-1">
+                        <LayoutGrid size={12} /> Module access
+                      </button>
+                    )}
                     <button onClick={() => sendPasswordReset(p)} className="text-xs text-indigo-700 hover:underline inline-flex items-center gap-1">
                       <KeyRound size={12} /> {resetSentFor === p.id ? "Sent!" : "Reset password"}
                     </button>
@@ -187,8 +204,62 @@ export default function UserManagement({ profile }) {
         </p>
       </div>
 
+      {accessFor && <ModuleAccessModal person={accessFor} granted={access[accessFor.id] || []} adminName={profile?.name} onClose={() => setAccessFor(null)} onSaved={load} />}
       {inviteModal && <InviteModal onClose={() => setInviteModal(false)} onSaved={load} />}
     </div>
+  );
+}
+
+// Admin only: grant extra modules to one person, on top of what their role already opens.
+function ModuleAccessModal({ person, granted, adminName, onClose, onSaved }) {
+  const included = (m) => (MODULE_ROLES[m] || []).includes(person.role); // already open through the role
+  const [sel, setSel] = useState(() => new Set(granted.filter((m) => !included(m))));
+  const [saving, setSaving] = useState(false);
+
+  const toggle = (m) => {
+    const n = new Set(sel);
+    n.has(m) ? n.delete(m) : n.add(m);
+    setSel(n);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    const modules = [...sel];
+    const { error } = modules.length
+      ? await supabase.from("user_module_access").upsert({ user_id: person.id, modules, updated_by: adminName || null, updated_at: new Date().toISOString() })
+      : await supabase.from("user_module_access").delete().eq("user_id", person.id);
+    setSaving(false);
+    if (error) return alert(`Couldn't save:\n${error.message}`);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <Modal title={`Module access — ${person.name || person.email}`} onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-3">
+        Role: <b>{ROLE_LABELS[person.role] || person.role}</b>. Tick the extra modules this person should see in their menu. Modules their role already opens are marked and stay on.
+      </p>
+      <div className="space-y-1.5 mb-3">
+        {GRANTABLE_MODULES.map((m) => {
+          const inc = included(m.id);
+          return (
+            <label key={m.id} className={`flex items-center gap-2 text-sm rounded-lg border px-3 py-2 ${inc ? "bg-stone-50 border-stone-200 text-stone-500" : "border-stone-200 cursor-pointer hover:bg-stone-50"}`}>
+              <input type="checkbox" checked={inc || sel.has(m.id)} disabled={inc} onChange={() => toggle(m.id)} />
+              <span className="flex-1">{m.label}</span>
+              {inc && <span className="text-[11px] text-stone-400">included with role</span>}
+            </label>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+        This controls which modules appear in their menu. What they can see or change inside a module is still limited by their role's permissions in the database, and approvals stay with the approving roles.
+        If they need full rights in a module, change their role instead.
+      </p>
+      <div className="flex justify-end gap-2">
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save} disabled={saving}>{saving ? "Saving…" : "Save access"}</Btn>
+      </div>
+    </Modal>
   );
 }
 

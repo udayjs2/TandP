@@ -665,3 +665,10 @@ Environment Variables and redeploy:
 - **WhatsApp:** in Meta for Developers set the webhook to `https://<your-site>/api/whatsapp` with your verify token,
   subscribe to *messages*, then add numbers under AI Factory Manager → WhatsApp.
 - Sub-module tab bars now use the same navy toolbar style as the main header.
+
+## v47 — cutting review, dispatch approval, QC role, module access (needs migration_44.sql, after migration_43)
+- **Cutting**: sub-tabs Pending review / Approved / Rejected. PM, GM, Admin and HR can *Reject & send back* (reason required) from Pending or Approved; fabric returns to inventory. The cutting master sees the reason and uses *Edit & resend* (re-deducts fabric, back to Pending). *Delete* restores any fabric still deducted: Admin/HR/GM/PM delete any entry, a cutting master only their own un-approved entry. An entry with stitching already logged cannot be rejected.
+- **Dispatch approval**: when quality approves an order it appears in Quality → *Dispatch approval*: Production Manager first, then General Manager (Admin can act at either step). A rejection (reason required) sends the order back to quality; re-approval restarts at the PM. *Shipped* needs quality + dispatch approval; deliveries are also blocked until then.
+- **Order lifecycle**: ... Ironing → Shipped → Completed. Shipped orders stay in Orders → Active (in transit). *Mark delivered* moves them to Completed; Completed is only reachable from Shipped. Existing Shipped/Completed orders are backfilled as dispatch-approved; orders already passed by quality wait for the PM.
+- **QC user**: new role "QC (Quality Team)" sees only Production Management → Quality and can inspect orders. Assign it in User Management (role list or invitation).
+- **Module access** (Admin only): User Management → *Module access* next to a user grants extra modules on top of their role. It controls the menu; what the person can read or change inside a module is still limited by their role's database permissions, and approvals stay with the approving roles. Stored in `user_module_access` (only the Admin can write).

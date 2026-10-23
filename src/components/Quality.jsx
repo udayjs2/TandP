@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, AlertTriangle, ShieldCheck, ClipboardCheck, Camera } from "lucide-react";
+import { CheckCircle2, AlertTriangle, ShieldCheck, ClipboardCheck, Camera, Truck, X } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 
@@ -26,17 +26,19 @@ const QC_COLORS = {
 };
 
 export default function Quality({ profile }) {
-  const canInspect = ["quality_manager", "admin", "hr"].includes(profile?.role);
+  const canInspect = ["quality_manager", "qc", "admin", "hr"].includes(profile?.role);
+  const role = profile?.role;
   const [orders, setOrders] = useState([]);
   const [counts, setCounts] = useState({});
   const [inspections, setInspections] = useState([]);
   const [filter, setFilter] = useState("Needs inspection");
   const [inspect, setInspect] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [rejectDispatch, setRejectDispatch] = useState(null);
 
   const load = async () => {
     const [{ data: ord }, { data: cuts }, { data: prog }, { data: ins }] = await Promise.all([
-      supabase.from("orders").select("id, order_number, customer_name, status, items, quality_status, quality_approved_at, quality_approved_by").order("order_date", { ascending: false }),
+      supabase.from("orders").select("id, order_number, customer_name, status, items, quality_status, quality_approved_at, quality_approved_by, dispatch_status, dispatch_pm_by, dispatch_gm_by, dispatch_note").order("order_date", { ascending: false }),
       supabase.from("cutting_entries").select("order_id, sizes").eq("status", "Approved"),
       supabase.from("order_progress").select("order_id, quantity"),
       supabase.from("quality_inspections").select("*").order("created_at", { ascending: false }),
@@ -65,23 +67,34 @@ export default function Quality({ profile }) {
     return () => supabase.removeChannel(ch);
   }, []);
 
-  const shown = orders.filter((o) =>
-    filter === "All" ? true : filter === "Needs inspection" ? o.quality_status !== "Approved" && o.status !== "Shipped" : o.quality_status === filter
-  );
-  const countFor = (f) =>
-    f === "Needs inspection" ? orders.filter((o) => o.quality_status !== "Approved" && o.status !== "Shipped").length : orders.filter((o) => o.quality_status === f).length;
+  const inFlight = (o) => o.status !== "Shipped" && o.status !== "Completed";
+  const FILTERS = {
+    "Needs inspection": (o) => o.quality_status !== "Approved" && inFlight(o),
+    Rejected: (o) => o.quality_status === "Rejected",
+    Approved: (o) => o.quality_status === "Approved",
+    "Dispatch approval": (o) => inFlight(o) && o.quality_status === "Approved" && ["Pending PM", "Pending GM"].includes(o.dispatch_status),
+    All: () => true,
+  };
+  const shown = orders.filter(FILTERS[filter]);
+  const countFor = (f) => orders.filter(FILTERS[f]).length;
+
+  const approveDispatch = async (o) => {
+    const { data, error } = await supabase.rpc("approve_dispatch", { p_order_id: o.id, p_decision: "Approved", p_note: null });
+    if (error || data?.ok === false) return alert(error?.message || data?.error);
+    load();
+  };
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Quality</h2>
         <p className="text-xs text-stone-500 mt-0.5">
-          Every order must pass the Quality Manager's inspection before it can be marked <b>Shipped</b> or have deliveries logged.
+          Every order must pass quality inspection, then dispatch approval by the <b>Production Manager</b> and the <b>General Manager</b>, before it can be marked <b>Shipped</b> or have deliveries logged.
         </p>
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        {["Needs inspection", "Rejected", "Approved", "All"].map((f) => (
+        {["Needs inspection", "Rejected", "Approved", "Dispatch approval", "All"].map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-full text-xs font-medium border ${filter === f ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-600 border-stone-200"}`}>
             {f}{f !== "All" ? ` (${countFor(f)})` : ""}
           </button>
@@ -114,7 +127,7 @@ export default function Quality({ profile }) {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${QC_COLORS[o.quality_status]}`}>
-                    {o.quality_status === "Approved" ? "Ready for shipping" : o.quality_status === "Rejected" ? "Quality rejected" : "Awaiting inspection"}
+                    {o.quality_status === "Approved" ? (o.dispatch_status === "Approved" || !inFlight(o) ? "Ready for shipping" : "QC approved · awaiting dispatch approval") : o.quality_status === "Rejected" ? "Quality rejected" : "Awaiting inspection"}
                   </span>
                   {o.quality_status === "Approved" && o.quality_approved_by && <span className="text-[11px] text-stone-400">Approved by {o.quality_approved_by}</span>}
                 </div>
@@ -124,6 +137,33 @@ export default function Quality({ profile }) {
                 <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
                   Rejected{last.inspected_by_name ? ` by ${last.inspected_by_name}` : ""}: {last.notes}
                 </div>
+              )}
+
+              {o.quality_status === "Approved" && inFlight(o) && (
+                <div className="mt-3 border border-stone-200 rounded-lg px-3 py-2 text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-stone-700"><Truck size={13} /> Ready-for-dispatch approval</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span className={o.dispatch_status === "Pending PM" ? "text-amber-700 font-medium" : "text-emerald-700"}>
+                      {o.dispatch_status === "Pending PM" ? "1. Production Manager — pending" : `1. Production Manager — approved${o.dispatch_pm_by ? ` (${o.dispatch_pm_by})` : ""}`}
+                    </span>
+                    <span className={o.dispatch_status === "Pending GM" ? "text-amber-700 font-medium" : o.dispatch_status === "Approved" ? "text-emerald-700" : "text-stone-400"}>
+                      {o.dispatch_status === "Approved" ? `2. General Manager — approved${o.dispatch_gm_by ? ` (${o.dispatch_gm_by})` : ""}` : o.dispatch_status === "Pending GM" ? "2. General Manager — pending" : "2. General Manager — waiting"}
+                    </span>
+                  </div>
+                  {o.dispatch_status === "Rejected" && <div className="mt-1 text-rose-700">Dispatch was rejected: {o.dispatch_note}</div>}
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {((o.dispatch_status === "Pending PM" && ["pm", "admin"].includes(role)) || (o.dispatch_status === "Pending GM" && ["gm", "admin"].includes(role))) && (
+                      <>
+                        <Btn onClick={() => approveDispatch(o)}><Truck size={13} /> Approve for dispatch</Btn>
+                        <Btn variant="ghost" onClick={() => setRejectDispatch(o)}><X size={13} /> Reject</Btn>
+                      </>
+                    )}
+                    {o.dispatch_status === "Approved" && <span className="text-emerald-700 font-medium">Approved — the order can now be marked Shipped in Orders.</span>}
+                  </div>
+                </div>
+              )}
+              {o.dispatch_status === "Rejected" && o.quality_status !== "Approved" && inFlight(o) && (
+                <div className="mt-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">Dispatch rejected: {o.dispatch_note} — re-inspect to send it for dispatch approval again.</div>
               )}
 
               <div className="flex gap-2 mt-3 flex-wrap">
@@ -145,6 +185,7 @@ export default function Quality({ profile }) {
       </div>
 
       {inspect && <InspectionModal order={inspect} counts={counts[inspect.id] || { cut: 0, stitched: 0 }} onClose={() => setInspect(null)} onSaved={load} />}
+      {rejectDispatch && <RejectDispatchModal order={rejectDispatch} onClose={() => setRejectDispatch(null)} onSaved={load} />}
       {historyFor && <HistoryModal order={historyFor} rows={inspections.filter((i) => i.order_id === historyFor.id)} onClose={() => setHistoryFor(null)} />}
     </div>
   );
@@ -279,6 +320,33 @@ function InspectionModal({ order, counts, onClose, onSaved }) {
         <Btn variant="ghost" onClick={() => submit("Rejected")} disabled={saving}>Reject order</Btn>
         <Btn onClick={() => submit("Approved")} disabled={saving || !canApprove}>{saving ? "Saving…" : "Approve — ready for shipping"}</Btn>
       </div>
+    </Modal>
+  );
+}
+
+function RejectDispatchModal({ order, onClose, onSaved }) {
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!note.trim()) return;
+    setSaving(true);
+    const { data, error } = await supabase.rpc("approve_dispatch", { p_order_id: order.id, p_decision: "Rejected", p_note: note });
+    setSaving(false);
+    if (error || data?.ok === false) return alert(error?.message || data?.error);
+    onSaved();
+    onClose();
+  };
+  return (
+    <Modal title={`Reject dispatch — ${order.order_number}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="text-sm text-stone-600 mb-3">The order goes back to quality for re-inspection, and comes back here for approval once it passes.</p>
+        <Field label="Reason"><textarea required autoFocus rows={3} className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <div className="flex justify-end gap-2 mt-3">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving || !note.trim()}>{saving ? "Saving…" : "Reject dispatch"}</Btn>
+        </div>
+      </form>
     </Modal>
   );
 }

@@ -80,7 +80,7 @@ export default function TrackOrder() {
 
             {/* stage tracker */}
             <div className="flex items-center mt-4 mb-5 overflow-x-auto">
-              {ORDER_STATUSES.filter((s) => s !== "Shipped" || result.status === "Shipped").map((s, idx) => {
+              {ORDER_STATUSES.map((s, idx) => {
                 const isDone = idx < stageIndex || (idx === stageIndex && s === "Completed");
                 const isCurrent = idx === stageIndex;
                 return (

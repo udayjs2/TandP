@@ -71,7 +71,7 @@ export const EXPENSE_STATUS_COLORS = {
   Reimbursed: "bg-emerald-100 text-emerald-800",
 };
 
-export const ORDER_STATUSES = ["Not Started", "Cutting", "Stitching", "Finishing", "Ironing", "Completed", "Shipped"];
+export const ORDER_STATUSES = ["Not Started", "Cutting", "Stitching", "Finishing", "Ironing", "Shipped", "Completed"];
 export const ORDER_STATUS_COLORS = {
   "Not Started": "bg-stone-200 text-stone-700",
   Cutting: "bg-amber-100 text-amber-800",
@@ -210,10 +210,36 @@ export const ROLE_LABELS = {
   tl: "Team Lead",
   cutting_master: "Cutting Master",
   quality_manager: "Quality Manager",
+  qc: "QC (Quality Team)",
   sales: "Sales",
   user: "Staff",
 };
-export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "finance", "user"];
+export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "qc", "sales", "finance", "user"];
+
+// Top-level modules and the roles that get them by default. The Admin can grant any of these
+// (except User Management) to a particular user on top of their role — see User Management.
+const EVERYONE = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "finance", "user"];
+export const MODULE_ROLES = {
+  dashboard: EVERYONE,
+  "floor-display": EVERYONE,
+  production: ["admin", "gm", "pm", "tl", "cutting_master", "quality_manager", "qc"],
+  hr: EVERYONE,
+  sales: ["admin", "sales"],
+  inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance"],
+  finance: ["admin", "finance"],
+  reports: ["admin", "quality_manager", "sales", "finance"],
+  users: ["admin"],
+};
+export const GRANTABLE_MODULES = [
+  { id: "dashboard", label: "Dashboard" },
+  { id: "floor-display", label: "Floor Display" },
+  { id: "production", label: "Production Management" },
+  { id: "hr", label: "HR & Workforce" },
+  { id: "sales", label: "CRM & Sales" },
+  { id: "inventory", label: "Inventory & Procurement" },
+  { id: "finance", label: "Finance & Accounts" },
+  { id: "reports", label: "Reports & Analytics" },
+];
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of
 // employees by id (must include base_salary), compute manpower count,
