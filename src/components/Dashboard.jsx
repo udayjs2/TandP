@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Users, CalendarCheck, Package, Receipt, AlertTriangle, Activity, Users2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
+import AlertTicker from "./AlertTicker";
 import { fmtMoney, monthKey, todayStr, orderItemsRequired, ORDER_STATUS_COLORS } from "../lib/helpers";
 
 export default function Dashboard({ profile }) {
@@ -110,6 +111,7 @@ export default function Dashboard({ profile }) {
 
   return (
     <div className="space-y-6">
+      <AlertTicker profile={profile} />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Employees" value={stats.employeeCount} icon={Users} />
         <StatCard

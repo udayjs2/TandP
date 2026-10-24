@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, Receipt, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, Receipt, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
 import Invoices from "./Invoices";
 import ActualCostModal from "./ActualCost";
-import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost } from "../lib/helpers";
+import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost, findDuplicateExpenditures } from "../lib/helpers";
 
 const SUB_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -347,16 +347,21 @@ function Expenditures() {
   const [orders, setOrders] = useState([]);
   const [investors, setInvestors] = useState([]);
   const [modal, setModal] = useState(null);
+  const [onlyDup, setOnlyDup] = useState(false);
+  const [pad, setPad] = useState([]); // entries just outside the month, used only for duplicate matching
 
   const load = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-${String(daysInMonth(mk)).padStart(2, "0")}`;
-    const [{ data, error }, { data: ord }, { data: inv }] = await Promise.all([
+    const shift = (d, n) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const [{ data, error }, { data: ord }, { data: inv }, { data: edge }] = await Promise.all([
       supabase.from("expenditures").select("*").gte("expense_date", start).lte("expense_date", end).order("expense_date", { ascending: false }),
       supabase.from("orders").select("id, order_number, customer_name").order("order_date", { ascending: false }),
       supabase.rpc("investor_names"),
+      supabase.from("expenditures").select("*").or(`and(expense_date.gte.${shift(start, -3)},expense_date.lt.${start}),and(expense_date.gt.${end},expense_date.lte.${shift(end, 3)})`),
     ]);
     if (error) console.error("Failed to load expenditures:", error.message);
+    setPad(edge || []);
     setItems(data || []);
     setOrders(ord || []);
     setInvestors(inv || []);
@@ -392,6 +397,23 @@ function Expenditures() {
     load();
   };
 
+  const dups = findDuplicateExpenditures([...items, ...pad]);
+  const dupItems = items.filter((r) => dups[r.id]);
+  const shownItems = onlyDup ? dupItems : items;
+
+  // Finance / Admin: this entry is correct, so it (and the entries it was matched with) stop being flagged.
+  const markNotDuplicate = async (r) => {
+    const ids = [r.id, ...(dups[r.id]?.with || [])];
+    if (!window.confirm("Mark this as a genuine entry (not a duplicate)?\nThe matching entries will also stop being flagged.")) return;
+    const { data: who } = await supabase.auth.getUser?.() || {};
+    const { error } = await supabase
+      .from("expenditures")
+      .update({ dup_cleared_at: new Date().toISOString(), dup_cleared_by: who?.user?.email || null })
+      .in("id", ids);
+    if (error) alert(`Couldn't update:\n${error.message}`);
+    load();
+  };
+
   const orderLabel = (id) => {
     const o = orders.find((x) => x.id === id);
     return o ? `${o.order_number} — ${o.customer_name}` : "—";
@@ -410,6 +432,13 @@ function Expenditures() {
           <Plus size={15} /> Add expenditure
         </Btn>
       </div>
+
+      {dupItems.length > 0 && (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          <span className="inline-flex items-center gap-2 font-medium"><AlertTriangle size={16} /> {dupItems.length} entr{dupItems.length === 1 ? "y looks" : "ies look"} like a duplicate — please review (red rows).</span>
+          <button onClick={() => setOnlyDup(!onlyDup)} className="text-xs font-medium underline">{onlyDup ? "Show all entries" : "Show only these"}</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         <StatCard label="Total this month" value={fmtMoney(total)} />
@@ -433,9 +462,17 @@ function Expenditures() {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {items.map((r) => (
-              <tr key={r.id} className="hover:bg-stone-50">
-                <td className="px-4 py-2.5 text-stone-500">{r.expense_date}</td>
+            {shownItems.map((r) => (
+              <tr key={r.id} className={dups[r.id] ? "bg-rose-50 hover:bg-rose-100" : "hover:bg-stone-50"}>
+                <td className="px-4 py-2.5 text-stone-500">
+                  {r.expense_date}
+                  {dups[r.id] && (
+                    <div className="text-[10px] font-semibold text-rose-700 inline-flex items-center gap-1 mt-0.5">
+                      <AlertTriangle size={10} /> {dups[r.id].level === "exact" ? "DUPLICATE" : "POSSIBLE DUPLICATE"}
+                    </div>
+                  )}
+                  {r.dup_cleared_at && <div className="text-[10px] text-emerald-700 inline-flex items-center gap-1 mt-0.5" title={`Validated${r.dup_cleared_by ? ` by ${r.dup_cleared_by}` : ""}`}><ShieldCheck size={10} /> Verified</div>}
+                </td>
                 <td className="px-4 py-2.5">{r.category}</td>
                 <td className="px-4 py-2.5">{r.item || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{r.vendor || "—"}</td>
@@ -443,7 +480,12 @@ function Expenditures() {
                 <td className="px-4 py-2.5 text-stone-500">{r.investor_id ? investorLabel(r.investor_id) : <span className="text-stone-300">—</span>}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(r.amount)}</td>
                 <td className="px-4 py-2.5">
-                  <div className="flex justify-end gap-1">
+                  <div className="flex justify-end gap-1 items-center">
+                    {dups[r.id] && (
+                      <button onClick={() => markNotDuplicate(r)} className="text-[11px] font-medium text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5 hover:bg-emerald-50 whitespace-nowrap">
+                        Not a duplicate
+                      </button>
+                    )}
                     {r.payroll_id ? (
                       <span className="text-[10px] text-stone-400 px-1" title="Posted from Payroll. Change it there.">from Payroll</span>
                     ) : (<>
@@ -454,7 +496,7 @@ function Expenditures() {
                 </td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">No expenditures logged this month.</td></tr>}
+            {shownItems.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-stone-400">{onlyDup ? "No duplicates to review." : "No expenditures logged this month."}</td></tr>}
           </tbody>
         </table>
       </Card>
@@ -573,7 +615,7 @@ function OrderProfitability() {
   }, []);
 
   const updateFinance = async (orderId, patch) => {
-    const existing = financeByOrder[orderId] || { raw_material_cost: 0, labor_cost: 0, overhead_cost: 0, manpower_count: 0, man_days: 0 };
+    const existing = financeByOrder[orderId] || { approved_estimate: 0, raw_material_cost: 0, labor_cost: 0, overhead_cost: 0, manpower_count: 0, man_days: 0 };
     const next = { ...existing, ...patch, order_id: orderId };
     await supabase.from("order_finance").upsert(next, { onConflict: "order_id" });
     load();
@@ -641,6 +683,9 @@ function OrderProfitability() {
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              <Field label="Approved cost estimate (₹)">
+                <input type="number" min="0" className={inputCls} defaultValue={fin.approved_estimate || ""} key={`ae-${order.id}`} placeholder="alerts if exceeded" onBlur={(e) => updateFinance(order.id, { approved_estimate: Number(e.target.value) || 0 })} />
+              </Field>
               {autoMaterial !== null ? (
                 <Field label="Raw material (₹) — auto">
                   <div className="text-sm font-mono py-2 text-stone-600">{fmtMoney(autoMaterial)}</div>

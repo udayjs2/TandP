@@ -357,3 +357,34 @@ export const periodKeyLabel = (k) => {
   return k;
 };
 export const isLeadOverdue = (l, today) => !!l?.next_followup_date && l.next_followup_date <= today && !["Won", "Lost"].includes(l.status) && l.next_followup_date < today;
+
+
+// ---- duplicate expenditure detection ----
+// "exact": same date, category, vendor, item and amount. "possible": same vendor and amount within 3 days.
+// Entries a reviewer has marked as correct (dup_cleared_at) are skipped. Payroll / commission postings are ignored.
+const _norm = (v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+const _dayNum = (d) => Math.round(new Date(`${d}T00:00:00Z`).getTime() / 86400000);
+export function findDuplicateExpenditures(rows = []) {
+  const list = rows.filter((r) => !r.payroll_id && !r.commission_id && Number(r.amount) > 0);
+  const out = {}; // id -> { level: "exact" | "possible", group: [ids], with: [ids] }
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (Number(a.amount) !== Number(b.amount)) continue;
+      const sameVendor = _norm(a.vendor) === _norm(b.vendor);
+      const exact = a.expense_date === b.expense_date && a.category === b.category && sameVendor && _norm(a.item) === _norm(b.item);
+      const possible = !exact && sameVendor && _norm(a.vendor) !== "" && Math.abs(_dayNum(a.expense_date) - _dayNum(b.expense_date)) <= 3;
+      if (!exact && !possible) continue;
+      if (a.dup_cleared_at && b.dup_cleared_at) continue; // both already validated
+      const level = exact ? "exact" : "possible";
+      for (const [x, y] of [[a, b], [b, a]]) {
+        if (x.dup_cleared_at) continue;
+        const cur = out[x.id] || { level, with: [] };
+        if (level === "exact") cur.level = "exact";
+        cur.with.push(y.id);
+        out[x.id] = cur;
+      }
+    }
+  }
+  return out;
+}

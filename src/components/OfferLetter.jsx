@@ -3,6 +3,7 @@ import { X, FileText } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, fmtMoney } from "../lib/helpers";
+import { LETTER_TYPES, DUTIES, guessLetterType } from "../lib/offerLetterContent";
 
 export function OfferLetterModal({ employee, onClose }) {
   const [f, setF] = useState({
@@ -11,6 +12,7 @@ export function OfferLetterModal({ employee, onClose }) {
     father_husband_name: "",
     address: "",
     designation: employee.role || "",
+    letter_type: guessLetterType(employee.role || ""),
     department: employee.department || "",
     employment_type: "Regular",
     joining_date: employee.join_date || todayStr(),
@@ -25,6 +27,7 @@ export function OfferLetterModal({ employee, onClose }) {
   });
   const [saving, setSaving] = useState(false);
   const [letter, setLetter] = useState(null);
+  const [typeTouched, setTypeTouched] = useState(false); // once the user picks a type by hand, stop auto-guessing from the designation
 
   const generate = async (e) => {
     e.preventDefault();
@@ -71,12 +74,22 @@ export function OfferLetterModal({ employee, onClose }) {
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Designation / Position">
-            <input className={inputCls} value={f.designation} onChange={(e) => setF({ ...f, designation: e.target.value })} />
+            <input
+              className={inputCls}
+              placeholder="e.g. Production Manager, Accountant, Operator"
+              value={f.designation}
+              onChange={(e) => setF({ ...f, designation: e.target.value, letter_type: typeTouched ? f.letter_type : guessLetterType(e.target.value) })}
+            />
           </Field>
           <Field label="Department">
             <input className={inputCls} value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })} />
           </Field>
         </div>
+        <Field label="Offer letter type (decides the duties in the Telugu letter)">
+          <select className={inputCls} value={f.letter_type} onChange={(e) => { setTypeTouched(true); setF({ ...f, letter_type: e.target.value }); }}>
+            {LETTER_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Employment type">
             <select className={inputCls} value={f.employment_type} onChange={(e) => setF({ ...f, employment_type: e.target.value })}>
@@ -139,6 +152,92 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
   const gross = Number(letter.basic_salary) + Number(letter.da_allowance) + Number(letter.attendance_allowance);
   const net = gross - Number(letter.other_deductions);
   const empTypeTelugu = { Regular: "రెగ్యులర్", Probation: "ప్రొబేషన్", Contract: "కాంట్రాక్ట్" }[letter.employment_type] || letter.employment_type;
+  const type = LETTER_TYPES.some((t) => t.id === letter.letter_type) ? letter.letter_type : "staff";
+  const isStaff = type === "staff";
+  const duties = DUTIES[type];
+  const typeInfo = LETTER_TYPES.find((t) => t.id === type);
+
+  const salaryBlock = (
+    <>
+      <p className="mb-2">మీ నెలవారీ వేతనం క్రింది విధంగా ఉంటుంది: మొత్తం నెలవారీ జీతం: ₹{fmtMoney(gross).replace("₹", "")}</p>
+      <table className="w-full border border-stone-400 border-collapse mb-2">
+        <tbody>
+          <Row label="ప్రాథమిక వేతనం (Basic)" value={fmtMoney(letter.basic_salary)} />
+          <Row label="DA / ఇతర Allowance" value={fmtMoney(letter.da_allowance)} />
+          <Row label="హాజరు / ఇతర Allowance" value={fmtMoney(letter.attendance_allowance)} />
+          <Row label="మొత్తం Gross Salary" value={fmtMoney(gross)} bold />
+          <Row label="PF / ESI / ఇతర చట్టబద్ధమైన మినహాయింపులు" value={fmtMoney(letter.other_deductions)} />
+          <Row label="చేతికి వచ్చే జీతం (Net Salary)" value={fmtMoney(net)} bold />
+        </tbody>
+      </table>
+      <p>జీతం సంస్థ యొక్క పేరోల్ విధానం ప్రకారం ప్రతి నెల చెల్లించబడుతుంది. వర్తించే PF, ESI, Professional Tax, TDS మరియు ఇతర చట్టబద్ధమైన మినహాయింపులు వర్తించవచ్చు.</p>
+    </>
+  );
+
+  // Clauses that every role gets
+  const incrementP = <p>ఉద్యోగి పనితీరు ఆధారంగా జీతం పెంపు (Increment) సంవత్సరానికి ఒకసారి ఇవ్వబడుతుంది. పెంపు మొత్తం మరియు తేదీని ఉద్యోగి పనితీరు, హాజరు, ప్రవర్తన మరియు సంస్థ పరిస్థితులను బట్టి యజమాని నిర్ణయిస్తారు.</p>;
+  const noticeP = (
+    <>
+      <p>ఉద్యోగి రాజీనామా చేయాలనుకుంటే సాధారణంగా {letter.notice_period_days} రోజుల ముందస్తు లిఖితపూర్వక నోటీసు ఇవ్వాలి, లేదా సంస్థ policy / వర్తించే చట్టం ప్రకారం వర్తించే notice లేదా wages in lieu వర్తిస్తుంది.</p>
+      <p>ఉద్యోగి నోటీసు కాలం పూర్తి చేయకుండా ఉద్యోగాన్ని మానివేసినా / విడిచిపెట్టినా, ఆ చివరి నెల జీతం మరియు ఆ నెలకు సంబంధించిన ఇతర ప్రయోజనాలు (benefits) ప్రాసెస్ చేయబడవు.</p>
+    </>
+  );
+
+  const staffSections = [
+    { title: "ఉద్యోగ బాధ్యతలు", body: (<>
+      <p>మీకు అప్పగించిన పని మీ పదవికి అనుగుణంగా సమయానికి మరియు నాణ్యతా ప్రమాణాలకు అనుగుణంగా పూర్తి చేయాలి.</p>
+      <p>గార్మెంట్ తయారీ యూనిట్‌లో అవసరాన్ని బట్టి Cutting, Stitching, Checking, Finishing, Ironing, Packing, Printing మరియు ఇతర సంబంధిత పనుల్లో పని చేయవలసి ఉంటుంది.</p>
+      <p>మేనేజ్‌మెంట్ ఇచ్చే చట్టబద్ధమైన పని సంబంధిత సూచనలను ఉద్యోగి తప్పనిసరిగా పాటించాలి.</p></>) },
+    { title: "జీతం / వేతనం", body: salaryBlock },
+    { title: "ప్రొబేషన్", body: (<>
+      <p>ఉద్యోగి మొదటి {letter.probation_months} నెలలు ప్రొబేషన్ కాలంలో ఉంటారు.</p>
+      <p>ఈ కాలంలో ఉద్యోగి యొక్క పని నాణ్యత, హాజరు, ప్రవర్తన, క్రమశిక్షణ, ఉత్పాదకత మరియు బాధ్యతలను పరిశీలిస్తారు.</p>
+      <p>పని సంతృప్తికరంగా ఉంటే ఉద్యోగాన్ని కొనసాగించడం / నిర్ధారించడం గురించి సంస్థ నిర్ణయం తీసుకుంటుంది.</p></>) },
+    { title: "పని సమయం / Shift Timings", body: shiftBody() },
+    { title: "హాజరు మరియు సెలవులు", body: attendanceBody(letter) },
+    { title: "ఉత్పత్తి మరియు పని సామర్థ్యం", body: (<>
+      <p>గార్మెంట్ పరిశ్రమలో ప్రతి విభాగానికి నిర్ణయించబడిన ఉత్పత్తి లక్ష్యాలు ఉంటాయి. ఉద్యోగి తనకు కేటాయించిన పనిని నిర్ణయించిన సమయానికి, నిర్దేశించిన పరిమాణంలో, సరైన నాణ్యతతో, తక్కువ రీవర్క్ / రిజెక్షన్‌తో పూర్తి చేయడానికి బాధ్యత వహించాలి.</p>
+      <p>ఉత్పత్తి లక్ష్యాలు ఆర్డర్, garment type, operation difficulty, machine మరియు పని పరిస్థితులను బట్టి మేనేజ్‌మెంట్ నిర్ణయిస్తుంది.</p></>) },
+    { title: "Sewing Machine / Factory Equipment వినియోగం", body: (<>
+      <p>ఉద్యోగికి కేటాయించిన sewing machine లేదా ఇతర యంత్రాలను జాగ్రత్తగా ఉపయోగించాలి. Machine‌ను అనుమతి లేకుండా ఇతరులకు ఇవ్వకూడదు, వ్యక్తిగత పనులకు ఉపయోగించకూడదు, ఉద్దేశపూర్వకంగా damage చేయకూడదు, Safety guards తొలగించి ఉపయోగించకూడదు.</p>
+      <p>Machineలో abnormal sound / problem కనిపిస్తే వెంటనే Supervisor / Mechanicకు తెలియజేయాలి. ఉద్దేశపూర్వక నిర్లక్ష్యం లేదా దుర్వినియోగం వల్ల జరిగిన నష్టంపై సంస్థ తన disciplinary policy మరియు వర్తించే చట్టాల ప్రకారం చర్య తీసుకోవచ్చు.</p></>) },
+    { title: "Buttons, Zips, Labels మరియు ఇతర Accessories", body: (<>
+      <p>Buttons, zips, labels, elastic, thread, tags, packing materials మరియు ఇతర production accessories సంస్థకు చెందినవి. ఉద్యోగి అవసరమైన పరిమాణంలో మాత్రమే material తీసుకోవాలి, వృథా కాకుండా జాగ్రత్తగా ఉపయోగించాలి, మిగిలిన material‌ను తిరిగి ఇవ్వాలి.</p>
+      <p>Material‌ను ఇంటికి తీసుకెళ్లడం లేదా వ్యక్తిగతంగా ఉపయోగించడం నిషేధం. ఉద్దేశపూర్వకంగా దుర్వినియోగం జరిగితే సంస్థ disciplinary procedure ప్రకారం చర్య తీసుకోవచ్చు.</p></>) },
+    { title: "Company Property", body: companyProperty() },
+    { title: "Safety Rules", body: (<p>Factoryలో safety rules తప్పనిసరిగా పాటించాలి — Machine safety, electrical safety, fire safety, needle safety మరియు ఇతర procedures. అందించిన PPE సరైన విధంగా ఉపయోగించాలి. ఉద్దేశపూర్వకంగా ఉల్లంఘించడం disciplinary actionకు కారణం కావచ్చు.</p>) },
+    { title: "నాణ్యత (Quality)", body: (<p>ప్రతి garment సంస్థ నిర్దేశించిన quality standards ప్రకారం తయారు చేయాలి. Needle damage, open seam, loose thread, wrong measurement, wrong label, wrong size, stain, printing defect లేదా ఇతర defects కనిపిస్తే వెంటనే Supervisor / Quality Departmentకు తెలియజేయాలి. నాణ్యతను దాచిపెట్టి defective garments‌ను తదుపరి processకు పంపకూడదు.</p>) },
+    { title: "Confidentiality", body: confidentiality(true) },
+    { title: "ప్రవర్తన మరియు క్రమశిక్షణ", body: (<p>ఉద్యోగి ఇతర ఉద్యోగులు, supervisors, managers మరియు customersతో గౌరవంగా ప్రవర్తించాలి. గొడవలు, దుర్భాషలు, బెదిరింపులు, మద్యం ప్రభావంలో పని, ఉద్దేశపూర్వక production నిలిపివేత, company property damage వంటివి తీవ్రమైన misconductగా పరిగణించబడతాయి.</p>) },
+    { title: "ఇతర ఉద్యోగులతో సమన్వయం", body: (<p>Production ఒక team-based process కావున ఉద్యోగి తన team members మరియు supervisorsతో సహకరించాలి. వ్యక్తిగత విభేదాల కారణంగా productionకు అంతరాయం కలిగించడం అనుమతించబడదు.</p>) },
+    { title: "వార్షిక జీతం పెంపు (Increment)", body: incrementP },
+    { title: "Resignation / Notice Period", body: noticeP },
+    { title: "Termination / ఉద్యోగం ముగింపు", body: (<p>నిరంతర poor performance, తీవ్రమైన misconduct, company property damage, fraud, repeated unauthorized absence, safety violation, confidentiality breach వంటి పరిస్థితుల్లో సంస్థ వర్తించే policy మరియు చట్టపరమైన విధానాన్ని అనుసరించి ఉద్యోగాన్ని ముగించవచ్చు.</p>) },
+    { title: "False Information", body: falseInfo() },
+    { title: "Transfer / Department Change", body: (<p>Production అవసరాల మేరకు ఉద్యోగిని సంస్థలోని ఇతర విభాగానికి మార్చే హక్కు మేనేజ్‌మెంట్‌కు ఉంటుంది, ఇది ఉద్యోగి skill మరియు applicable rulesకు లోబడి ఉంటుంది.</p>) },
+    { title: "Statutory Benefits", body: statutory() },
+    { title: "ఉద్యోగి అంగీకారం", body: acceptance() },
+  ];
+
+  // Managers / office roles: duties first, then the general terms (no theft wording in any letter)
+  const termSections = [
+    { title: "జీతం / వేతనం", body: salaryBlock },
+    { title: "ప్రొబేషన్", body: (<>
+      <p>ఉద్యోగి మొదటి {letter.probation_months} నెలలు ప్రొబేషన్ కాలంలో ఉంటారు. ఈ కాలంలో పని నాణ్యత, హాజరు, ప్రవర్తన, బాధ్యతాయుతమైన పని విధానం మరియు ఫలితాలను పరిశీలిస్తారు.</p>
+      <p>పని సంతృప్తికరంగా ఉంటే ఉద్యోగాన్ని కొనసాగించడం / నిర్ధారించడం గురించి సంస్థ నిర్ణయం తీసుకుంటుంది.</p></>) },
+    { title: "పని సమయం / Shift Timings", body: shiftBody() },
+    { title: "హాజరు మరియు సెలవులు", body: attendanceBody(letter) },
+    { title: "వార్షిక జీతం పెంపు (Increment)", body: incrementP },
+    { title: "Company Property", body: companyProperty() },
+    { title: "Confidentiality", body: confidentiality(false) },
+    { title: "ప్రవర్తన మరియు క్రమశిక్షణ", body: (<p>ఉద్యోగి ఇతర ఉద్యోగులు, సిబ్బంది, కస్టమర్లు మరియు సరఫరాదారులతో గౌరవంగా ప్రవర్తించాలి. సంస్థ విధానాలను పాటించాలి. గొడవలు, దుర్భాషలు, బెదిరింపులు, అధికార దుర్వినియోగం, మద్యం ప్రభావంలో పని, company property damage వంటివి తీవ్రమైన misconductగా పరిగణించబడతాయి.</p>) },
+    { title: "Resignation / Notice Period", body: noticeP },
+    { title: "Termination / ఉద్యోగం ముగింపు", body: (<p>నిరంతర poor performance, తీవ్రమైన misconduct, fraud, అధికార దుర్వినియోగం, repeated unauthorized absence, confidentiality breach వంటి పరిస్థితుల్లో సంస్థ వర్తించే policy మరియు చట్టపరమైన విధానాన్ని అనుసరించి ఉద్యోగాన్ని ముగించవచ్చు.</p>) },
+    { title: "False Information", body: falseInfo() },
+    { title: "Transfer / బాధ్యతల మార్పు", body: (<p>సంస్థ అవసరాల మేరకు ఉద్యోగి బాధ్యతలు లేదా విభాగాన్ని మార్చే హక్కు యజమానికి ఉంటుంది; ఇది ఉద్యోగి హోదా, నైపుణ్యం మరియు వర్తించే నిబంధనలకు లోబడి ఉంటుంది.</p>) },
+    { title: "Statutory Benefits", body: statutory() },
+    { title: "ఉద్యోగి అంగీకారం", body: acceptance() },
+  ];
 
   return (
     <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
@@ -162,7 +261,9 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
           <p className="text-sm text-stone-600">GARMENTS MANUFACTURING UNIT</p>
         </div>
 
-        <h2 className="text-center text-lg font-bold mb-4">ఉద్యోగ నియామక / ఆఫర్ లెటర్</h2>
+        <h2 className="text-center text-lg font-bold mb-1">ఉద్యోగ నియామక / ఆఫర్ లెటర్</h2>
+        {!isStaff && <p className="text-center font-semibold mb-4">{typeInfo.te}</p>}
+        {isStaff && <div className="mb-3" />}
 
         <div className="flex justify-between text-sm mb-4">
           <span>లేఖ సంఖ్య: {letter.letter_number || "—"}</span>
@@ -189,112 +290,22 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
           ఈ నియామకం క్రింది నిబంధనలు మరియు షరతులకు లోబడి ఉంటుంది.
         </p>
 
-        <Section n="1" title="ఉద్యోగ బాధ్యతలు">
-          <p>మీకు అప్పగించిన పని మీ పదవికి అనుగుణంగా సమయానికి మరియు నాణ్యతా ప్రమాణాలకు అనుగుణంగా పూర్తి చేయాలి.</p>
-          <p>గార్మెంట్ తయారీ యూనిట్‌లో అవసరాన్ని బట్టి Cutting, Stitching, Checking, Finishing, Ironing, Packing, Printing మరియు ఇతర సంబంధిత పనుల్లో పని చేయవలసి ఉంటుంది.</p>
-          <p>మేనేజ్‌మెంట్ ఇచ్చే చట్టబద్ధమైన పని సంబంధిత సూచనలను ఉద్యోగి తప్పనిసరిగా పాటించాలి.</p>
-        </Section>
-
-        <Section n="2" title="జీతం / వేతనం">
-          <p className="mb-2">మీ నెలవారీ వేతనం క్రింది విధంగా ఉంటుంది: మొత్తం నెలవారీ జీతం: ₹{fmtMoney(gross).replace("₹", "")}</p>
-          <table className="w-full border border-stone-400 border-collapse mb-2">
-            <tbody>
-              <Row label="ప్రాథమిక వేతనం (Basic)" value={fmtMoney(letter.basic_salary)} />
-              <Row label="DA / ఇతర Allowance" value={fmtMoney(letter.da_allowance)} />
-              <Row label="హాజరు / ఇతర Allowance" value={fmtMoney(letter.attendance_allowance)} />
-              <Row label="మొత్తం Gross Salary" value={fmtMoney(gross)} bold />
-              <Row label="PF / ESI / ఇతర చట్టబద్ధమైన మినహాయింపులు" value={fmtMoney(letter.other_deductions)} />
-              <Row label="చేతికి వచ్చే జీతం (Net Salary)" value={fmtMoney(net)} bold />
-            </tbody>
-          </table>
-          <p>జీతం సంస్థ యొక్క పేరోల్ విధానం ప్రకారం ప్రతి నెల చెల్లించబడుతుంది. వర్తించే PF, ESI, Professional Tax, TDS మరియు ఇతర చట్టబద్ధమైన మినహాయింపులు వర్తించవచ్చు.</p>
-        </Section>
-
-        <Section n="3" title="ప్రొబేషన్">
-          <p>ఉద్యోగి మొదటి {letter.probation_months} నెలలు ప్రొబేషన్ కాలంలో ఉంటారు.</p>
-          <p>ఈ కాలంలో ఉద్యోగి యొక్క పని నాణ్యత, హాజరు, ప్రవర్తన, క్రమశిక్షణ, ఉత్పాదకత మరియు బాధ్యతలను పరిశీలిస్తారు.</p>
-          <p>పని సంతృప్తికరంగా ఉంటే ఉద్యోగాన్ని కొనసాగించడం / నిర్ధారించడం గురించి సంస్థ నిర్ణయం తీసుకుంటుంది.</p>
-        </Section>
-
-        <Section n="4" title="పని సమయం / Shift Timings">
-          <p>సాధారణ పని సమయం: ఉదయం 9:00 గంటల నుండి సాయంత్రం 6:00 గంటల వరకు. భోజన విరామం: 1 గంట.</p>
-          <p>పని అవసరాన్ని బట్టి మేనేజ్‌మెంట్ షిఫ్ట్ సమయాలను మార్చవచ్చు లేదా అదనపు షిఫ్ట్ ఏర్పాటు చేయవచ్చు.</p>
-          <p>షిఫ్ట్ మార్పు, వారపు సెలవు మరియు పని సమయాలు సంస్థ అవసరాలు మరియు వర్తించే కార్మిక చట్టాలకు అనుగుణంగా నిర్వహించబడతాయి.</p>
-          <p>అనుమతి లేకుండా షిఫ్ట్ ప్రారంభ సమయానికి ఆలస్యంగా రావడం లేదా పని మధ్యలో వెళ్లిపోవడం హాజరు / క్రమశిక్షణ సమస్యగా పరిగణించబడుతుంది.</p>
-        </Section>
-
-        <Section n="5" title="హాజరు మరియు సెలవులు">
-          <p>ఉద్యోగి ప్రతిరోజూ సమయానికి హాజరు కావాలి. సెలవు అవసరమైతే సాధ్యమైనంత ముందుగా Supervisor / Manager నుండి అనుమతి తీసుకోవాలి.</p>
-          <p>అనుమతి లేకుండా వరుసగా గైర్హాజరు కావడం క్రమశిక్షణా చర్యకు కారణం కావచ్చు.</p>
-          <p>వారపు సెలవులు మరియు చట్టబద్ధమైన సెలవులు సంస్థ Leave Policy మరియు వర్తించే చట్టాల ప్రకారం ఉంటాయి. వారపు సెలవు: {letter.weekly_off}.</p>
-        </Section>
-
-        <Section n="6" title="ఉత్పత్తి మరియు పని సామర్థ్యం">
-          <p>గార్మెంట్ పరిశ్రమలో ప్రతి విభాగానికి నిర్ణయించబడిన ఉత్పత్తి లక్ష్యాలు ఉంటాయి. ఉద్యోగి తనకు కేటాయించిన పనిని నిర్ణయించిన సమయానికి, నిర్దేశించిన పరిమాణంలో, సరైన నాణ్యతతో, తక్కువ రీవర్క్ / రిజెక్షన్‌తో పూర్తి చేయడానికి బాధ్యత వహించాలి.</p>
-          <p>ఉత్పత్తి లక్ష్యాలు ఆర్డర్, garment type, operation difficulty, machine మరియు పని పరిస్థితులను బట్టి మేనేజ్‌మెంట్ నిర్ణయిస్తుంది.</p>
-        </Section>
-
-        <Section n="7" title="Sewing Machine / Factory Equipment వినియోగం">
-          <p>ఉద్యోగికి కేటాయించిన sewing machine లేదా ఇతర యంత్రాలను జాగ్రత్తగా ఉపయోగించాలి. Machine‌ను అనుమతి లేకుండా ఇతరులకు ఇవ్వకూడదు, వ్యక్తిగత పనులకు ఉపయోగించకూడదు, ఉద్దేశపూర్వకంగా damage చేయకూడదు, Safety guards తొలగించి ఉపయోగించకూడదు.</p>
-          <p>Machineలో abnormal sound / problem కనిపిస్తే వెంటనే Supervisor / Mechanicకు తెలియజేయాలి. ఉద్దేశపూర్వక నిర్లక్ష్యం లేదా దుర్వినియోగం వల్ల జరిగిన నష్టంపై సంస్థ తన disciplinary policy మరియు వర్తించే చట్టాల ప్రకారం చర్య తీసుకోవచ్చు.</p>
-        </Section>
-
-        <Section n="8" title="Buttons, Zips, Labels మరియు ఇతర Accessories">
-          <p>Buttons, zips, labels, elastic, thread, tags, packing materials మరియు ఇతర production accessories సంస్థకు చెందినవి. ఉద్యోగి అవసరమైన పరిమాణంలో మాత్రమే material తీసుకోవాలి, వృథా కాకుండా జాగ్రత్తగా ఉపయోగించాలి, మిగిలిన material‌ను తిరిగి ఇవ్వాలి.</p>
-          <p>Material‌ను ఇంటికి తీసుకెళ్లడం లేదా వ్యక్తిగతంగా ఉపయోగించడం నిషేధం. ఉద్దేశపూర్వకంగా దుర్వినియోగం / దొంగతనం జరిగితే సంస్థ disciplinary procedure ప్రకారం చర్య తీసుకోవచ్చు.</p>
-        </Section>
-
-        <Section n="9" title="Company Property">
-          <p>Machine, scissors, cutting tools, measuring tools, iron, computer, ID card, uniform, documents, samples, fabric, accessories, files మరియు ఇతర కంపెనీ ఆస్తులు సంస్థకు చెందినవి. ఉద్యోగం ముగిసినప్పుడు లేదా సంస్థ కోరినప్పుడు అన్ని కంపెనీ ఆస్తులను తిరిగి అప్పగించాలి.</p>
-        </Section>
-
-        <Section n="10" title="Safety Rules">
-          <p>Factoryలో safety rules తప్పనిసరిగా పాటించాలి — Machine safety, electrical safety, fire safety, needle safety మరియు ఇతర procedures. అందించిన PPE సరైన విధంగా ఉపయోగించాలి. ఉద్దేశపూర్వకంగా ఉల్లంఘించడం disciplinary actionకు కారణం కావచ్చు.</p>
-        </Section>
-
-        <Section n="11" title="నాణ్యత (Quality)">
-          <p>ప్రతి garment సంస్థ నిర్దేశించిన quality standards ప్రకారం తయారు చేయాలి. Needle damage, open seam, loose thread, wrong measurement, wrong label, wrong size, stain, printing defect లేదా ఇతర defects కనిపిస్తే వెంటనే Supervisor / Quality Departmentకు తెలియజేయాలి. నాణ్యతను దాచిపెట్టి defective garments‌ను తదుపరి processకు పంపకూడదు.</p>
-        </Section>
-
-        <Section n="12" title="Confidentiality">
-          <p>Company orders, customer details, school details, prices, supplier information, production data, salary information, designs, patterns, measurements మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం.</p>
-        </Section>
-
-        <Section n="13" title="ప్రవర్తన మరియు క్రమశిక్షణ">
-          <p>ఉద్యోగి ఇతర ఉద్యోగులు, supervisors, managers మరియు customersతో గౌరవంగా ప్రవర్తించాలి. గొడవలు, దుర్భాషలు, బెదిరింపులు, దొంగతనం, మద్యం ప్రభావంలో పని, ఉద్దేశపూర్వక production నిలిపివేత, company property damage వంటివి తీవ్రమైన misconductగా పరిగణించబడతాయి.</p>
-        </Section>
-
-        <Section n="14" title="ఇతర ఉద్యోగులతో సమన్వయం">
-          <p>Production ఒక team-based process కావున ఉద్యోగి తన team members మరియు supervisorsతో సహకరించాలి. వ్యక్తిగత విభేదాల కారణంగా productionకు అంతరాయం కలిగించడం అనుమతించబడదు.</p>
-        </Section>
-
-        <Section n="15" title="సెలవు మరియు Weekly Off">
-          <p>Weekly off, earned leave, casual leave, sick leave మరియు ఇతర సెలవులు సంస్థ policy మరియు వర్తించే చట్టాల ప్రకారం ఉంటాయి. అత్యవసర పరిస్థితుల్లో supervisor / managerకు వీలైనంత త్వరగా సమాచారం ఇవ్వాలి.</p>
-        </Section>
-
-        <Section n="16" title="Resignation / Notice Period">
-          <p>ఉద్యోగి రాజీనామా చేయాలనుకుంటే సాధారణంగా {letter.notice_period_days} రోజుల ముందస్తు లిఖితపూర్వక నోటీసు ఇవ్వాలి, లేదా సంస్థ policy / వర్తించే చట్టం ప్రకారం వర్తించే notice లేదా wages in lieu వర్తిస్తుంది.</p>
-        </Section>
-
-        <Section n="17" title="Termination / ఉద్యోగం ముగింపు">
-          <p>నిరంతర poor performance, తీవ్రమైన misconduct, company property theft/damage, fraud, repeated unauthorized absence, safety violation, confidentiality breach వంటి పరిస్థితుల్లో సంస్థ వర్తించే policy మరియు చట్టపరమైన విధానాన్ని అనుసరించి ఉద్యోగాన్ని ముగించవచ్చు.</p>
-        </Section>
-
-        <Section n="18" title="False Information">
-          <p>ఉద్యోగి విద్య, అనుభవం, గుర్తింపు, వయస్సు, చిరునామా లేదా ఇతర ముఖ్యమైన వివరాల విషయంలో తప్పుడు సమాచారం అందించినట్లు నిర్ధారణ అయితే సంస్థ తగిన disciplinary action తీసుకోవచ్చు.</p>
-        </Section>
-
-        <Section n="19" title="Transfer / Department Change">
-          <p>Production అవసరాల మేరకు ఉద్యోగిని సంస్థలోని ఇతర విభాగానికి మార్చే హక్కు మేనేజ్‌మెంట్‌కు ఉంటుంది, ఇది ఉద్యోగి skill మరియు applicable rulesకు లోబడి ఉంటుంది.</p>
-        </Section>
-
-        <Section n="20" title="Statutory Benefits">
-          <p>ఉద్యోగికి వర్తించే PF, ESI, gratuity, bonus మరియు ఇతర statutory benefits సంబంధిత చట్టాలు మరియు eligibility ప్రకారం అందించబడతాయి.</p>
-        </Section>
-
-        <Section n="21" title="ఉద్యోగి అంగీకారం">
-          <p>ఈ Offer-cum-Appointment Letterలోని నిబంధనలు నేను చదివి, అర్థం చేసుకుని, అంగీకరిస్తున్నాను. సంస్థ యొక్క పని, safety, attendance, quality, discipline మరియు asset-use policiesను పాటిస్తానని అంగీకరిస్తున్నాను.</p>
-        </Section>
+        {isStaff ? (
+          staffSections.map((sec, i) => <Section key={i} n={i + 1} title={sec.title}>{sec.body}</Section>)
+        ) : (
+          <>
+            <h3 className="font-bold text-sm mt-2 mb-2 border-b border-stone-300 pb-1">భాగం A — ఉద్యోగ బాధ్యతలు మరియు విధులు (Roles &amp; Responsibilities)</h3>
+            {duties.sections.map((d, i) => (
+              <div key={i} className="mb-3">
+                <p className="font-bold mb-1">{i + 1}. {d.h}</p>
+                <ul className="list-disc pl-6 space-y-0.5">{d.items.map((it, k) => <li key={k}>{it}</li>)}</ul>
+              </div>
+            ))}
+            <p className="mb-4 italic">{duties.closing}</p>
+            <h3 className="font-bold text-sm mt-4 mb-2 border-b border-stone-300 pb-1">భాగం B — నిబంధనలు మరియు షరతులు (Terms &amp; Conditions)</h3>
+            {termSections.map((sec, i) => <Section key={i} n={i + 1} title={sec.title}>{sec.body}</Section>)}
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-8 mt-8 text-sm">
           <div>
@@ -318,10 +329,49 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
           <p>PF: {Number(letter.other_deductions) > 0 ? "Applicable" : "Not Applicable"} &nbsp; ESI: {Number(letter.other_deductions) > 0 ? "Applicable" : "Not Applicable"}</p>
           <p>Working Shift: 9:00 AM – 6:00 PM &nbsp; Weekly Off: {letter.weekly_off}</p>
           <p>Probation Period: {letter.probation_months} Months &nbsp; Notice Period: {letter.notice_period_days} Days</p>
+          <p>Increment: Performance based, once a year</p>
         </div>
       </div>
     </div>
   );
+}
+
+// ---- shared Telugu paragraphs ----
+function shiftBody() {
+  return (
+    <>
+      <p>సాధారణ పని సమయం: ఉదయం 9:00 గంటల నుండి సాయంత్రం 6:00 గంటల వరకు. భోజన విరామం: 1 గంట.</p>
+      <p>పని అవసరాన్ని బట్టి మేనేజ్‌మెంట్ షిఫ్ట్ సమయాలను మార్చవచ్చు లేదా అదనపు షిఫ్ట్ ఏర్పాటు చేయవచ్చు.</p>
+      <p>షిఫ్ట్ మార్పు, వారపు సెలవు మరియు పని సమయాలు సంస్థ అవసరాలు మరియు వర్తించే కార్మిక చట్టాలకు అనుగుణంగా నిర్వహించబడతాయి.</p>
+      <p>అనుమతి లేకుండా షిఫ్ట్ ప్రారంభ సమయానికి ఆలస్యంగా రావడం లేదా పని మధ్యలో వెళ్లిపోవడం హాజరు / క్రమశిక్షణ సమస్యగా పరిగణించబడుతుంది.</p>
+    </>
+  );
+}
+function attendanceBody(letter) {
+  return (
+    <>
+      <p>ఉద్యోగి ప్రతిరోజూ సమయానికి హాజరు కావాలి. సెలవు అవసరమైతే సాధ్యమైనంత ముందుగా Supervisor / Manager నుండి అనుమతి తీసుకోవాలి.</p>
+      <p>అనుమతి లేకుండా వరుసగా గైర్హాజరు కావడం క్రమశిక్షణా చర్యకు కారణం కావచ్చు.</p>
+      <p>వారపు సెలవులు, earned leave, casual leave, sick leave మరియు చట్టబద్ధమైన సెలవులు సంస్థ Leave Policy మరియు వర్తించే చట్టాల ప్రకారం ఉంటాయి. వారపు సెలవు: {letter.weekly_off}.</p>
+    </>
+  );
+}
+function companyProperty() {
+  return <p>Machine, scissors, cutting tools, measuring tools, iron, computer, ID card, uniform, documents, samples, fabric, accessories, files మరియు ఇతర కంపెనీ ఆస్తులు సంస్థకు చెందినవి. ఉద్యోగం ముగిసినప్పుడు లేదా సంస్థ కోరినప్పుడు అన్ని కంపెనీ ఆస్తులను తిరిగి అప్పగించాలి.</p>;
+}
+function confidentiality(staff) {
+  return staff
+    ? <p>Company orders, customer details, school details, prices, supplier information, production data, salary information, designs, patterns, measurements మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం.</p>
+    : <p>Company orders, customer details, school details, prices, supplier information, production data, ఆర్థిక వివరాలు, salary information, designs మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం. ఈ నిబంధన ఉద్యోగం ముగిసిన తర్వాత కూడా వర్తిస్తుంది.</p>;
+}
+function falseInfo() {
+  return <p>ఉద్యోగి విద్య, అనుభవం, గుర్తింపు, వయస్సు, చిరునామా లేదా ఇతర ముఖ్యమైన వివరాల విషయంలో తప్పుడు సమాచారం అందించినట్లు నిర్ధారణ అయితే సంస్థ తగిన disciplinary action తీసుకోవచ్చు.</p>;
+}
+function statutory() {
+  return <p>ఉద్యోగికి వర్తించే PF, ESI, gratuity, bonus మరియు ఇతర statutory benefits సంబంధిత చట్టాలు మరియు eligibility ప్రకారం అందించబడతాయి.</p>;
+}
+function acceptance() {
+  return <p>ఈ Offer-cum-Appointment Letterలోని నిబంధనలు నేను చదివి, అర్థం చేసుకుని, అంగీకరిస్తున్నాను. సంస్థ యొక్క పని, safety, attendance, quality, discipline మరియు asset-use policiesను పాటిస్తానని అంగీకరిస్తున్నాను.</p>;
 }
 
 function Section({ n, title, children }) {
