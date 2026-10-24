@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
-  MapPinned, ClipboardList, Bot, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, Factory, UsersRound, Handshake, LineChart,
+  MapPinned, ClipboardList, Bot, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, History, Factory, UsersRound, Handshake, LineChart,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -25,6 +25,7 @@ import LeaveRequests from "./components/LeaveRequests";
 import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
 import Output from "./components/Output";
+import ProgressHistory from "./components/ProgressHistory";
 import Quality from "./components/Quality";
 import Reports from "./components/Reports";
 import ModuleShell from "./components/ModuleShell";
@@ -135,6 +136,7 @@ export default function App() {
     { id: "orders", label: "Orders", icon: Package, roles: ["admin", "gm", "pm", "tl"], render: () => <Orders profile={profile} /> },
     { id: "cutting", label: "Cutting", icon: Scissors, roles: ["admin", "gm", "pm", "cutting_master"], render: () => <Cutting profile={profile} /> },
     { id: "output", label: "Output", icon: BarChart3, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <Output /> },
+    { id: "progress-history", label: "Progress History", icon: History, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <ProgressHistory /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl", "quality_manager", "qc"], render: () => <Quality profile={profile} /> },
     { id: "operation-log", label: "Operation Log", icon: ClipboardList, roles: ["admin", "gm", "pm", "tl"], render: () => <OperationLog profile={profile} /> },
     { id: "planner", label: "Planner", icon: CalendarClock, roles: ["admin", "gm", "pm"], render: () => <Planner /> },

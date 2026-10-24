@@ -683,3 +683,4 @@ Cutting → Approved → **Add stitching done** now records pieces per size for 
 
 ## v50
 - Offer letters: removed all theft wording from the Operator/Staff letter (material misuse, conduct and termination clauses). No letter type mentions theft now. No database change; migration_46 is still the latest.
+- **Progress History** (Production Management → Progress History, new tab): one row per order per day with Date, Order number, Order name (customer name) and Pieces stitched, built from the hourly progress in Orders. A day appears only if pieces were logged for that order. Click a row for the hour-wise and item-wise breakdown. Filters: date range, order, search; total at the bottom. Visible to admin, gm, pm, tl, quality_manager (same as Output). No database change.
