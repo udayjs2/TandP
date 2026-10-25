@@ -29,7 +29,7 @@ export default function BusinessOverview() {
         const profit = revenue - expenses;
         const collections = sum(d.payments);
         const receivables = Math.max(0, sum(d.allInvoices) - sum(d.allPayments));
-        const open = d.orders.filter((o) => !["Completed", "Shipped"].includes(o.status));
+        const open = d.orders.filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status));
         const late = d.orders.filter((o) => isOrderOverdue(o, today));
         const pieces = sum(d.progress, (p) => p.quantity);
         const won = d.leads.filter((l) => l.status === "Won").length;

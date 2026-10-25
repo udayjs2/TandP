@@ -22,11 +22,11 @@ export default function DeliveryReport() {
         const delBy = groupBy(d.deliveries, (x) => x.order_id);
         const delivered = (id) => sum(delBy[id] || [], (x) => x.quantity);
         const lastDel = (id) => (delBy[id] || []).reduce((m, x) => (x.date > m ? x.date : m), "");
-        const open = d.orders.filter((o) => !["Completed", "Shipped"].includes(o.status));
+        const open = d.orders.filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status));
         const delayed = open.filter((o) => isOrderOverdue(o, today)).sort((a, b) => a.due_date.localeCompare(b.due_date));
         const dueSoon = open.filter((o) => o.due_date && o.due_date >= today && daysBetween(today, o.due_date) <= 7);
         // on-time: finished orders whose last delivery fell in the period, compared with the due date
-        const finished = d.orders.filter((o) => ["Completed", "Shipped"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to);
+        const finished = d.orders.filter((o) => ["Completed", "Shipped", "Rejected by Customer"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to);
         const onTime = finished.filter((o) => lastDel(o.id) <= o.due_date);
         const inPeriod = d.deliveries.filter((x) => x.date >= range.from && x.date <= range.to);
         const dispatched = sum(inPeriod, (x) => x.quantity);

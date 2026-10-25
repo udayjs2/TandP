@@ -50,7 +50,7 @@ export default function Inventory({ profile }) {
       supabase.from("order_material_usage").select("*").order("created_at", { ascending: false }).limit(60),
     ]);
     setIssued(iss || []);
-    setLiveOrders((ord || []).filter((o) => !["Completed", "Shipped"].includes(o.status)));
+    setLiveOrders((ord || []).filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)));
     setUsage(u || []);
     setParts(sp || []);
     setOrderNames(Object.fromEntries((ord || []).map((o) => [o.id, o.order_number])));

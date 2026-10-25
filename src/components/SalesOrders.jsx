@@ -63,7 +63,7 @@ export default function SalesOrders({ profile }) {
       {error && <p className="text-sm text-rose-600">{error}</p>}
       <div className="grid gap-2.5">
         {shown.map((r) => {
-          const prodDone = ["Completed", "Shipped"].includes(r.status);
+          const prodDone = ["Completed", "Shipped", "Rejected by Customer"].includes(r.status);
           const delivered = Number(r.delivered_qty) > 0 && Number(r.delivered_qty) >= Number(r.ordered_qty);
           const steps = [
             { label: "Confirmed", done: true },

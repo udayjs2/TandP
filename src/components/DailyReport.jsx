@@ -83,7 +83,7 @@ export default function DailyReport() {
   work.rows.forEach((r) => { (crew[r.order_id] = crew[r.order_id] || []).push(r); });
   const orderIds = Array.from(new Set([...Object.keys(crew), ...(d.orders || []).filter((o) => piecesByOrder[o.order_number]).map((o) => o.id)]));
   const showCost = work.rows.some((r) => r.wage_share !== null && r.wage_share !== undefined);
-  const lateDays = (o) => (o?.due_date && o.due_date < date && !["Completed", "Shipped"].includes(o.status) ? daysBetween(o.due_date, date) : 0);
+  const lateDays = (o) => (o?.due_date && o.due_date < date && !["Completed", "Shipped", "Rejected by Customer"].includes(o.status) ? daysBetween(o.due_date, date) : 0);
   const workedOrders = orderIds.map((id) => {
     const o = orderById[id] || {};
     const people = crew[id] || [];

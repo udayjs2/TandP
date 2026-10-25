@@ -198,7 +198,7 @@ export function analyse({ from, to, prevFrom, prevTo, employees, attendance, pro
 
   // 4. stitching vs cutting backlog (all-time per active order)
   const backlogOrders = (orders || [])
-    .filter((o) => o.status !== "Completed" && o.status !== "Shipped")
+    .filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status))
     .map((o) => {
       const t = orderTotals?.[o.id] || { cut: 0, stitched: 0 };
       return { o, cut: t.cut, stitched: t.stitched, gap: t.cut - t.stitched };
@@ -369,7 +369,7 @@ export function dailySummary({ date, employees, attendance, progress, orders, op
     byItem[k].qty += q;
     byHour[p.hour_slot] = (byHour[p.hour_slot] || 0) + q;
   });
-  const target = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped").reduce((s, o) => s + (Number(o.daily_target) || 0), 0);
+  const target = (orders || []).filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)).reduce((s, o) => s + (Number(o.daily_target) || 0), 0);
   const presentEq = counts.Present + counts["Half Day"] * 0.5;
   const opsTotal = {};
   (ops || []).forEach((r) => (opsTotal[r.operation] = (opsTotal[r.operation] || 0) + (Number(r.quantity) || 0)));

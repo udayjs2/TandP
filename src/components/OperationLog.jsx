@@ -22,7 +22,7 @@ export default function OperationLog({ profile }) {
 
   const load = async () => {
     const [{ data: ord }, { data: emp }, { data: ops }] = await Promise.all([
-      supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", "(Completed,Shipped)"),
+      supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", '(Completed,Shipped,"Rejected by Customer")'),
       supabase.from("employees").select("id, name").neq("status", "Inactive").order("name"),
       supabase.from("operation_output").select("*").eq("work_date", date).order("created_at", { ascending: false }),
     ]);

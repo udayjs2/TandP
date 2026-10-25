@@ -5,16 +5,25 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, DELAY_CAUSES, FEEDBACK_ITEMS, isOrderOverdue, daysBetween } from "../lib/helpers";
 import { AgreementModal } from "./OrderAgreement";
 import ActualCostModal from "./ActualCost";
+import GarmentMaster from "./GarmentMaster";
+import { LotCard, RequestLotModal, lotRemaining } from "./DispatchLots";
+import { loadGarmentNames } from "../lib/garments";
 
 // Why an order cannot move to this status yet (empty string = allowed).
 // Shipped needs quality approval and then dispatch approval (PM, then GM); Completed = delivered, only after Shipped.
-export const statusBlock = (o, s) => {
+// Rejected by Customer sits between Shipped and Completed; only the Admin, PM and GM can set it.
+export const statusBlock = (o, s, role) => {
   if (o.status === s) return "";
+  if (s === "Rejected by Customer") {
+    if (o.status !== "Shipped") return "only after Shipped";
+    if (role && !["admin", "gm", "pm"].includes(role)) return "Admin / PM / GM only";
+    return "";
+  }
   if (s === "Shipped") {
     if (o.quality_status !== "Approved") return "needs QC approval";
     if (o.dispatch_status !== "Approved") return "needs dispatch approval";
   }
-  if (s === "Completed" && o.status !== "Shipped") return "ship it first";
+  if (s === "Completed" && !["Shipped", "Rejected by Customer"].includes(o.status)) return "ship it first";
   return "";
 };
 
@@ -27,7 +36,8 @@ export default function Orders({ profile }) {
   const [laborOrder, setLaborOrder] = useState(null);
   const [agreementOrder, setAgreementOrder] = useState(null);
   const [rcaOrder, setRcaOrder] = useState(null); // { order, nextStatus }
-  const [view, setView] = useState("active"); // active | completed
+  const [view, setView] = useState("active"); // active | completed | master
+  const [rejectOrder, setRejectOrder] = useState(null);
   const [q, setQ] = useState("");
   const [monthF, setMonthF] = useState(""); // "" = all months, else YYYY-MM (by order date)
   const [sortDir, setSortDir] = useState("desc"); // newest first by default
@@ -40,6 +50,7 @@ export default function Orders({ profile }) {
   const [todayTotals, setTodayTotals] = useState({});
   const [progressByOrder, setProgressByOrder] = useState({});
   const [deliveriesByOrder, setDeliveriesByOrder] = useState({});
+  const [lotsByOrder, setLotsByOrder] = useState({});
 
   const load = async () => {
     const { data, error } = await supabase.from("orders").select("*").order("order_date", { ascending: false });
@@ -47,14 +58,18 @@ export default function Orders({ profile }) {
     setOrders(data || []);
 
     const today = todayStr();
-    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }, { data: set }, { data: rcas }, { data: fbs }] = await Promise.all([
+    const [{ data: todayProg }, { data: allProg }, { data: allDeliv }, { data: set }, { data: rcas }, { data: fbs }, { data: lotRows }] = await Promise.all([
       supabase.from("order_progress").select("order_id, quantity").eq("date", today),
       supabase.from("order_progress").select("order_id, item_description, quantity"),
-      supabase.from("order_deliveries").select("order_id, item_description, quantity"),
+      supabase.from("order_deliveries").select("order_id, item_description, quantity, customer_status, accepted_qty, rejected_qty"),
       supabase.from("settings").select("*").eq("id", 1).single(),
       supabase.from("order_delay_rca").select("*"),
       supabase.from("order_feedback").select("*"),
+      supabase.from("dispatch_lots").select("order_id, status"),
     ]);
+    const lb = {};
+    (lotRows || []).forEach((l) => { (lb[l.order_id] = lb[l.order_id] || []).push(l); });
+    setLotsByOrder(lb);
     setSettings(set || {});
     setRcaByOrder(Object.fromEntries((rcas || []).map((r) => [r.order_id, r])));
     setFeedbackByOrder(Object.fromEntries((fbs || []).map((r) => [r.order_id, r])));
@@ -87,6 +102,7 @@ export default function Orders({ profile }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "order_deliveries" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_delay_rca" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_feedback" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dispatch_lots" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -121,7 +137,14 @@ export default function Orders({ profile }) {
   const needsRca = (o) => !!o.due_date && o.due_date < todayStr() && !rcaByOrder[o.id];
   const setStatus = async (id, status) => {
     const ord = orders.find((x) => x.id === id);
-    if (ord && (status === "Completed" || status === "Shipped") && !["Completed", "Shipped"].includes(ord.status) && needsRca(ord)) {
+    if (status === "Rejected by Customer" && ord?.status === "Shipped") { setRejectOrder(ord); return; }
+    if (ord?.status === "Rejected by Customer" && (status === "Shipped" || status === "Completed")) {
+      const { data, error: rerr } = await supabase.rpc("resolve_customer_rejection", { p_order_id: id, p_to: status });
+      if (rerr || data?.ok === false) alert(rerr?.message || data?.error);
+      load();
+      return;
+    }
+    if (ord && (status === "Completed" || status === "Shipped") && !["Completed", "Shipped", "Rejected by Customer"].includes(ord.status) && needsRca(ord)) {
       setRcaOrder({ order: ord, nextStatus: status }); // RCA first, then the status change
       return;
     }
@@ -150,10 +173,11 @@ export default function Orders({ profile }) {
   return (
     <div className="space-y-4">
       <div className="subtab-bar">
-        {[["active", `Active (${activeOrders.length})`], ["completed", `Completed (${doneOrders.length})`]].map(([id, label]) => (
+        {[["active", `Active (${activeOrders.length})`], ["completed", `Completed (${doneOrders.length})`], ["master", "Garment Design & Size Master"]].map(([id, label]) => (
           <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
         ))}
       </div>
+      {view === "master" ? <GarmentMaster profile={profile} /> : (<>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${shownOrders.length}${shownOrders.length !== activeOrders.length ? ` of ${activeOrders.length}` : ""})` : `Completed orders (${shownOrders.length})`}</h2>
         {view === "completed" ? null : (
@@ -223,7 +247,7 @@ export default function Orders({ profile }) {
                     className={`text-xs font-medium rounded-full px-2 py-1 border-0 ${ORDER_STATUS_COLORS[o.status]}`}
                   >
                     {ORDER_STATUSES.map((s) => {
-                      const why = statusBlock(o, s);
+                      const why = statusBlock(o, s, profile?.role);
                       return <option key={s} value={s} disabled={!!why}>{s}{why ? ` (${why})` : ""}</option>;
                     })}
                   </select>
@@ -247,6 +271,11 @@ export default function Orders({ profile }) {
                       className="text-[11px] font-medium rounded-full px-2.5 py-1 bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       Mark delivered
+                    </button>
+                  )}
+                  {o.status === "Shipped" && ["admin", "gm", "pm"].includes(profile?.role) && (
+                    <button onClick={() => setRejectOrder(o)} className="text-[11px] font-medium rounded-full px-2.5 py-1 bg-rose-600 text-white hover:bg-rose-700" title="The customer rejected the goods">
+                      Customer rejected
                     </button>
                   )}
                   <button onClick={() => setTrackOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Customer tracking link">
@@ -284,6 +313,47 @@ export default function Orders({ profile }) {
                 </div>
               </div>
 
+              {o.status === "Rejected by Customer" && (
+                <div className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm">
+                  <div className="font-semibold text-rose-800 flex items-center gap-1.5"><AlertTriangle size={14} /> Rejected by the customer</div>
+                  <div className="text-rose-900 mt-0.5">{o.customer_reject_reason || "No reason recorded."}</div>
+                  <div className="text-[11px] text-rose-700 mt-0.5">{o.customer_rejected_by ? `Recorded by ${o.customer_rejected_by}` : ""}{o.customer_rejected_at ? ` on ${String(o.customer_rejected_at).slice(0, 10)}` : ""}</div>
+                  {["admin", "gm", "pm"].includes(profile?.role) && (
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      <button onClick={() => setStatus(o.id, "Shipped")} className="text-[11px] font-medium rounded-full px-2.5 py-1 bg-indigo-700 text-white hover:bg-indigo-800">Goods sent again (back to Shipped)</button>
+                      <button onClick={() => { if (window.confirm(`The customer finally accepted ${o.order_number}? It will move to Completed.`)) setStatus(o.id, "Completed"); }} className="text-[11px] font-medium rounded-full px-2.5 py-1 bg-emerald-600 text-white hover:bg-emerald-700">Customer accepted (Completed)</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {(() => {
+                const ls = lotsByOrder[o.id] || [];
+                const live = ls.filter((l) => l.status !== "Rejected");
+                if (!live.length) return null;
+                const waiting = live.filter((l) => l.status !== "Approved").length;
+                const ready = live.filter((l) => l.status === "Approved").length;
+                return (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                    <span className="rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800">Partial dispatches: {live.length}</span>
+                    {waiting > 0 && <span className="rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">{waiting} awaiting approval</span>}
+                    {ready > 0 && <span className="rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-800">{ready} approved for dispatch</span>}
+                  </div>
+                );
+              })()}
+              {(() => {
+                const ds = deliveriesByOrder[o.id] || [];
+                if (!ds.length) return null;
+                const acc = ds.reduce((t, d) => t + (Number(d.accepted_qty) || 0), 0);
+                const rej = ds.reduce((t, d) => t + (Number(d.rejected_qty) || 0), 0);
+                const wait = ds.filter((d) => (d.customer_status || "Pending") === "Pending").reduce((t, d) => t + (Number(d.quantity) || 0), 0);
+                return (
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                    <span className="rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-800">Customer accepted {acc}</span>
+                    {rej > 0 && <span className="rounded-full px-2 py-0.5 bg-rose-100 text-rose-800 font-semibold">Customer rejected {rej}</span>}
+                    {wait > 0 && <span className="rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">{wait} awaiting customer reply</span>}
+                  </div>
+                );
+              })()}
               {breakdown.length > 0 && (
                 <div className="mt-3 border-t border-stone-100 pt-2 grid gap-1">
                   {breakdown.map((b) => (
@@ -306,9 +376,11 @@ export default function Orders({ profile }) {
         })}
         {shownOrders.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{(q || monthF) ? "No orders match your search or month filter." : view === "completed" ? "No completed orders yet. Orders move here once they are Shipped and then marked Completed after the customer receives them." : "No active orders. Add a new order."}</Card>}
       </div>
+      </>)}
       {modal && <OrderModal order={modal} rcaBlocked={!!modal.id && needsRca(modal)} onClose={() => setModal(null)} onSave={save} count={orders.length} canLinkSales={["admin", "gm", "pm"].includes(profile?.role)} />}
       {progressOrder && <ProgressModal order={progressOrder} onClose={() => setProgressOrder(null)} profile={profile} />}
       {deliveryOrder && <DeliveryModal order={deliveryOrder} onClose={() => setDeliveryOrder(null)} profile={profile} />}
+      {rejectOrder && <CustomerRejectModal order={rejectOrder} onClose={() => setRejectOrder(null)} onDone={() => { setRejectOrder(null); load(); }} />}
       {trackOrder && <TrackingLinkModal order={trackOrder} onClose={() => setTrackOrder(null)} />}
       {laborOrder && <LaborModal order={laborOrder} onClose={() => setLaborOrder(null)} />}
       {costOrder && <ActualCostModal order={costOrder.order} piecesMade={costOrder.made} onClose={() => setCostOrder(null)} />}
@@ -343,6 +415,19 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
     daily_target: order.daily_target || "",
   });
   const [items, setItems] = useState(order.items && order.items.length ? order.items : [{ description: "", quantity: "" }]);
+  const [garments, setGarments] = useState([]);
+  useEffect(() => {
+    supabase.from("garment_types").select("id, name, models, size_prefix").eq("active", true).order("sort_no").order("name").then(({ data }) => setGarments(data || []));
+  }, []);
+  const autoDesc = (g, model) => (g ? (model ? `${g.name} — ${model}` : g.name) : "");
+  // choosing a garment / model fills the description when it is empty or still the auto-filled text
+  const pickGarment = (idx, gid, model) => {
+    const it = items[idx];
+    const prevG = garments.find((x) => x.id === it.garment_type_id);
+    const g = garments.find((x) => x.id === gid);
+    const wasAuto = !it.description || it.description === autoDesc(prevG, it.model);
+    updateItem(idx, { garment_type_id: gid || null, model: model || "", ...(wasAuto ? { description: autoDesc(g, model) } : {}) });
+  };
 
   const addItem = () => setItems([...items, { description: "", quantity: "" }]);
   const removeItem = (idx) => setItems(items.length > 1 ? items.filter((_, i) => i !== idx) : items);
@@ -356,7 +441,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
           if (!f.customer_name) return;
           const cleanItems = items
             .filter((it) => it.description || it.quantity)
-            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0 }));
+            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, ...(it.garment_type_id ? { garment_type_id: it.garment_type_id } : {}), ...(it.model ? { model: it.model } : {}) }));
           onSave({ ...f, items: cleanItems, daily_target: Number(f.daily_target) || 0, salesLink: canLinkSales && sales.dirty ? { salesperson: sales.salesperson, value: sales.value } : null });
         }}
       >
@@ -388,7 +473,8 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
             <span></span>
           </div>
           {items.map((it, idx) => (
-            <div key={idx} className="grid grid-cols-[1fr_80px_28px] gap-1 px-2 py-1.5 border-t border-stone-100 items-center">
+            <div key={idx} className="border-t border-stone-100 px-2 py-1.5">
+            <div className="grid grid-cols-[1fr_80px_28px] gap-1 items-center">
               <input
                 className="border border-stone-300 rounded px-2 py-1 text-sm"
                 placeholder="e.g. T-shirts, Skirts"
@@ -405,6 +491,17 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
               <button type="button" onClick={() => removeItem(idx)} className="text-stone-400 hover:text-rose-700 justify-self-center">
                 <X size={14} />
               </button>
+            </div>
+            <div className="grid grid-cols-2 gap-1 mt-1">
+              <select className="border border-stone-300 rounded px-1.5 py-1 text-xs text-stone-600" value={it.garment_type_id || ""} onChange={(e) => pickGarment(idx, e.target.value, "")}>
+                <option value="">Garment type (optional)</option>
+                {garments.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              <select className="border border-stone-300 rounded px-1.5 py-1 text-xs text-stone-600" value={it.model || ""} disabled={!it.garment_type_id} onChange={(e) => pickGarment(idx, it.garment_type_id, e.target.value)}>
+                <option value="">Model (optional)</option>
+                {(garments.find((g) => g.id === it.garment_type_id)?.models || []).map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
             </div>
           ))}
         </div>
@@ -593,11 +690,32 @@ function DeliveryModal({ order, onClose, profile }) {
   const [quantity, setQuantity] = useState("");
   const [deliveredTo, setDeliveredTo] = useState("");
   const [notes, setNotes] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [lots, setLots] = useState([]);
+  const [progress, setProgress] = useState([]);
+  const [against, setAgainst] = useState(""); // lot id; "" = the whole-order approval
+  const [lotModal, setLotModal] = useState(false);
   const items = order.items || [];
+  const canReset = ["admin", "gm", "pm"].includes(profile?.role);
+  const canRequestLot = ["admin", "hr", "gm", "pm", "tl"].includes(profile?.role) && !["Shipped", "Completed", "Rejected by Customer"].includes(order.status);
+  const orderApproved = order.quality_status === "Approved" && order.dispatch_status === "Approved";
+  const url = `${window.location.origin}/?delivery=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
 
   const load = async () => {
-    const { data } = await supabase.from("order_deliveries").select("*").eq("order_id", order.id).order("date", { ascending: false });
+    const [{ data }, { data: lt }, { data: pr }] = await Promise.all([
+      supabase.from("order_deliveries").select("*").eq("order_id", order.id).order("date", { ascending: false }),
+      supabase.from("dispatch_lots").select("*").eq("order_id", order.id).order("lot_no"),
+      supabase.from("order_progress").select("item_description, quantity").eq("order_id", order.id),
+    ]);
     setDeliveries(data || []);
+    setLots(lt || []);
+    setProgress(pr || []);
+  };
+  const resetResponse = async (d) => {
+    if (!window.confirm("Clear the customer's answer for this dispatch so they can answer again?")) return;
+    const { data, error } = await supabase.rpc("reset_delivery_response", { p_id: d.id });
+    if (error || data?.ok === false) alert(error?.message || data?.error);
+    load();
   };
 
   useEffect(() => {
@@ -606,14 +724,35 @@ function DeliveryModal({ order, onClose, profile }) {
   }, [order.id]);
 
   const breakdown = buildItemBreakdown(items, [], deliveries);
+  const dispatchable = lots.filter((l) => l.status === "Approved" && lotRemaining(l, deliveries).some((r) => r.left > 0));
+  const effAgainst = against || (orderApproved ? "" : dispatchable[0]?.id || "");
+  const lot = lots.find((l) => l.id === effAgainst) || null;
+  const lotLeft = lot ? lotRemaining(lot, deliveries).filter((r) => r.left > 0) : [];
+  const itemChoices = lot ? lotLeft.map((r) => r.description) : items.map((it) => it.description);
+  const canLog = orderApproved || dispatchable.length > 0;
+  const accepted = deliveries.reduce((t, d) => t + (Number(d.accepted_qty) || 0), 0);
+  const rejected = deliveries.reduce((t, d) => t + (Number(d.rejected_qty) || 0), 0);
+  const awaitingRows = deliveries.filter((d) => (d.customer_status || "Pending") === "Pending");
+  const awaiting = awaitingRows.reduce((t, d) => t + (Number(d.quantity) || 0), 0);
+  const dispatchedText = Object.entries(awaitingRows.reduce((m, d) => ({ ...m, [d.item_description]: (m[d.item_description] || 0) + Number(d.quantity || 0) }), {})).map(([k, v]) => `${k}: ${v} pcs`).join(", ");
+  const waText = `Dear ${order.customer_name}, your goods for order ${order.order_number} have been dispatched${dispatchedText ? ` (${dispatchedText})` : ""}. Please check the count and quality and confirm here — accept, or tell us what is wrong: ${url}`;
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* link is shown for manual copy */ }
+  };
 
   const addDelivery = async (e) => {
     e.preventDefault();
-    if (!itemDesc || !quantity) return;
+    const itemNow = itemChoices.includes(itemDesc) ? itemDesc : itemChoices[0];
+    if (!itemNow || !quantity) return;
+    if (lot) {
+      const left = lotLeft.find((r) => r.description === itemNow)?.left || 0;
+      if (Number(quantity) > left) return alert(`Only ${left} more pieces of ${itemNow} are approved in partial dispatch ${lot.lot_no}.`);
+    }
     const { error: delErr } = await supabase.from("order_deliveries").insert({
+      lot_id: lot ? lot.id : null,
       order_id: order.id,
       date,
-      item_description: itemDesc,
+      item_description: itemNow,
       quantity: Number(quantity) || 0,
       delivered_to: deliveredTo || null,
       notes: notes || null,
@@ -658,17 +797,53 @@ function DeliveryModal({ order, onClose, profile }) {
             })}
           </div>
 
-          {order.quality_status !== "Approved" && (
-            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-              This order has not passed quality inspection yet, so deliveries can't be logged. The Quality Manager approves it in the Quality tab.
+          <div className="mb-3">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="text-xs font-semibold text-stone-700 uppercase">Partial dispatches ({lots.filter((l) => l.status !== "Rejected").length})</div>
+              {canRequestLot && <Btn variant="ghost" onClick={() => setLotModal(true)}><Truck size={13} /> Request partial dispatch</Btn>}
+            </div>
+            {lots.length === 0 ? (
+              <p className="text-[11px] text-stone-400">Send part of the order before it is finished: request a lot, get QC approval, then Production Manager and General Manager approval.</p>
+            ) : (
+              <div className="space-y-2">
+                {lots.map((l) => <LotCard key={l.id} lot={l} deliveries={deliveries} profile={profile} onChanged={load} />)}
+              </div>
+            )}
+          </div>
+          {deliveries.length > 0 && (
+            <div className="border border-indigo-200 bg-indigo-50/50 rounded-lg p-3 mb-3">
+              <div className="text-xs font-semibold text-stone-700 mb-1">Send the dispatch count to the customer</div>
+              <p className="text-[11px] text-stone-500 mb-2">The customer opens this link, sees the dispatched counts and delivery history, and accepts or rejects each dispatch (with a reason). Payments received are shown there too.</p>
+              <div className="bg-white border border-stone-200 rounded p-2 text-[11px] break-all font-mono mb-2">{url}</div>
+              <div className="flex gap-2 flex-wrap">
+                <Btn variant="ghost" onClick={copyLink}>{copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy link</>}</Btn>
+                <a href={`https://wa.me/?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"><Send size={14} /> Send on WhatsApp</a>
+              </div>
+              <div className="flex flex-wrap gap-1.5 text-[11px] mt-2">
+                <span className="rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-800">Accepted {accepted}</span>
+                <span className={`rounded-full px-2 py-0.5 ${rejected ? "bg-rose-100 text-rose-800 font-semibold" : "bg-stone-100 text-stone-500"}`}>Rejected {rejected}</span>
+                <span className="rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">Awaiting reply {awaiting}</span>
+              </div>
             </div>
           )}
+          {!canLog && (
+            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+              Deliveries can't be logged yet. Either the whole order passes quality inspection and dispatch approval, or a <b>partial dispatch</b> is approved (QC, then Production Manager, then General Manager).
+            </div>
+          )}
+          {canLog && (
           <form onSubmit={addDelivery} className="border border-stone-200 rounded-lg p-3 mb-4 space-y-2">
             <div className="text-xs font-semibold text-stone-600 uppercase mb-1">Log a delivery</div>
+            {(orderApproved || dispatchable.length > 0) && (
+              <select className={inputCls} value={effAgainst} onChange={(e) => { setAgainst(e.target.value); setItemDesc(""); setQuantity(""); }}>
+                {orderApproved && <option value="">Whole order — fully approved</option>}
+                {dispatchable.map((l) => <option key={l.id} value={l.id}>Partial dispatch {l.lot_no} — {lotRemaining(l, deliveries).filter((r) => r.left > 0).map((r) => `${r.description} ${r.left}`).join(", ")} left</option>)}
+              </select>
+            )}
             <div className="grid grid-cols-2 gap-2">
-              <select className={inputCls} value={itemDesc} onChange={(e) => setItemDesc(e.target.value)}>
-                {items.map((it) => (
-                  <option key={it.description} value={it.description}>{it.description}</option>
+              <select className={inputCls} value={itemChoices.includes(itemDesc) ? itemDesc : itemChoices[0] || ""} onChange={(e) => setItemDesc(e.target.value)}>
+                {itemChoices.map((d) => (
+                  <option key={d} value={d}>{d}</option>
                 ))}
               </select>
               <input type="number" min="0" placeholder="Quantity" className={inputCls} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
@@ -680,18 +855,33 @@ function DeliveryModal({ order, onClose, profile }) {
             <input placeholder="Notes (optional)" className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} />
             <Btn type="submit" className="w-full justify-center">Add delivery</Btn>
           </form>
+          )}
 
           <div className="text-xs font-semibold text-stone-600 uppercase mb-1.5">History</div>
-          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
             {deliveries.map((d) => (
               <div key={d.id} className="flex items-center justify-between text-sm border-b border-stone-100 pb-1.5">
                 <div>
                   <span className="font-medium">{d.item_description}</span> × {d.quantity}
+                  {d.lot_id && <span className="ml-1.5 text-[10px] rounded-full px-1.5 py-0.5 bg-indigo-50 text-indigo-800">Partial dispatch {lots.find((l) => l.id === d.lot_id)?.lot_no ?? ""}</span>}
                   <div className="text-xs text-stone-400">{d.date}{d.delivered_to ? ` · ${d.delivered_to}` : ""}</div>
+                  <div className="text-[11px] mt-0.5">
+                    {(d.customer_status || "Pending") === "Pending"
+                      ? <span className="text-amber-700">Customer has not replied yet</span>
+                      : <span className={d.customer_status === "Accepted" ? "text-emerald-700" : "text-rose-700"}>
+                          Customer {String(d.customer_status).toLowerCase()}: {d.accepted_qty} accepted{Number(d.rejected_qty) > 0 ? `, ${d.rejected_qty} rejected` : ""}
+                          {d.customer_responder ? ` · ${d.customer_responder}` : ""}{d.customer_reason ? ` — "${d.customer_reason}"` : ""}
+                        </span>}
+                  </div>
                 </div>
-                <button onClick={() => removeDelivery(d.id)} className="text-stone-400 hover:text-rose-700 p-1">
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex items-center">
+                  {canReset && (d.customer_status || "Pending") !== "Pending" && (
+                    <button onClick={() => resetResponse(d)} className="text-[11px] text-indigo-700 underline mr-2">Reset reply</button>
+                  )}
+                  <button onClick={() => removeDelivery(d.id)} className="text-stone-400 hover:text-rose-700 p-1">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
             {deliveries.length === 0 && <p className="text-xs text-stone-400">No deliveries logged yet.</p>}
@@ -701,6 +891,35 @@ function DeliveryModal({ order, onClose, profile }) {
       <div className="flex justify-end mt-4">
         <Btn variant="ghost" onClick={onClose}>Close</Btn>
       </div>
+      {lotModal && <RequestLotModal order={order} progress={progress} lots={lots} onClose={() => setLotModal(false)} onDone={() => { setLotModal(false); load(); }} />}
+    </Modal>
+  );
+}
+
+function CustomerRejectModal({ order, onClose, onDone }) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (reason.trim().length < 3) return;
+    setSaving(true);
+    const { data, error } = await supabase.rpc("set_customer_rejection", { p_order_id: order.id, p_reason: reason });
+    setSaving(false);
+    if (error || data?.ok === false) return alert(`Couldn't save:\n${error?.message || data?.error}`);
+    onDone();
+  };
+  return (
+    <Modal title={`Rejected by customer — ${order.order_number}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p className="text-sm text-stone-600 mb-3">The order moves from Shipped to <b>Rejected by Customer</b>. When the goods are sent again, or the customer finally accepts, change the status from the order card.</p>
+        <Field label="Reason the customer gave">
+          <textarea required autoFocus rows={3} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. 20 shirts have loose stitching, count is 10 short" />
+        </Field>
+        <div className="flex justify-end gap-2 mt-3">
+          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving || reason.trim().length < 3}>{saving ? "Saving…" : "Mark Rejected by Customer"}</Btn>
+        </div>
+      </form>
     </Modal>
   );
 }
@@ -983,7 +1202,7 @@ export function SendAgreementModal({ order, onClose, onChanged }) {
 // ===================== Customer feedback link =====================
 function FeedbackLinkModal({ order, feedback, onClose }) {
   const url = `${window.location.origin}/?feedback=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
-  const ready = ["Completed", "Shipped"].includes(order.status);
+  const ready = ["Completed", "Shipped", "Rejected by Customer"].includes(order.status);
   const [sentAt, setSentAt] = useState(order.feedback_sent_at);
   const markSent = async () => {
     const now = new Date().toISOString();

@@ -41,7 +41,7 @@ export default function SalesReport() {
           };
         }).sort((a, b) => b.value - a.value);
         const byCust = groupBy(orders, (o) => o.customer_name);
-        const custRows = Object.entries(byCust).map(([c, os]) => [c, os.length, sum(os, (o) => o.order_value), sum(os.filter((o) => ["Completed", "Shipped"].includes(o.status)), (o) => o.order_value)]).sort((a, b) => b[2] - a[2]);
+        const custRows = Object.entries(byCust).map(([c, os]) => [c, os.length, sum(os, (o) => o.order_value), sum(os.filter((o) => ["Completed", "Shipped", "Rejected by Customer"].includes(o.status)), (o) => o.order_value)]).sort((a, b) => b[2] - a[2]);
         const byType = groupBy(created, (l) => l.lead_type || "Other");
         return (
           <ReportView

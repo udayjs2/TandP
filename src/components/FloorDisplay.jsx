@@ -37,7 +37,7 @@ export default function FloorDisplay({ onBack }) {
 
     const employeeCount = (employees || []).length;
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
-    const activeOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped");
+    const activeOrders = (orders || []).filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status));
     const planToday = activeOrders.reduce((s, o) => s + Number(o.daily_target || 0), 0);
     const actualToday = (todaysProgress || []).reduce((s, p) => s + Number(p.quantity || 0), 0);
     const efficiency = planToday > 0 ? (actualToday / planToday) * 100 : null;

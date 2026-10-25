@@ -15,7 +15,7 @@ export default function ProductionForecast() {
       fetchAll(() => supabase.from("order_progress").select("order_id, date, quantity").gte("date", from).order("order_id").order("date")),
       fetchAll(() => supabase.from("orders").select("id, order_number, customer_name, items, daily_target, due_date, status").order("id")),
     ]);
-    const open = orders.filter((o) => !["Completed", "Shipped"].includes(o.status)).slice(0, 50);
+    const open = orders.filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)).slice(0, 50);
     const sums = await Promise.all(open.map((o) => supabase.rpc("order_count_summary", { p_order_id: o.id }).then((r) => [o.id, Number(r.data?.stitched || 0)])));
     return { progress, open, stitched: Object.fromEntries(sums), from };
   }, "forecast");

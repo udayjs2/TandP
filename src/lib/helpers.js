@@ -71,7 +71,7 @@ export const EXPENSE_STATUS_COLORS = {
   Reimbursed: "bg-emerald-100 text-emerald-800",
 };
 
-export const ORDER_STATUSES = ["Not Started", "Cutting", "Stitching", "Finishing", "Ironing", "Shipped", "Completed"];
+export const ORDER_STATUSES = ["Not Started", "Cutting", "Stitching", "Finishing", "Ironing", "Shipped", "Rejected by Customer", "Completed"];
 export const ORDER_STATUS_COLORS = {
   "Not Started": "bg-stone-200 text-stone-700",
   Cutting: "bg-amber-100 text-amber-800",
@@ -80,7 +80,10 @@ export const ORDER_STATUS_COLORS = {
   Ironing: "bg-fuchsia-100 text-fuchsia-800",
   Completed: "bg-emerald-100 text-emerald-800",
   Shipped: "bg-indigo-100 text-indigo-800",
+  "Rejected by Customer": "bg-rose-100 text-rose-800",
 };
+// statuses after production has finished (the order has left the floor)
+export const POST_PRODUCTION = ["Shipped", "Rejected by Customer", "Completed"];
 
 export const EXPENDITURE_CATEGORIES = ["Raw Material", "Machinery", "Utilities", "Rent", "Maintenance", "Transport", "Packing", "Salary", "Commission", "Other"];
 export const PAYMENT_MODES = ["Cash", "UPI", "Bank Transfer", "Cheque", "Card", "Other"];
@@ -324,7 +327,7 @@ export const FEEDBACK_ITEMS = [
   ["overall", "Overall experience"],
 ];
 export const DELIVERY_TIMINGS = ["On time", "Slightly delayed", "Very delayed"];
-export const isOrderOverdue = (o, today) => !!o?.due_date && o.due_date < today && !["Completed", "Shipped"].includes(o.status);
+export const isOrderOverdue = (o, today) => !!o?.due_date && o.due_date < today && !["Completed", "Shipped", "Rejected by Customer"].includes(o.status);
 export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000);
 
 // ---------- CRM ----------

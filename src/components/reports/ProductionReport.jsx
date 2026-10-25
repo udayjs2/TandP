@@ -14,7 +14,7 @@ export default function ProductionReport() {
       fetchAll(() => supabase.from("employees").select("id, name").order("id")),
     ]);
     // all-time cut vs stitched for the orders still open
-    const open = orders.filter((o) => !["Completed", "Shipped"].includes(o.status)).slice(0, 40);
+    const open = orders.filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)).slice(0, 40);
     const summaries = await Promise.all(open.map((o) => supabase.rpc("order_count_summary", { p_order_id: o.id }).then((r) => [o.id, r.data || { cut: 0, stitched: 0 }])));
     return { progress, cuts, orders, ops, emps, summaries: Object.fromEntries(summaries) };
   }, JSON.stringify(range));

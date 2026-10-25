@@ -684,3 +684,27 @@ Cutting → Approved → **Add stitching done** now records pieces per size for 
 ## v50
 - Offer letters: removed all theft wording from the Operator/Staff letter (material misuse, conduct and termination clauses). No letter type mentions theft now. No database change; migration_46 is still the latest.
 - **Progress History** (Production Management → Progress History, new tab): one row per order per day with Date, Order number, Order name (customer name) and Pieces stitched, built from the hourly progress in Orders. A day appears only if pieces were logged for that order. Click a row for the hour-wise and item-wise breakdown. Filters: date range, order, search; total at the bottom. Visible to admin, gm, pm, tl, quality_manager (same as Output). No database change.
+
+## v52
+Run `supabase/migration_47.sql` (after 44, 45, 46). Safe to re-run.
+- **Production Manager**: full access to every Production Management tab, including logging cutting counts and inspecting quality (the database helpers `is_cutting_or_admin` / `is_quality_or_admin` now include `pm`).
+- **Rejected by Customer**: new order status between Shipped and Completed. Only Admin, PM and GM can set it (reason required, only from Shipped), via `set_customer_rejection`; `resolve_customer_rejection` moves it back to Shipped (goods sent again) or on to Completed. The order card shows the customer's reason. Rejected orders are treated like shipped ones in the alerts, planner, floor display and reports.
+- **Customer dispatch link** (`/?delivery=1&order=…&code=…`): Orders → Deliveries now has a "Send the dispatch count to the customer" panel (copy link / WhatsApp message with the pending counts). The customer sees ordered, dispatched, accepted, rejected and yet-to-dispatch counts, the delivery history, payments received and invoices, and answers each dispatch: accept all, or accept some pieces and give the reason for the rest (reason and name required). Staff see the answers per dispatch; Admin/PM/GM can reset an answer. A customer answer can only be written from the link (trigger-guarded) and the dispatch quantity is locked once answered.
+- **Garment Design & Size Master** (Production Management → Orders → third tab): 56 garment types seeded from the supplied list (dress types, medical, aprons and laboratory, industrial and safety, professional uniforms) with models, starting/ending size and size lists, plus the common size chart and the suggested size systems. Admin/HR/GM/PM add garments, models and custom sizes (number ranges, letter ranges, kids sizes, free names); everyone with Orders access can view.
+- **Order items link to a garment** (optional garment type + model on each item). **Log cutting count** then shows only the garments in the selected order (a checkbox shows all). Orders created earlier are matched by item name where possible, otherwise the full list is shown.
+- **Knicker and Pant are separate** size charts; Knicker runs 9 to 26 (every number). Cutting counts are saved as `CODE-size` (e.g. `KNICKER-12`); the code of a garment is fixed once created.
+
+## v53 — Partial dispatch approvals
+
+Run `supabase/migration_48.sql` after migration_47 (order: 44 → 45 → 46 → 47 → 48).
+
+Orders are often dispatched in parts, so quality checks and approval can now be done per **partial dispatch (lot)** instead of only for the whole order.
+
+**Flow:** Request lot → **Pending QC** → **Pending PM** → **Pending GM** → **Approved for dispatch** (or **Rejected**, with stage and reason).
+
+- Request: Admin / HR / GM / PM / TL, from Orders → Deliveries → "Request partial dispatch". Only stitched pieces can be put in a lot (min of made and ordered, less pieces already in other open/approved lots).
+- QC decision: Quality Manager / QC / PM / Admin. Defective pieces block approval.
+- Dispatch approval: PM at Pending PM, GM at Pending GM (Admin either).
+- Lots appear in Quality → "Partial dispatches" filter and in the order's Deliveries window.
+- Deliveries can be logged against an approved lot, capped at that lot's quantity per item. The whole-order approval path is unchanged.
+- Partial dispatches do not change the order status; Shipped still needs full approval.

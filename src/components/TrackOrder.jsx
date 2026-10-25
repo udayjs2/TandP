@@ -40,7 +40,9 @@ export default function TrackOrder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const stageIndex = result ? ORDER_STATUSES.indexOf(result.status) : -1;
+  // "Rejected by Customer" only appears in the tracker for an order that is in that state
+const stages = ORDER_STATUSES.filter((s) => s !== "Rejected by Customer" || result?.status === "Rejected by Customer");
+  const stageIndex = result ? stages.indexOf(result.status) : -1;
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col items-center px-4 py-10">
@@ -80,7 +82,7 @@ export default function TrackOrder() {
 
             {/* stage tracker */}
             <div className="flex items-center mt-4 mb-5 overflow-x-auto">
-              {ORDER_STATUSES.map((s, idx) => {
+              {stages.map((s, idx) => {
                 const isDone = idx < stageIndex || (idx === stageIndex && s === "Completed");
                 const isCurrent = idx === stageIndex;
                 return (
@@ -95,7 +97,7 @@ export default function TrackOrder() {
                       </div>
                       <span className={`text-[10px] mt-1 text-center leading-tight ${isCurrent ? "font-semibold text-stone-900" : "text-stone-400"}`}>{s}</span>
                     </div>
-                    {idx < ORDER_STATUSES.length - 1 && <div className={`h-0.5 flex-1 ${idx < stageIndex ? "bg-emerald-500" : "bg-stone-200"}`} />}
+                    {idx < stages.length - 1 && <div className={`h-0.5 flex-1 ${idx < stageIndex ? "bg-emerald-500" : "bg-stone-200"}`} />}
                   </div>
                 );
               })}
@@ -135,6 +137,11 @@ export default function TrackOrder() {
               })}
               {(!result.items || result.items.length === 0) && <p className="text-sm text-stone-400">No item details available yet.</p>}
             </div>
+            {(result.items || []).some((it) => Number(it.delivered) > 0) && (
+              <a href={`/?delivery=1&order=${encodeURIComponent(orderNumber.trim())}&code=${encodeURIComponent(code.trim())}`} className="block mt-4 text-center text-sm font-medium text-indigo-800 underline">
+                View dispatches, confirm what you received and see payments
+              </a>
+            )}
           </Card>
         )}
       </div>

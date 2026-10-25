@@ -26,6 +26,7 @@ import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
 import Output from "./components/Output";
 import ProgressHistory from "./components/ProgressHistory";
+import { loadGarmentNames } from "./lib/garments";
 import Quality from "./components/Quality";
 import Reports from "./components/Reports";
 import ModuleShell from "./components/ModuleShell";
@@ -87,6 +88,8 @@ export default function App() {
     };
   }, [session]);
 
+  // garment names make cutting counts like KURTI-XL readable everywhere
+  useEffect(() => { if (profile?.id) loadGarmentNames(); }, [profile?.id]);
   useEffect(() => {
     if (!profile?.id) {
       setGrants([]);

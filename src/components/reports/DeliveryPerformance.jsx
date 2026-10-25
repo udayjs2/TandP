@@ -19,7 +19,7 @@ export default function DeliveryPerformance() {
         const delBy = groupBy(d.deliveries, (x) => x.order_id);
         const lastDel = (id) => (delBy[id] || []).reduce((m, x) => (x.date > m ? x.date : m), "");
         const fin = d.orders
-          .filter((o) => ["Completed", "Shipped"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to)
+          .filter((o) => ["Completed", "Shipped", "Rejected by Customer"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to)
           .map((o) => { const done = lastDel(o.id); const late = daysBetween(o.due_date, done); return { o, done, late, onTime: late <= 0, lead: o.order_date ? daysBetween(o.order_date, done) : null }; });
         const onTime = fin.filter((x) => x.onTime);
         const lateOnes = fin.filter((x) => !x.onTime);

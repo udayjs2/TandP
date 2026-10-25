@@ -58,7 +58,7 @@ export default function Dashboard({ profile }) {
     const teamsWorkingToday = Object.values(teamsByOrder);
 
     const presentToday = (todaysAtt || []).filter((a) => a.status === "Present" || a.status === "Half Day").length;
-    const pendingOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped").length;
+    const pendingOrders = (orders || []).filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)).length;
     const unpaid = (invoices || []).filter((i) => i.status !== "Paid");
     const unpaidAmount = unpaid.reduce((s, i) => s + Number(i.amount || 0), 0);
     const overdue = unpaid.filter((i) => i.due_date && i.due_date < today);
@@ -68,7 +68,7 @@ export default function Dashboard({ profile }) {
     const doneByOrder = {};
     (todaysProgress || []).forEach((p) => (doneByOrder[p.order_id] = (doneByOrder[p.order_id] || 0) + Number(p.quantity || 0)));
 
-    const activeOrders = (orders || []).filter((o) => o.status !== "Completed" && o.status !== "Shipped" && (o.daily_target > 0 || orderItemsRequired(o.items) > 0));
+    const activeOrders = (orders || []).filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status) && (o.daily_target > 0 || orderItemsRequired(o.items) > 0));
     const orderProgressToday = activeOrders.map((o) => ({
       id: o.id,
       order_number: o.order_number,

@@ -47,11 +47,11 @@ function Deck({ d, range, controls, canMoney }) {
     const expM = months.map((mk) => sum(d.expenditures.filter((e) => e.expense_date.startsWith(mk))));
     const profM = revM.map((r, i) => r - expM[i]);
     const fit = linearFit(profM);
-    const open = d.orders.filter((o) => !["Completed", "Shipped"].includes(o.status));
+    const open = d.orders.filter((o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status));
     const late = d.orders.filter((o) => isOrderOverdue(o, today));
     const delBy = groupBy(d.deliveries, (x) => x.order_id);
     const lastDel = (id) => (delBy[id] || []).reduce((m, x) => (x.date > m ? x.date : m), "");
-    const fin = d.orders.filter((o) => ["Completed", "Shipped"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to);
+    const fin = d.orders.filter((o) => ["Completed", "Shipped", "Rejected by Customer"].includes(o.status) && o.due_date && lastDel(o.id) >= range.from && lastDel(o.id) <= range.to);
     const onTime = fin.filter((o) => lastDel(o.id) <= o.due_date);
     const pieces = sum(d.progress, (p) => p.quantity);
     const outM = months.map((mk) => sum(d.progress.filter((p) => p.date.startsWith(mk)), (p) => p.quantity));

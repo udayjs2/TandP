@@ -18,7 +18,7 @@ export default function Planner() {
 
   const load = async () => {
     const [{ data: ord }, { data: prog }, { data: rateRows }, { data: settings }] = await Promise.all([
-      supabase.from("orders").select("*").not("status", "in", "(Completed,Shipped)").order("due_date", { ascending: true, nullsFirst: false }),
+      supabase.from("orders").select("*").not("status", "in", '(Completed,Shipped,"Rejected by Customer")').order("due_date", { ascending: true, nullsFirst: false }),
       supabase.from("order_progress").select("order_id, item_description, quantity"),
       supabase.from("garment_rates").select("*").order("garment_type", { ascending: true }),
       supabase.from("settings").select("total_workforce, avg_seconds_per_operation, line_efficiency_pct").eq("id", 1).single(),

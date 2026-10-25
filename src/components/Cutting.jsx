@@ -3,6 +3,7 @@ import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History 
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
+import { garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem } from "../lib/garments";
 
 const LETTER_SIZES = ["2XS", "XS", "S", "M", "L", "XL", "2XL"];
 // Numeric sizes are even numbers as sold in the market.
@@ -10,12 +11,15 @@ const range = (a, b) => Array.from({ length: (b - a) / 2 + 1 }, (_, i) => String
 export const TSHIRT_SIZES = range(20, 44);
 export const PANT_SIZES = range(18, 44);
 const SIZES18_44 = range(18, 44);
+// Knicker sizes run 9 to 26, every number
+export const KNICKER_SIZES = Array.from({ length: 18 }, (_, i) => String(9 + i));
 // prefix is stored with the number (e.g. "CHUD-24") so the same number in
 // different garments stays separate. Letter sizes are stored as-is.
 export const SIZE_GROUPS = [
   { key: "letter", prefix: "", label: "Letter sizes (2XS–2XL)", sizes: LETTER_SIZES },
   { key: "tshirt", prefix: "T", label: "T-shirt (20–44)", sizes: TSHIRT_SIZES },
-  { key: "pant", prefix: "P", label: "Pant / Nicker (18–44)", sizes: PANT_SIZES },
+  { key: "pant", prefix: "P", label: "Pant (18–44)", sizes: PANT_SIZES },
+  { key: "knicker", prefix: "KNICKER", label: "Knicker (9–26)", sizes: KNICKER_SIZES },
   { key: "chud", prefix: "CHUD", label: "Chudidhar (18–44)", sizes: SIZES18_44 },
   { key: "short", prefix: "SHORT", label: "Short (18–44)", sizes: SIZES18_44 },
   { key: "shirt", prefix: "SHIRT", label: "Shirt (18–44)", sizes: SIZES18_44 },
@@ -31,12 +35,17 @@ const STATUS_COLORS = {
   Rejected: "bg-rose-100 text-rose-800",
 };
 
-// "T-24" -> "T-shirt 24", "CHUD-24" -> "Chudidhar 24"; letter sizes unchanged
+// "T-24" -> "T-shirt 24", "KURTI-XL" -> "Kurti XL"; letter sizes unchanged.
+// Names come from the Garment Master when it has been loaded, otherwise from the built-in groups.
 export const sizeLabel = (k) => {
   const i = k.indexOf("-");
   if (i < 0) return k;
-  const g = SIZE_GROUPS.find((x) => x.prefix === k.slice(0, i));
-  return g ? `${g.label.split(" (")[0].replace("Pant / Nicker", "Pant")} ${k.slice(i + 1)}` : k;
+  const prefix = k.slice(0, i), rest = k.slice(i + 1);
+  const fromMaster = garmentNameForPrefix(prefix);
+  if (fromMaster) return `${fromMaster} ${rest}`;
+  const g = SIZE_GROUPS.find((x) => x.prefix === prefix);
+  if (g) return `${g.label.split(" (")[0]} ${rest}`;
+  return `${prefix.charAt(0)}${prefix.slice(1).toLowerCase()} ${rest}`;
 };
 
 export default function Cutting({ profile }) {
@@ -59,7 +68,7 @@ export default function Cutting({ profile }) {
 
   const load = async () => {
     const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }] = await Promise.all([
-      supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", "(Completed,Shipped)"),
+      supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", '(Completed,Shipped,"Rejected by Customer")'),
       supabase.from("cutting_entries").select("*").order("cut_date", { ascending: false }),
       supabase.from("inventory_fabric").select("id, fabric_type, color, weight_gsm, stock_kg, stock_meters").order("fabric_type"),
       supabase.from("cutting_stitch_log").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false }),
@@ -132,7 +141,7 @@ export default function Cutting({ profile }) {
       </div>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{view === "pending" ? "Cutting — pending review" : view === "approved" ? "Approved cutting" : "Rejected cutting (sent back to the cutting master)"}</h2>
-        {isCuttingMaster && (
+        {(isCuttingMaster || profile?.role === "pm") && (
           <Btn onClick={() => setModal({})}>
             <Scissors size={15} /> Log cutting count
           </Btn>
@@ -302,16 +311,51 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
   const [itemDesc, setItemDesc] = useState(entry?.item_description || "");
   const [cutDate, setCutDate] = useState(entry?.cut_date || todayStr());
   const [sizes, setSizes] = useState(entry?.sizes || {});
-  const [groupKey, setGroupKey] = useState("letter");
+  const [groupKey, setGroupKey] = useState("");
+  const [garments, setGarments] = useState([]);
+  const [showAll, setShowAll] = useState(false);
   const [fabricId, setFabricId] = useState(entry?.fabric_id || "");
   const [kg, setKg] = useState(entry?.fabric_kg_used ? String(entry.fabric_kg_used) : "");
   const [meters, setMeters] = useState(entry?.fabric_meters_used ? String(entry.fabric_meters_used) : "");
   const [saving, setSaving] = useState(false);
   const fabric = fabrics.find((f) => f.id === fabricId);
-  const group = SIZE_GROUPS.find((g) => g.key === groupKey);
-
   const order = orders.find((o) => o.id === orderId);
   const items = order?.items || [];
+
+  useEffect(() => {
+    supabase.from("garment_types").select("*").eq("active", true).order("sort_no").order("name").then(({ data }) => {
+      setGarments(data || []);
+      registerGarmentNames(data);
+    });
+  }, []);
+
+  // Size charts: the garments defined in the selected order (explicit link, or matched by item name).
+  // With no order, or an order that has no recognisable garment, the full list is shown.
+  const toGroup = (g) => ({ key: `g:${g.id}`, prefix: g.size_prefix, label: `${g.name} (${g.start_size || "?"}–${g.end_size || "?"})`, sizes: g.sizes || [] });
+  const allGroups = [
+    ...SIZE_GROUPS.filter((g) => !garments.some((m) => m.size_prefix === g.prefix)).map((g) => ({ ...g })),
+    ...garments.map(toGroup),
+  ];
+  const orderGarments = [];
+  items.forEach((it) => {
+    const g = garmentOfItem(it, garments);
+    if (g && !orderGarments.some((x) => x.id === g.id)) orderGarments.push(g);
+  });
+  const restricted = !!orderId && orderGarments.length > 0 && !showAll;
+  let groups = restricted ? orderGarments.map(toGroup) : allGroups;
+  // sizes already typed (or in the entry being corrected) must stay visible
+  const typedPrefixes = [...new Set(Object.keys(sizes).filter((k) => Number(sizes[k]) > 0).map((k) => (k.includes("-") ? k.slice(0, k.indexOf("-")) : "")))];
+  typedPrefixes.forEach((pf) => {
+    const g = allGroups.find((x) => x.prefix === pf);
+    if (g && !groups.some((x) => x.key === g.key)) groups = [...groups, g];
+  });
+  const itemGarment = garmentOfItem(items.find((it) => it.description === itemDesc), garments);
+  // follow the chosen item: its garment's size chart opens automatically
+  useEffect(() => {
+    if (itemGarment) setGroupKey(`g:${itemGarment.id}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemDesc, garments.length]);
+  const group = groups.find((g) => g.key === groupKey) || groups[0] || allGroups[0] || { key: "", prefix: "", label: "", sizes: [] };
 
   const save = async (e) => {
     e.preventDefault();
@@ -414,15 +458,24 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
           {fabrics.length === 0 && <p className="text-[11px] text-rose-600">No fabric in inventory yet — add it under Inventory → Fabric first.</p>}
         </div>
 
-        <Field label="Garment / size range">
-          <select className={inputCls} value={groupKey} onChange={(e) => setGroupKey(e.target.value)}>
-            {SIZE_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+        <Field label="Garment / size chart">
+          <select className={inputCls} value={group.key} onChange={(e) => setGroupKey(e.target.value)}>
+            {groups.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
           </select>
+          {orderId && orderGarments.length > 0 && (
+            <label className="flex items-center gap-1.5 text-[11px] text-stone-500 mt-1">
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+              Show all garments {restricted ? `(now showing only the ${orderGarments.length} in this order)` : ""}
+            </label>
+          )}
+          {orderId && orderGarments.length === 0 && items.length > 0 && (
+            <p className="text-[11px] text-stone-400 mt-1">This order's items are not linked to a garment yet, so every garment is listed. Edit the order and choose the garment on each item to narrow this list.</p>
+          )}
         </Field>
         <span className="block text-xs font-medium text-stone-600 mb-1">Cut quantity per size</span>
         <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 mb-1">
           {group.sizes.map((sz) => {
-            const key = group.prefix ? `${group.prefix}-${sz}` : sz;
+            const key = sizeKey(group.prefix, sz);
             return (
               <div key={key}>
                 <span className="block text-[11px] text-stone-500 mb-0.5">{sz}</span>

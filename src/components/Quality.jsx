@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle, ShieldCheck, ClipboardCheck, Camera, Truck, X } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { LotCard } from "./DispatchLots";
 
 // The checklist the Quality Manager answers for every order.
 export const QC_CHECKS = [
@@ -26,7 +27,7 @@ const QC_COLORS = {
 };
 
 export default function Quality({ profile }) {
-  const canInspect = ["quality_manager", "qc", "admin", "hr"].includes(profile?.role);
+  const canInspect = ["quality_manager", "qc", "pm", "admin", "hr"].includes(profile?.role);
   const role = profile?.role;
   const [orders, setOrders] = useState([]);
   const [counts, setCounts] = useState({});
@@ -35,14 +36,20 @@ export default function Quality({ profile }) {
   const [inspect, setInspect] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
   const [rejectDispatch, setRejectDispatch] = useState(null);
+  const [lots, setLots] = useState([]);
+  const [lotDeliveries, setLotDeliveries] = useState([]);
 
   const load = async () => {
-    const [{ data: ord }, { data: cuts }, { data: prog }, { data: ins }] = await Promise.all([
+    const [{ data: ord }, { data: cuts }, { data: prog }, { data: ins }, { data: lt }, { data: ld }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, status, items, quality_status, quality_approved_at, quality_approved_by, dispatch_status, dispatch_pm_by, dispatch_gm_by, dispatch_note").order("order_date", { ascending: false }),
       supabase.from("cutting_entries").select("order_id, sizes").eq("status", "Approved"),
       supabase.from("order_progress").select("order_id, quantity"),
       supabase.from("quality_inspections").select("*").order("created_at", { ascending: false }),
+      supabase.from("dispatch_lots").select("*").order("requested_at", { ascending: false }),
+      supabase.from("order_deliveries").select("lot_id, item_description, quantity").not("lot_id", "is", null),
     ]);
+    setLots(lt || []);
+    setLotDeliveries(ld || []);
     const c = {};
     (cuts || []).forEach((e) => {
       c[e.order_id] = c[e.order_id] || { cut: 0, stitched: 0 };
@@ -63,11 +70,13 @@ export default function Quality({ profile }) {
       .channel("quality-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "quality_inspections" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "dispatch_lots" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_deliveries" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
 
-  const inFlight = (o) => o.status !== "Shipped" && o.status !== "Completed";
+  const inFlight = (o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status);
   const FILTERS = {
     "Needs inspection": (o) => o.quality_status !== "Approved" && inFlight(o),
     Rejected: (o) => o.quality_status === "Rejected",
@@ -75,8 +84,11 @@ export default function Quality({ profile }) {
     "Dispatch approval": (o) => inFlight(o) && o.quality_status === "Approved" && ["Pending PM", "Pending GM"].includes(o.dispatch_status),
     All: () => true,
   };
-  const shown = orders.filter(FILTERS[filter]);
-  const countFor = (f) => orders.filter(FILTERS[f]).length;
+  const LOTS = "Partial dispatches";
+  const openLots = lots.filter((l) => ["Pending QC", "Pending PM", "Pending GM"].includes(l.status));
+  const shown = filter === LOTS ? [] : orders.filter(FILTERS[filter]);
+  const countFor = (f) => (f === LOTS ? openLots.length : orders.filter(FILTERS[f]).length);
+  const orderLabel = (id) => { const o = orders.find((x) => x.id === id); return o ? `${o.order_number} — ${o.customer_name}` : "Order"; };
 
   const approveDispatch = async (o) => {
     const { data, error } = await supabase.rpc("approve_dispatch", { p_order_id: o.id, p_decision: "Approved", p_note: null });
@@ -89,18 +101,27 @@ export default function Quality({ profile }) {
       <div>
         <h2 className="text-lg font-semibold">Quality</h2>
         <p className="text-xs text-stone-500 mt-0.5">
-          Every order must pass quality inspection, then dispatch approval by the <b>Production Manager</b> and the <b>General Manager</b>, before it can be marked <b>Shipped</b> or have deliveries logged.
+          Every order must pass quality inspection, then dispatch approval by the <b>Production Manager</b> and the <b>General Manager</b>, before it can be marked <b>Shipped</b> or have deliveries logged. To send part of an order early, use <b>Partial dispatches</b>.
         </p>
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        {["Needs inspection", "Rejected", "Approved", "Dispatch approval", "All"].map((f) => (
+        {["Needs inspection", "Rejected", "Approved", "Dispatch approval", "Partial dispatches", "All"].map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1 rounded-full text-xs font-medium border ${filter === f ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-600 border-stone-200"}`}>
             {f}{f !== "All" ? ` (${countFor(f)})` : ""}
           </button>
         ))}
       </div>
 
+      {filter === LOTS && (
+        <div className="space-y-3">
+          <p className="text-xs text-stone-500">Part of an order can be dispatched before the whole order is finished. Each partial dispatch is checked by QC, then approved by the Production Manager and the General Manager. Showing lots still in approval first, then the rest.</p>
+          {[...openLots, ...lots.filter((l) => !openLots.includes(l))].map((l) => (
+            <LotCard key={l.id} lot={l} orderLabel={orderLabel(l.order_id)} deliveries={lotDeliveries} profile={profile} onChanged={load} />
+          ))}
+          {lots.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No partial dispatches yet. Request one from Orders → Deliveries on an order.</Card>}
+        </div>
+      )}
       <div className="grid gap-3">
         {shown.map((o) => {
           const c = counts[o.id] || { cut: 0, stitched: 0 };
@@ -181,7 +202,7 @@ export default function Quality({ profile }) {
             </Card>
           );
         })}
-        {shown.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders in this list.</Card>}
+        {filter !== LOTS && shown.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders in this list.</Card>}
       </div>
 
       {inspect && <InspectionModal order={inspect} counts={counts[inspect.id] || { cut: 0, stitched: 0 }} onClose={() => setInspect(null)} onSaved={load} />}
