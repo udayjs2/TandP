@@ -218,18 +218,19 @@ export const ROLE_LABELS = {
   qc: "QC (Quality Team)",
   ironing: "Ironing",
   sales_manager: "Sales Manager",
+  cutting: "Cutting (Cutter)",
   sales: "Sales",
   user: "Staff",
 };
-export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "qc", "ironing", "sales_manager", "sales", "finance", "user"];
+export const LOGIN_ROLES = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "qc", "ironing", "sales_manager", "cutting", "sales", "finance", "user"];
 
 // Top-level modules and the roles that get them by default. The Admin can grant any of these
 // (except User Management) to a particular user on top of their role — see User Management.
-const EVERYONE = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "ironing", "sales_manager", "sales", "finance", "user"];
+const EVERYONE = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "ironing", "sales_manager", "cutting", "sales", "finance", "user"];
 export const MODULE_ROLES = {
   dashboard: EVERYONE,
   "floor-display": EVERYONE,
-  production: ["admin", "gm", "pm", "tl", "cutting_master", "quality_manager", "qc"],
+  production: ["admin", "gm", "pm", "tl", "cutting_master", "cutting", "quality_manager", "qc"],
   hr: EVERYONE,
   sales: ["admin", "sales", "sales_manager"],
   inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance"],

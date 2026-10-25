@@ -3,6 +3,7 @@ import { Plus, CalendarPlus, History, Trash2, Pencil, Check, Play, Flag, X, Load
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
+import { peopleOf } from "../lib/orgRoles";
 import { PRIORITIES, PRIORITY_STYLE, TL_STATUS_STYLE, fetchOutputs } from "../lib/assignments";
 
 const OPEN_ORDER = (o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status);
@@ -38,15 +39,14 @@ export default function OrderAssignment({ profile }) {
       supabase.from("order_assignments").select("*").order("work_date", { ascending: false }).limit(600),
       supabase.from("orders").select("id, order_number, customer_name, items, status, daily_target"),
       fetchOutputs(supabase, from, to),
-      supabase.from("profiles").select("id, name, role, employee_id").eq("role", "tl"),
-      supabase.from("employees").select("id, name"),
+      supabase.from("profiles").select("id, name, role, employee_id"),
+      supabase.from("employees").select("id, name, role, status"),
     ]);
     if (a.error) setErr(a.error.message + " (run migration_49.sql)"); else setErr("");
     setRows(a.data || []);
     setOrders(o.data || []);
     setOutputs(outs || {});
-    const nameOf = Object.fromEntries((emps.data || []).map((e) => [e.id, e.name]));
-    setTls((pr.data || []).filter((x) => x.employee_id).map((x) => ({ id: x.employee_id, name: nameOf[x.employee_id] || x.name })).sort((x, y) => x.name.localeCompare(y.name)));
+    setTls(peopleOf({ employees: emps.data || [], profiles: pr.data || [] }, ["Team Lead"], ["tl"]).filter((x) => x.empId).map((x) => ({ id: x.empId, name: x.name })).sort((x, y) => x.name.localeCompare(y.name)));
     setLoading(false);
   };
   useEffect(() => {

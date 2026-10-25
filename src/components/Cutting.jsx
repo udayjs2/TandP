@@ -50,9 +50,9 @@ export const sizeLabel = (k) => {
 };
 
 export default function Cutting({ profile }) {
-  const isCuttingMaster = profile?.role === "cutting_master";
+  const isCuttingMaster = ["cutting_master", "cutting"].includes(profile?.role); // cutting master and cutters log and correct their own counts
   const canApprove = ["admin", "hr", "gm", "pm"].includes(profile?.role);
-  const canResend = ["cutting_master", "admin", "hr", "gm", "pm"].includes(profile?.role);
+  const canResend = ["cutting_master", "cutting", "admin", "hr", "gm", "pm"].includes(profile?.role);
   // admin / HR / GM / PM delete any entry; a cutting master only their own entry until it is approved
   const canDelete = (e) => canApprove || (isCuttingMaster && e.status !== "Approved" && e.submitted_by === profile?.name);
   const [orders, setOrders] = useState([]);

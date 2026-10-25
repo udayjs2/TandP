@@ -5,7 +5,7 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { fmtMoney, todayStr } from "../lib/helpers";
 import { OfferLetterModal } from "./OfferLetter";
 
-const ROLES = ["Production", "Ironing", "Sales", "Manager", "Admin"];
+import { EMP_ROLES, EMP_DEPARTMENTS, DEFAULT_DEPT } from "../lib/orgRoles";
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -152,8 +152,8 @@ function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
     id: emp.id || null,
     employee_number: emp.employee_number || `EMP-${String(count + 1).padStart(3, "0")}`,
     name: emp.name || "",
-    role: emp.role || "Production",
-    department: emp.department || "",
+    role: emp.role || "Operator",
+    department: emp.department || (emp.id ? "" : DEFAULT_DEPT.Operator),
     phone: emp.phone || "",
     join_date: emp.join_date || todayStr(),
     base_salary: emp.base_salary || "",
@@ -176,14 +176,24 @@ function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
           <input required className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         </Field>
         <Field label="Role">
-          <select className={inputCls} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
-            {ROLES.map((r) => (
+          <select className={inputCls} value={f.role} onChange={(e) => {
+            const role = e.target.value;
+            // suggest the usual department for the role, unless one was chosen on purpose
+            const prevDefault = DEFAULT_DEPT[f.role];
+            setF({ ...f, role, department: !f.department || f.department === prevDefault ? (DEFAULT_DEPT[role] || f.department) : f.department });
+          }}>
+            {[...(EMP_ROLES.includes(f.role) ? [] : [f.role]), ...EMP_ROLES].map((r) => (
               <option key={r}>{r}</option>
             ))}
           </select>
         </Field>
         <Field label="Department">
-          <input className={inputCls} placeholder="e.g. Stitching, Cutting" value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })} />
+          <select className={inputCls} value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })}>
+            <option value="">— choose —</option>
+            {[...(!f.department || EMP_DEPARTMENTS.includes(f.department) ? [] : [f.department]), ...EMP_DEPARTMENTS].map((d) => (
+              <option key={d}>{d}</option>
+            ))}
+          </select>
         </Field>
         <Field label="Phone">
           <input className={inputCls} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />

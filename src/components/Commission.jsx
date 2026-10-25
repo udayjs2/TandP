@@ -4,6 +4,7 @@ import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import ReportView from "./ReportView";
 import { fmtMoney, todayStr, COMMISSION_COLORS, PERIOD_LABELS, periodKeyLabel } from "../lib/helpers";
+import { isSalesPerson } from "../lib/orgRoles";
 
 // same bucketing as commission_period_key() in the database
 export function periodKeyFor(date, period) {
@@ -68,7 +69,7 @@ export default function Commission({ profile }) {
   const rate = Number(settings.rate_pct);
 
   // salespeople to show in the progress cards: everyone with orders, plus Sales employees (managers) / me
-  const salesEmps = people.filter((p) => p.role === "Sales" && p.status !== "Inactive");
+  const salesEmps = people.filter((p) => isSalesPerson(p.role) && p.status !== "Inactive");
   const idsInProgress = new Set(progress.map((p) => p.salesperson_id));
   const cardIds = [...new Set([...progress.filter((p) => p.period_key === activeKey).map((p) => p.salesperson_id), ...(isAdmin || ["gm", "pm", "sales_manager"].includes(profile?.role) ? salesEmps.map((s) => s.id) : profile?.employee_id ? [profile.employee_id] : [])])];
   const cards = cardIds

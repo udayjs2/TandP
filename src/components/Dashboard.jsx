@@ -6,6 +6,7 @@ import AlertTicker from "./AlertTicker";
 import DayReport from "./DayReport";
 import { fmtMoney, monthKey, todayStr } from "../lib/helpers";
 import TeamsToday from "./TeamsToday";
+import { peopleOf, isSalesPerson } from "../lib/orgRoles";
 import { PRIORITY_STYLE, TL_STATUS_STYLE, byPriority, fetchOutputs } from "../lib/assignments";
 
 const fmtD = (iso) => { const [y, m, d] = String(iso || "").split("-"); return d ? `${d}/${m}/${y}` : "—"; };
@@ -35,9 +36,9 @@ export default function Dashboard({ profile }) {
       supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
       fetchOutputs(supabase, today),
       supabase.from("order_labor").select("order_id, employee_id").eq("work_date", today),
-      supabase.from("employees").select("id, name, reporting_manager_id"),
+      supabase.from("employees").select("id, name, role, status, reporting_manager_id"),
       supabase.from("order_assignments").select("*").eq("work_date", today).eq("pm_status", "Accepted"),
-      supabase.from("profiles").select("id, name, employee_id").eq("role", "tl"),
+      supabase.from("profiles").select("id, name, role, employee_id"),
     ]);
 
     // Teams working today: group today's order_labor assignments by order,
@@ -73,8 +74,11 @@ export default function Dashboard({ profile }) {
     const todayTotalTarget = orderProgressToday.reduce((s, a) => s + Number(a.target_qty || 0), 0);
 
     // every Team Leader, with what they are working on today
-    const nameOf = Object.fromEntries((allEmployees || []).map((e) => [e.id, e.name]));
-    const tlList = [...new Map((tlProfiles || []).filter((t) => t.employee_id).map((t) => [t.employee_id, { id: t.employee_id, name: nameOf[t.employee_id] || t.name }])).values()].sort((x, y) => x.name.localeCompare(y.name));
+    // names come from the employee who holds the role (Employees → Role), not from whoever's login did the action
+    const org = { employees: allEmployees || [], profiles: tlProfiles || [] };
+    const tlList = peopleOf(org, ["Team Lead"], ["tl"]).filter((t) => t.empId).sort((x, y) => x.name.localeCompare(y.name));
+    const pmNames = peopleOf(org, ["Production Manager"], ["pm"]).map((p) => p.name).join(", ");
+    const gmNames = peopleOf(org, ["General Manager"], ["gm"]).map((p) => p.name).join(", ");
     const tlRows = tlList.map((t) => ({ ...t, work: orderProgressToday.filter((a) => a.tl_employee_id === t.id) }));
     const unassignedWork = orderProgressToday.filter((a) => !a.tl_employee_id || !tlList.some((t) => t.id === a.tl_employee_id));
 
@@ -84,11 +88,13 @@ export default function Dashboard({ profile }) {
       pendingOrders,
       totalTarget,
       totalAchieved,
-      salesCount: (employees || []).filter((e) => e.role === "Sales").length,
+      salesCount: (employees || []).filter((e) => isSalesPerson(e.role)).length,
       orderProgressToday,
       todayTotalDone,
       todayTotalTarget,
       tlRows,
+      pmNames,
+      gmNames,
       unassignedWork,
       teamsWorkingToday,
     });
@@ -172,11 +178,11 @@ export default function Dashboard({ profile }) {
                 <tbody className="divide-y divide-stone-100">
                   {stats.orderProgressToday.map((a) => (
                     <tr key={a.id}>
-                      <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{a.pm_by || "—"}</td>
+                      <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{stats.pmNames || a.pm_by || "—"}</td>
                       <td className="pr-3">{a.order_number} — {a.customer_name}</td>
                       <td className="pr-3">{a.item_description || "All items"}</td>
                       <td className="pr-3"><span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${PRIORITY_STYLE[a.priority]}`}>{a.priority}</span></td>
-                      <td className="pr-3 whitespace-nowrap text-xs">{a.assigned_by_role === "pm" ? "Self assigned" : a.assigned_by_role === "gm" ? `Assigned by GM${a.assigned_by ? ` (${a.assigned_by})` : ""}` : `Assigned by Admin${a.assigned_by ? ` (${a.assigned_by})` : ""}`}</td>
+                      <td className="pr-3 whitespace-nowrap text-xs">{a.assigned_by_role === "pm" ? "Self assigned" : a.assigned_by_role === "gm" ? `Assigned by GM${stats.gmNames || a.assigned_by ? ` (${stats.gmNames || a.assigned_by})` : ""}` : `Assigned by Admin${a.assigned_by ? ` (${a.assigned_by})` : ""}`}</td>
                       <td className="pr-3 whitespace-nowrap text-xs">{fmtD(a.start)}</td>
                       <td className="pr-3 whitespace-nowrap text-xs">{fmtD(a.end)}</td>
                       <td className="text-right font-mono text-xs whitespace-nowrap">{a.done}{a.target_qty ? `/${a.target_qty}` : ""}</td>

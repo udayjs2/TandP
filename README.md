@@ -759,3 +759,14 @@ Run `supabase/migration_51.sql` after migration_50, then set the person's role t
 - Sees CRM & Sales: all Leads, Sales Orders (with values), Commission (every salesperson), Customers, Vendors, and the Sales & CRM report; can add/edit leads, customers, visits and vendors.
 - Does not get Targets & Expenses (stays Admin / GM / PM) or any production, HR-admin or finance access.
 - Dashboard: shown in the management row as *Sales Manager*, and the Sales team column lists the manager plus everyone with the Sales employee role.
+
+## v59 — Roles, departments and names from the Employee record
+
+Run `supabase/migration_52.sql` after 51 (order: 44 → 45 → … → 52), then redeploy.
+
+- **Names come from the employee Role.** Production Manager, General Manager, HR, Sales Manager, Team Leads etc. shown on the dashboard (plan table, TL table, Teams Working Today) are the employees with that Role in HR & Workforce → Employees; login names are only a fallback.
+- **Employees → Role list:** General Manager, Production Manager, Team Lead, Operator, Cutting Master, Cutter, Sales Manager, Sales Executive, HR Manager, HR Executive, Accountant, Digital Marketing Manager, Digital Marketing Executive, Quality Manager, Quality Executive, Ironing. ("Operator" was added for production workers.)
+- **Department list:** Production, Ironing & Packing, Cutting, Sales, Management, Staff, Information Technology, Finance, HR. Choosing a role suggests its department.
+- **New login role `cutting`** (Cutter) — can use the Cutting module like the Cutting Master.
+- **Dashboard chart:** General Manager → Cutting team (under GM) → "Management Team" (Production Manager | HR | Sales Manager) → under the Production Manager: Team Lead teams (by *Reports to*), Quality team and Ironing team → HR/Sales teams → other staff by department.
+- Migration maps old roles/departments to the new lists automatically.

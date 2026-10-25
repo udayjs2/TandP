@@ -37,7 +37,7 @@ import { MODULE_ROLES } from "./lib/helpers";
 const FULL = ["admin", "hr"];
 
 // QC (quality team) is deliberately not in ALL: it only gets Production Management -> Quality.
-const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "ironing", "sales_manager", "sales", "finance", "user"];
+const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "ironing", "sales_manager", "cutting", "sales", "finance", "user"];
 
 // Top-level modules. Sub-tabs inside each module are filtered by role below.
 const TABS = [
@@ -138,7 +138,7 @@ export default function App() {
   // sub-tabs of the Production Management and HR & Workforce modules
   const productionTabs = [
     { id: "orders", label: "Orders", icon: Package, roles: ["admin", "gm", "pm", "tl"], render: () => <Orders profile={profile} /> },
-    { id: "cutting", label: "Cutting", icon: Scissors, roles: ["admin", "gm", "pm", "cutting_master"], render: () => <Cutting profile={profile} /> },
+    { id: "cutting", label: "Cutting", icon: Scissors, roles: ["admin", "gm", "pm", "cutting_master", "cutting"], render: () => <Cutting profile={profile} /> },
     { id: "assignment", label: "Order Assignment", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl"], render: () => <OrderAssignment profile={profile} /> },
     { id: "output", label: "Output", icon: BarChart3, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <Output /> },
     { id: "progress-history", label: "Progress History", icon: History, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <ProgressHistory /> },

@@ -6,6 +6,7 @@ import {
   fmtMoney, todayStr, LEAD_TYPES, LEAD_STATUSES, LEAD_STATUS_COLORS, LEAD_SOURCES, ACTIVITY_KINDS, LEAD_NEXT_STAGE,
 } from "../lib/helpers";
 import { SendAgreementModal } from "./Orders";
+import { isSalesPerson } from "../lib/orgRoles";
 
 const KIND_ICONS = { Visit: Footprints, Call: PhoneCall, WhatsApp: MessageSquare, Email: Mail, Meeting: Users, Quotation: FileText, Note: StickyNote };
 const isOpen = (l) => !["Won", "Lost"].includes(l.status);
@@ -40,7 +41,7 @@ export default function Leads({ profile }) {
     if (e1) setError(e1.message + " (run migration_40.sql if the table is missing)");
     else setError("");
     setLeads(data || []);
-    setSalespeople((emps || []).filter((e) => e.role === "Sales" && e.status !== "Inactive"));
+    setSalespeople((emps || []).filter((e) => isSalesPerson(e.role) && e.status !== "Inactive"));
   };
   useEffect(() => {
     load();
@@ -295,7 +296,7 @@ function LeadModal({ lead, salespeople, manager, myEmpId, onClose, onSave }) {
           )}
         </div>
         <Field label="Notes"><textarea rows={2} className={inputCls} value={f.notes} onChange={set("notes")} /></Field>
-        {salespeople.length === 0 && manager && <p className="text-xs text-amber-700 mb-2">No employee has the role “Sales” yet. Add one in HR &amp; Workforce → Employees.</p>}
+        {salespeople.length === 0 && manager && <p className="text-xs text-amber-700 mb-2">No employee has the role “Sales Executive” yet. Add one in HR &amp; Workforce → Employees.</p>}
         <div className="flex justify-end gap-2 mt-3">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn type="submit">Save lead</Btn>

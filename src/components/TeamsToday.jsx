@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Users2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card } from "./ui";
-import { todayStr, ROLE_LABELS } from "../lib/helpers";
+import { todayStr } from "../lib/helpers";
+import { peopleOf } from "../lib/orgRoles";
 
 const STATUS = {
   Present: "bg-emerald-100 text-emerald-800",
@@ -58,7 +59,9 @@ function TeamColumn({ title, lead, members }) {
   );
 }
 
-// Dashboard "Teams working today": management, then each Team Lead's team, then Cutting / QC / Ironing.
+// Dashboard "Teams working today". Built from Employees: each person's Role says where they sit, and Reports to
+// says whose team they are in. Layout: General Manager (with Cutting), Management Team (Production Manager, HR,
+// Sales Manager), Production Manager's Team Leads + Quality + Ironing, then HR and Sales teams and everyone else.
 export default function TeamsToday() {
   const [data, setData] = useState(null);
 
@@ -66,7 +69,7 @@ export default function TeamsToday() {
     const today = todayStr();
     const [pr, em, at] = await Promise.all([
       supabase.from("profiles").select("id, name, role, employee_id"),
-      supabase.from("employees").select("id, name, role, status, reporting_manager_id"),
+      supabase.from("employees").select("id, name, role, department, status, reporting_manager_id"),
       supabase.from("attendance").select("employee_id, status").eq("date", today),
     ]);
     setData({ profiles: pr.data || [], employees: (em.data || []).filter((e) => e.status !== "Inactive"), attendance: at.data || [] });
@@ -85,56 +88,46 @@ export default function TeamsToday() {
   const attBy = Object.fromEntries(attendance.map((a) => [a.employee_id, a.status]));
   const statusOf = (empId) => (empId && attBy[empId]) || "Not marked";
   const empById = Object.fromEntries(employees.map((e) => [e.id, e]));
+  const org = { employees, profiles };
 
-  // a login (profile) as a person; attendance comes from the linked employee record
-  const fromProfile = (pr) => {
-    const e = pr.employee_id ? empById[pr.employee_id] : null;
-    return { id: pr.employee_id || pr.id, empId: pr.employee_id, name: e?.name || pr.name || "—", roleLabel: ROLE_LABELS[pr.role] || pr.role, status: statusOf(pr.employee_id) };
-  };
-  const byRole = (...roles) => profiles.filter((p) => roles.includes(p.role)).map(fromProfile).sort((a, b) => a.name.localeCompare(b.name));
-  const leadIds = new Set(profiles.filter((p) => ["gm", "pm", "hr", "tl", "cutting_master", "quality_manager", "qc", "ironing", "admin", "sales_manager"].includes(p.role) && p.employee_id).map((p) => p.employee_id));
-  const reportsTo = (leaders) => {
+  const person = (x) => ({ id: x.empId || x.id, empId: x.empId, name: x.name, roleLabel: x.empRole || empById[x.empId]?.role || "", status: statusOf(x.empId) });
+  const fromEmp = (e) => ({ id: e.id, empId: e.id, name: e.name, roleLabel: e.role || "", status: statusOf(e.id) });
+  const lead = (roles, logins, label) => peopleOf(org, roles, logins).map((x) => ({ ...person(x), roleLabel: x.empRole || label })).sort((a, b) => a.name.localeCompare(b.name));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+
+  const placed = new Set();
+  const take = (list) => { list.forEach((x) => x.empId && placed.add(x.empId)); return list; };
+
+  const gm = take(lead(["General Manager"], ["gm"], "General Manager"));
+  const pm = take(lead(["Production Manager"], ["pm"], "Production Manager"));
+  const hr = take(lead(["HR Manager"], ["hr"], "HR Manager"));
+  const sm = take(lead(["Sales Manager"], ["sales_manager"], "Sales Manager"));
+  const tls = take(lead(["Team Lead"], ["tl"], "Team Lead"));
+  const cutLeads = take(lead(["Cutting Master"], ["cutting_master"], "Cutting Master"));
+  const qualLeads = take(lead(["Quality Manager"], ["quality_manager"], "Quality Manager"));
+  const ironLeads = take(peopleOf({ employees, profiles }, [], ["ironing"]).map((x) => ({ ...person(x), roleLabel: "Ironing lead" })));
+
+  const reporting = (leaders) => {
     const ids = new Set(leaders.map((l) => l.empId).filter(Boolean));
-    return employees
-      .filter((e) => e.reporting_manager_id && ids.has(e.reporting_manager_id) && !leadIds.has(e.id))
-      .map((e) => ({ id: e.id, name: e.name, roleLabel: e.role || "Operator", status: statusOf(e.id) }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return employees.filter((e) => e.reporting_manager_id && ids.has(e.reporting_manager_id) && !placed.has(e.id));
   };
+  const claim = (list) => { const seen = new Set(); const uniq = list.filter((e) => !seen.has(e.id) && seen.add(e.id)); uniq.forEach((e) => placed.add(e.id)); return uniq.map(fromEmp).sort(byName); };
 
-  const gm = byRole("gm"), pm = byRole("pm"), hr = byRole("hr"), sales = byRole("sales_manager");
-  const tls = byRole("tl");
-  const tlTeams = tls.map((t) => ({ lead: t, members: reportsTo([t]) }));
-  // operators who are not under any Team Lead
-  const underTl = new Set(tlTeams.flatMap((t) => t.members.map((m) => m.id)));
-  const loose = employees
-    .filter((e) => e.role === "Production" && !underTl.has(e.id) && !leadIds.has(e.id))
-    .map((e) => ({ id: e.id, name: e.name, roleLabel: "Operator", status: statusOf(e.id) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const tlTeams = tls.map((t) => ({ lead: t, members: claim(reporting([t])) }));
+  const cutMembers = claim([...reporting(cutLeads), ...employees.filter((e) => !placed.has(e.id) && (e.role === "Cutter" || e.department === "Cutting"))]);
+  const qualMembers = claim([...reporting(qualLeads), ...employees.filter((e) => !placed.has(e.id) && e.role === "Quality Executive")]);
+  const ironMembers = claim([...reporting(ironLeads), ...employees.filter((e) => !placed.has(e.id) && (e.role === "Ironing" || e.department === "Ironing & Packing"))]);
+  const hrMembers = claim([...reporting(hr), ...employees.filter((e) => !placed.has(e.id) && e.role === "HR Executive")]);
+  const salesMembers = claim([...reporting(sm), ...employees.filter((e) => !placed.has(e.id) && ["Sales Executive", "Sales"].includes(e.role))]);
+  const loose = claim(employees.filter((e) => !placed.has(e.id) && (["Operator", "Production"].includes(e.role) || e.department === "Production")));
+  // everyone else, by department
+  const rest = {};
+  employees.filter((e) => !placed.has(e.id)).forEach((e) => { (rest[e.department || "No department"] ||= []).push(fromEmp(e)); });
 
-  const support = [
-    ["Cutting team", byRole("cutting_master")],
-    ["QC team", byRole("quality_manager", "qc")],
-    ["Ironing team", byRole("ironing")],
-    ["Sales team", sales],
-  ].map(([title, leads]) => {
-    const members = reportsTo(leads);
-    if (title === "Ironing team") {
-      // people with the Ironing employee role who report to nobody else
-      const have = new Set(members.map((m) => m.id));
-      employees.filter((e) => e.role === "Ironing" && !have.has(e.id) && !leadIds.has(e.id) && !underTl.has(e.id))
-        .forEach((e) => members.push({ id: e.id, name: e.name, roleLabel: "Ironing", status: statusOf(e.id) }));
-    }
-    if (title === "Sales team") {
-      // sales executives: those reporting to the Sales Manager, plus anyone with the Sales employee role
-      const have = new Set(members.map((m) => m.id));
-      employees.filter((e) => e.role === "Sales" && !have.has(e.id) && !leadIds.has(e.id))
-        .forEach((e) => members.push({ id: e.id, name: e.name, roleLabel: "Sales", status: statusOf(e.id) }));
-    }
-    return { title, leads, members };
-  });
-
-  const everyone = [...gm, ...pm, ...hr, ...sales, ...tls, ...tlTeams.flatMap((t) => t.members), ...loose, ...support.flatMap((s) => [...s.leads, ...s.members])];
+  const everyone = [...gm, ...pm, ...hr, ...sm, ...tls, ...cutLeads, ...qualLeads, ...ironLeads, ...tlTeams.flatMap((t) => t.members), ...cutMembers, ...qualMembers, ...ironMembers, ...hrMembers, ...salesMembers, ...loose, ...Object.values(rest).flat()];
   const present = everyone.filter((p) => isIn(p.status)).length;
+  const Row = ({ children }) => <div className="flex gap-3 overflow-x-auto pb-2">{children}</div>;
+  const Heading = ({ children }) => <div className="text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">{children}</div>;
 
   return (
     <Card className="p-4">
@@ -144,37 +137,47 @@ export default function TeamsToday() {
       </div>
 
       <div className="space-y-4" data-testid="teams-today">
-        {/* management */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="sm:col-span-3"><Cell title="General Manager" people={gm} /></div>
-          <Cell title="Production Manager" people={pm} />
-          <Cell title="HR" people={hr} />
-          <Cell title="Sales Manager" people={sales} />
+        <Cell title="General Manager" people={gm} />
+        <div>
+          <Heading>Cutting — reports to the General Manager{gm.length ? ` (${gm.map((p) => p.name).join(", ")})` : ""}</Heading>
+          <Row><TeamColumn title="Cutting team" lead={cutLeads[0] || null} members={[...cutLeads.slice(1), ...cutMembers]} /></Row>
         </div>
 
-        {/* production teams */}
         <div>
-          <div className="text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">
-            Production — Team Leads and their teams{pm.length ? ` (under ${pm.map((p) => p.name).join(", ")})` : ""}
+          <Heading>Management Team{gm.length ? ` — under ${gm.map((p) => p.name).join(", ")} (General Manager)` : ""}</Heading>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Cell title="Production Manager" people={pm} />
+            <Cell title="HR" people={hr} />
+            <Cell title="Sales Manager" people={sm} />
           </div>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+        </div>
+
+        <div>
+          <Heading>Under the Production Manager{pm.length ? ` (${pm.map((p) => p.name).join(", ")})` : ""} — Team Leads, Quality and Ironing</Heading>
+          <Row>
             {tlTeams.map((t) => <TeamColumn key={t.lead.id} title="Team Lead" lead={t.lead} members={t.members} />)}
             {loose.length > 0 && <TeamColumn title="Not under a Team Lead" lead={null} members={loose} />}
-            {tlTeams.length === 0 && loose.length === 0 && <p className="text-sm text-stone-400">No Team Leads or operators set up yet.</p>}
-          </div>
+            <TeamColumn title="Quality team" lead={qualLeads[0] || null} members={[...qualLeads.slice(1), ...qualMembers]} />
+            <TeamColumn title="Ironing team" lead={ironLeads[0] || null} members={[...ironLeads.slice(1), ...ironMembers]} />
+          </Row>
         </div>
 
-        {/* support teams */}
         <div>
-          <div className="text-xs font-semibold text-stone-600 uppercase tracking-wide mb-1.5">Cutting, Quality, Ironing and Sales</div>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {support.map((s) => (
-              <TeamColumn key={s.title} title={s.title} lead={s.leads[0] || null} members={[...s.leads.slice(1), ...s.members]} />
-            ))}
-          </div>
+          <Heading>HR and Sales teams</Heading>
+          <Row>
+            <TeamColumn title="HR team" lead={hr[0] || null} members={[...hr.slice(1), ...hrMembers]} />
+            <TeamColumn title="Sales team" lead={sm[0] || null} members={[...sm.slice(1), ...salesMembers]} />
+          </Row>
         </div>
+
+        {Object.keys(rest).length > 0 && (
+          <div>
+            <Heading>Other staff</Heading>
+            <Row>{Object.entries(rest).map(([dept, list]) => <TeamColumn key={dept} title={dept} lead={null} members={list} />)}</Row>
+          </div>
+        )}
       </div>
-      <p className="text-[11px] text-stone-400 mt-2">Teams follow “Reports to” in Employees (Sales team: everyone with the Sales role). Attendance is today's; “Not marked” means it hasn't been recorded yet.</p>
+      <p className="text-[11px] text-stone-400 mt-2">Built from Employees: Role places a person in the chart and “Reports to” puts them in a team. “Not marked” means today's attendance has not been recorded yet.</p>
     </Card>
   );
 }
