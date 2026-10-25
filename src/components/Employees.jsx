@@ -5,7 +5,7 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { fmtMoney, todayStr } from "../lib/helpers";
 import { OfferLetterModal } from "./OfferLetter";
 
-const ROLES = ["Production", "Sales", "Manager", "Admin"];
+const ROLES = ["Production", "Ironing", "Sales", "Manager", "Admin"];
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);

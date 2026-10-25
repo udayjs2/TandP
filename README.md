@@ -737,3 +737,25 @@ Run `supabase/migration_49.sql` after migration_48 (also enable the **pg_cron** 
 - **Dashboard:** Today's production progress now shows only the orders planned for today (in priority order). New **Team Leaders — today's work** table (Team Leader, Order, Items, Total output). Unpaid / overdue invoice cards removed.
 - **Day-end report** (Dashboard): Production, Cutting and Sales messages with **Copy for WhatsApp**. Admin/GM/PM can generate/regenerate; everyone else can read and copy. Created automatically at 6 PM (pg_cron) or the first time a manager opens the dashboard after 6 PM.
 - Team Leads must be linked to their employee record (User Management) to see their assignments.
+
+## v57 — Several Team Leads per order, correct output credit, hierarchy table, Ironing role
+
+Run `supabase/migration_50.sql` after migration_49.
+
+- **One order, several Team Leads:** in *New assignment* and *Plan the day*, tick more than one Team Lead (target is shared equally). On any assignment, *+ Add another Team Lead* adds a sibling for the same order/item/day.
+- **Who gets the pieces** (database function `assignment_outputs`, used by the dashboard, Order Assignment and the day report):
+  1. an assignment for the exact item beats a whole-order assignment (whole order → Team Lead A, one item → Team Lead B: that item counts for B, everything else for A);
+  2. if several Team Leads share the same level, a line logged by one of them (updated_by = their name) goes to that Team Lead;
+  3. otherwise it is shared by team size — people in Manpower for that order/day who report to each Team Lead (Employees → Reports to);
+  4. with no team information, equal shares.
+- **Dashboard:** *Today's production progress* is now a table (Production Manager, Order, Item, Priority, Self assigned / Assigned by GM / Admin, Start, End, Output). *Teams working today* shows General Manager; Production Manager · HR · Sales Manager; each Team Lead with their operators; Cutting, QC and Ironing teams — name, role and Present / Absent for everyone. The bottom *Orders in progress* list was removed.
+- **Ironing role:** new login role *Ironing* (set it in User Management) and employee role *Ironing*. Ironing employees count as operators in the day report.
+- Teams are built from *Reports to* in Employees; Sales Manager column lists people with the Sales login.
+
+## v58 — Sales Manager role
+
+Run `supabase/migration_51.sql` after migration_50, then set the person's role to **Sales Manager** in User Management.
+
+- Sees CRM & Sales: all Leads, Sales Orders (with values), Commission (every salesperson), Customers, Vendors, and the Sales & CRM report; can add/edit leads, customers, visits and vendors.
+- Does not get Targets & Expenses (stays Admin / GM / PM) or any production, HR-admin or finance access.
+- Dashboard: shown in the management row as *Sales Manager*, and the Sales team column lists the manager plus everyone with the Sales employee role.

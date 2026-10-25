@@ -19,8 +19,9 @@ export const byPriority = (a, b) =>
   (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9) ||
   String(a.order_number || "").localeCompare(String(b.order_number || ""));
 
-// pieces made on `date` for an assignment (its item, or every item when it covers the whole order)
-export const assignmentOutput = (a, progress, date) =>
-  (progress || [])
-    .filter((p) => p.order_id === a.order_id && p.date === date && (!a.item_description || p.item_description === a.item_description))
-    .reduce((t, p) => t + Number(p.quantity || 0), 0);
+// Pieces credited to each assignment, worked out in the database (assignment_outputs): the Team Lead with the
+// exact item wins over a whole-order Team Lead; ties go to whoever logged the hour, then to team size.
+export async function fetchOutputs(supabase, from, to) {
+  const { data } = await supabase.rpc("assignment_outputs", { p_from: from, p_to: to || from });
+  return Object.fromEntries((data || []).map((r) => [r.assignment_id, Number(r.output) || 0]));
+}

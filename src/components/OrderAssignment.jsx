@@ -3,7 +3,7 @@ import { Plus, CalendarPlus, History, Trash2, Pencil, Check, Play, Flag, X, Load
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
-import { PRIORITIES, PRIORITY_STYLE, TL_STATUS_STYLE, assignmentOutput } from "../lib/assignments";
+import { PRIORITIES, PRIORITY_STYLE, TL_STATUS_STYLE, fetchOutputs } from "../lib/assignments";
 
 const OPEN_ORDER = (o) => !["Completed", "Shipped", "Rejected by Customer"].includes(o.status);
 const fmt = (iso) => { const [y, m, d] = String(iso || "").split("-"); return d ? `${d}/${m}/${y}` : "—"; };
@@ -20,7 +20,7 @@ export default function OrderAssignment({ profile }) {
 
   const [rows, setRows] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [progress, setProgress] = useState([]);
+  const [outputs, setOutputs] = useState({});
   const [tls, setTls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState(isManager ? "today" : "mine");
@@ -33,17 +33,18 @@ export default function OrderAssignment({ profile }) {
 
   const load = async () => {
     const from = new Date(Date.now() - 20 * 86400000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-    const [a, o, p, pr, emps] = await Promise.all([
+    const to = new Date(Date.now() + 30 * 86400000).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+    const [a, o, outs, pr, emps] = await Promise.all([
       supabase.from("order_assignments").select("*").order("work_date", { ascending: false }).limit(600),
       supabase.from("orders").select("id, order_number, customer_name, items, status, daily_target"),
-      supabase.from("order_progress").select("order_id, date, item_description, quantity").gte("date", from),
+      fetchOutputs(supabase, from, to),
       supabase.from("profiles").select("id, name, role, employee_id").eq("role", "tl"),
       supabase.from("employees").select("id, name"),
     ]);
     if (a.error) setErr(a.error.message + " (run migration_49.sql)"); else setErr("");
     setRows(a.data || []);
     setOrders(o.data || []);
-    setProgress(p.data || []);
+    setOutputs(outs || {});
     const nameOf = Object.fromEntries((emps.data || []).map((e) => [e.id, e.name]));
     setTls((pr.data || []).filter((x) => x.employee_id).map((x) => ({ id: x.employee_id, name: nameOf[x.employee_id] || x.name })).sort((x, y) => x.name.localeCompare(y.name)));
     setLoading(false);
@@ -140,7 +141,7 @@ export default function OrderAssignment({ profile }) {
 
       <div className="space-y-3">
         {shown.map((r) => {
-          const out = assignmentOutput(r, progress, r.work_date);
+          const out = outputs[r.id] || 0;
           const overdue = r.work_date < today && r.tl_status !== "Completed";
           const myRow = isTl && myEmp && r.tl_employee_id === myEmp;
           const closed = r.tl_status === "Completed";
@@ -181,6 +182,13 @@ export default function OrderAssignment({ profile }) {
                     {tls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 )}
+                {isManager && !closed && r.tl_employee_id && (
+                  <select aria-label="Add another Team Lead" className={`${inputCls} !w-auto !py-1.5 !text-xs`} value=""
+                    onChange={(e) => e.target.value && call("create_assignment", { p_order_id: r.order_id, p_item: r.item_description, p_date: r.work_date, p_priority: r.priority, p_target: 0, p_instructions: r.instructions, p_tl: e.target.value })}>
+                    <option value="">+ Add another Team Lead…</option>
+                    {tls.filter((t) => !full.some((x) => x.order_id === r.order_id && x.item_description === r.item_description && x.work_date === r.work_date && x.tl_employee_id === t.id)).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
                 {isManager && !closed && <Btn variant="ghost" onClick={() => setModal({ kind: "edit", row: r })}><Pencil size={14} /> Priority / date</Btn>}
                 {isManager && overdue && <Btn variant="ghost" onClick={() => setModal({ kind: "edit", row: r, moveToToday: true })}>Move to today</Btn>}
                 {myRow && r.pm_status === "Accepted" && r.tl_status === "Assigned" && (<>
@@ -208,7 +216,7 @@ export default function OrderAssignment({ profile }) {
         })}
       </div>
 
-      {modal?.kind === "new" && <AssignModal orders={orders.filter(OPEN_ORDER)} tls={tls} role={role} onClose={() => setModal(null)} onSave={async (a) => { if (await call("create_assignment", a)) setModal(null); }} />}
+      {modal?.kind === "new" && <AssignModal orders={orders.filter(OPEN_ORDER)} tls={tls} role={role} onClose={() => setModal(null)} onSave={async (list) => { for (const a of list) { if (!(await call("create_assignment", a))) return; } setModal(null); }} />}
       {modal?.kind === "plan" && <PlanModal orders={orders.filter(OPEN_ORDER)} existing={rows} tls={tls} onClose={() => setModal(null)} onSave={async (list) => {
         for (const a of list) { if (!(await call("create_assignment", a))) return; }
         setModal(null); setFilter("today");
@@ -216,7 +224,22 @@ export default function OrderAssignment({ profile }) {
       {modal?.kind === "edit" && <EditModal row={modal.row} moveToToday={modal.moveToToday} role={role} onClose={() => setModal(null)} onSave={async (a) => { if (await call("update_assignment", a)) setModal(null); }} />}
       {modal?.kind === "accept" && <AcceptModal row={modal.row} onClose={() => setModal(null)} onSave={async (a) => { if (await call("pm_accept_assignment", a)) setModal(null); }} />}
       {modal?.kind === "decline" && <NoteModal title="Decline this work" label="Reason" onClose={() => setModal(null)} onSave={async (note) => { if (await call("tl_update_assignment", { p_id: modal.row.id, p_action: "decline", p_note: note })) setModal(null); }} />}
-      {modal?.kind === "complete" && <CompleteModal row={modal.row} out={assignmentOutput(modal.row, progress, modal.row.work_date)} onClose={() => setModal(null)} onSave={async (qty, note) => { if (await call("tl_update_assignment", { p_id: modal.row.id, p_action: "complete", p_qty: qty, p_note: note })) setModal(null); }} />}
+      {modal?.kind === "complete" && <CompleteModal row={modal.row} out={outputs[modal.row.id] || 0} onClose={() => setModal(null)} onSave={async (qty, note) => { if (await call("tl_update_assignment", { p_id: modal.row.id, p_action: "complete", p_qty: qty, p_note: note })) setModal(null); }} />}
+    </div>
+  );
+}
+
+// tick one or more Team Leads
+function TlPicker({ tls, value, onChange, label = "" }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 border border-stone-200 rounded-lg px-3 py-2">
+      {tls.length === 0 && <span className="text-xs text-stone-400">No Team Leads yet</span>}
+      {tls.map((t) => (
+        <label key={t.id} className="flex items-center gap-1.5 text-xs">
+          <input type="checkbox" aria-label={`${t.name}${label ? ` for ${label}` : ""}`} checked={value.includes(t.id)} onChange={(e) => onChange(e.target.checked ? [...value, t.id] : value.filter((x) => x !== t.id))} />
+          {t.name}
+        </label>
+      ))}
     </div>
   );
 }
@@ -226,11 +249,12 @@ function PrioSelect({ value, onChange }) {
 }
 
 function AssignModal({ orders, tls, role, onClose, onSave }) {
-  const [f, setF] = useState({ order: "", item: "", date: todayStr(), priority: "High", target: "", note: "", tl: "" });
+  const [f, setF] = useState({ order: "", item: "", date: todayStr(), priority: "High", target: "", note: "", tls: [] });
   const order = orders.find((o) => o.id === f.order);
   return (
     <Modal title={role === "gm" ? "Assign a priority order to the Production Manager" : "New assignment"} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); if (!f.order) return; onSave({ p_order_id: f.order, p_item: f.item || null, p_date: f.date, p_priority: f.priority, p_target: Number(f.target) || 0, p_instructions: f.note || null, p_tl: f.tl || null }); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (!f.order) return; const base = { p_order_id: f.order, p_item: f.item || null, p_date: f.date, p_priority: f.priority, p_target: Number(f.target) || 0, p_instructions: f.note || null };
+          onSave(f.tls.length ? f.tls.map((t) => ({ ...base, p_tl: t, p_target: Math.floor(base.p_target / f.tls.length) })) : [{ ...base, p_tl: null }]); }}>
         <Field label="Order">
           <select required className={inputCls} value={f.order} onChange={(e) => setF({ ...f, order: e.target.value, item: "" })}>
             <option value="">Choose an order…</option>
@@ -247,10 +271,10 @@ function AssignModal({ orders, tls, role, onClose, onSave }) {
           <Field label="Work date"><input type="date" required className={inputCls} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
           <Field label="Priority"><PrioSelect value={f.priority} onChange={(v) => setF({ ...f, priority: v })} /></Field>
         </div>
-        <Field label="Target pieces (optional)"><input type="number" min="0" className={inputCls} value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></Field>
+        <Field label="Target pieces (optional — shared equally between Team Leads)"><input type="number" min="0" className={inputCls} value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></Field>
         {role !== "gm" && (
-          <Field label="Team Lead (optional)">
-            <select className={inputCls} value={f.tl} onChange={(e) => setF({ ...f, tl: e.target.value })}><option value="">Assign later</option>{tls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <Field label="Team Leads (optional — tick more than one to share the order)">
+            <TlPicker tls={tls} value={f.tls} onChange={(v) => setF({ ...f, tls: v })} />
           </Field>
         )}
         <Field label="Instructions (optional)"><textarea className={inputCls} rows={2} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
@@ -266,7 +290,7 @@ function PlanModal({ orders, existing, tls, onClose, onSave }) {
   const [date, setDate] = useState(todayStr());
   const [pick, setPick] = useState({});
   const plannedIds = new Set(existing.filter((a) => a.work_date === date && a.pm_status === "Accepted").map((a) => a.order_id));
-  const set = (id, patch) => setPick((p) => ({ ...p, [id]: { priority: "Normal", tl: "", target: "", ...(p[id] || {}), ...patch } }));
+  const set = (id, patch) => setPick((p) => ({ ...p, [id]: { priority: "Normal", tls: [], target: "", ...(p[id] || {}), ...patch } }));
   const chosen = Object.entries(pick).filter(([, v]) => v.on);
   return (
     <Modal title="Plan the day — choose the orders to progress" onClose={onClose}>
@@ -284,10 +308,10 @@ function PlanModal({ orders, existing, tls, onClose, onSave }) {
                 {already && <span className="text-[11px] rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 ml-auto">already planned</span>}
               </label>
               {v.on && (
-                <div className="grid grid-cols-3 gap-2 mt-2">
+                <div className="grid grid-cols-2 gap-2 mt-2">
                   <select aria-label={`Priority for ${o.order_number}`} className={`${inputCls} !text-xs`} value={v.priority || "Normal"} onChange={(e) => set(o.id, { priority: e.target.value })}>{PRIORITIES.map((p) => <option key={p}>{p}</option>)}</select>
                   <input aria-label={`Target for ${o.order_number}`} type="number" min="0" placeholder="Target pcs" className={`${inputCls} !text-xs`} value={v.target ?? ""} onChange={(e) => set(o.id, { target: e.target.value })} />
-                  <select aria-label={`Team Lead for ${o.order_number}`} className={`${inputCls} !text-xs`} value={v.tl || ""} onChange={(e) => set(o.id, { tl: e.target.value })}><option value="">Team Lead…</option>{tls.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+                  <div className="col-span-3"><TlPicker label={o.order_number} tls={tls} value={v.tls || []} onChange={(x) => set(o.id, { tls: x })} /></div>
                 </div>
               )}
             </div>
@@ -297,7 +321,10 @@ function PlanModal({ orders, existing, tls, onClose, onSave }) {
       </div>
       <div className="flex justify-end gap-2">
         <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn disabled={!chosen.length} onClick={() => onSave(chosen.map(([id, v]) => ({ p_order_id: id, p_item: null, p_date: date, p_priority: v.priority || "Normal", p_target: Number(v.target) || 0, p_instructions: null, p_tl: v.tl || null })))}>
+        <Btn disabled={!chosen.length} onClick={() => onSave(chosen.flatMap(([id, v]) => {
+          const tl = v.tls?.length ? v.tls : [null];
+          return tl.map((t) => ({ p_order_id: id, p_item: null, p_date: date, p_priority: v.priority || "Normal", p_target: Math.floor((Number(v.target) || 0) / tl.length), p_instructions: null, p_tl: t }));
+        }))}>
           Plan {chosen.length || ""} order{chosen.length === 1 ? "" : "s"}
         </Btn>
       </div>

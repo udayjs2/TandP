@@ -37,7 +37,7 @@ import { MODULE_ROLES } from "./lib/helpers";
 const FULL = ["admin", "hr"];
 
 // QC (quality team) is deliberately not in ALL: it only gets Production Management -> Quality.
-const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "sales", "finance", "user"];
+const ALL = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_manager", "ironing", "sales_manager", "sales", "finance", "user"];
 
 // Top-level modules. Sub-tabs inside each module are filtered by role below.
 const TABS = [

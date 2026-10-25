@@ -14,7 +14,7 @@ const shortDate = (iso) => (iso ? new Date(iso).toLocaleDateString("en-IN", { ti
 
 // Lead management + visit / follow-up log + conversion of a won lead into a customer and sales order.
 export default function Leads({ profile }) {
-  const manager = ["admin", "hr", "gm", "pm"].includes(profile?.role);
+  const manager = ["admin", "hr", "gm", "pm", "sales_manager"].includes(profile?.role);
   const myEmpId = profile?.employee_id || null;
   const today = todayStr();
   const [leads, setLeads] = useState([]);

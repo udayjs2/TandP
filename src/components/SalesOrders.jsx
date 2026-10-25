@@ -13,7 +13,7 @@ const INVOICE_COLORS = {
 
 // Orders that came through sales: confirmation -> production -> delivery -> invoice -> payment.
 export default function SalesOrders({ profile }) {
-  const manager = ["admin", "gm", "pm"].includes(profile?.role);
+  const manager = ["admin", "gm", "pm", "sales_manager"].includes(profile?.role);
   const [rows, setRows] = useState(null);
   const [q, setQ] = useState("");
   const [sp, setSp] = useState("All");

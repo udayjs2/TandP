@@ -4,8 +4,11 @@ import { supabase } from "../supabaseClient";
 import { Card, StatCard } from "./ui";
 import AlertTicker from "./AlertTicker";
 import DayReport from "./DayReport";
-import { fmtMoney, monthKey, todayStr, ORDER_STATUS_COLORS } from "../lib/helpers";
-import { PRIORITY_STYLE, TL_STATUS_STYLE, byPriority, assignmentOutput } from "../lib/assignments";
+import { fmtMoney, monthKey, todayStr } from "../lib/helpers";
+import TeamsToday from "./TeamsToday";
+import { PRIORITY_STYLE, TL_STATUS_STYLE, byPriority, fetchOutputs } from "../lib/assignments";
+
+const fmtD = (iso) => { const [y, m, d] = String(iso || "").split("-"); return d ? `${d}/${m}/${y}` : "—"; };
 
 export default function Dashboard({ profile }) {
   const [loading, setLoading] = useState(true);
@@ -20,8 +23,7 @@ export default function Dashboard({ profile }) {
       { data: todaysAtt },
       { data: orders },
       { data: sales },
-      { data: recentOrders },
-      { data: todaysProgress },
+      todayOutputs,
       { data: todaysLabor },
       { data: allEmployees },
       { data: planToday },
@@ -29,10 +31,9 @@ export default function Dashboard({ profile }) {
     ] = await Promise.all([
       supabase.from("employees").select("id, role").neq("status", "Inactive"),
       supabase.from("attendance").select("employee_id, status").eq("date", today),
-      supabase.from("orders").select("id, status, order_number, customer_name, daily_target, items"),
+      supabase.from("orders").select("id, status, order_number, customer_name, daily_target, items, order_date, due_date, planned_start_date, planned_end_date"),
       supabase.from("sales_targets").select("employee_id, target, achieved").eq("month", mk),
-      supabase.from("orders").select("*").order("order_date", { ascending: false }).limit(5),
-      supabase.from("order_progress").select("order_id, quantity").eq("date", today),
+      fetchOutputs(supabase, today),
       supabase.from("order_labor").select("order_id, employee_id").eq("work_date", today),
       supabase.from("employees").select("id, name, reporting_manager_id"),
       supabase.from("order_assignments").select("*").eq("work_date", today).eq("pm_status", "Accepted"),
@@ -62,12 +63,13 @@ export default function Dashboard({ profile }) {
 
     // Only the orders the Production Manager planned for today (and accepted) show as today's production.
     const orderById = Object.fromEntries((orders || []).map((o) => [o.id, o]));
-    const plan = (planToday || []).map((a) => ({ ...a, order_number: orderById[a.order_id]?.order_number, customer_name: orderById[a.order_id]?.customer_name }));
-    const progressRows = (todaysProgress || []).map((p) => ({ ...p, date: today }));
-    const orderProgressToday = plan.map((a) => ({ ...a, done: assignmentOutput(a, progressRows, today) })).sort(byPriority);
-    const seen = new Set();
-    let todayTotalDone = 0;
-    orderProgressToday.forEach((a) => { const k = `${a.order_id}|${a.item_description || ""}`; if (!seen.has(k)) { seen.add(k); todayTotalDone += a.done; } });
+    const plan = (planToday || []).map((a) => {
+      const o = orderById[a.order_id] || {};
+      return { ...a, order_number: o.order_number, customer_name: o.customer_name, start: o.planned_start_date || o.order_date, end: o.planned_end_date || o.due_date };
+    });
+    // pieces are credited by the database to the right Team Lead (exact item first, then who logged it / team size)
+    const orderProgressToday = plan.map((a) => ({ ...a, done: todayOutputs[a.id] || 0 })).sort(byPriority);
+    const todayTotalDone = orderProgressToday.reduce((t, a) => t + a.done, 0);
     const todayTotalTarget = orderProgressToday.reduce((s, a) => s + Number(a.target_qty || 0), 0);
 
     // every Team Leader, with what they are working on today
@@ -82,7 +84,6 @@ export default function Dashboard({ profile }) {
       pendingOrders,
       totalTarget,
       totalAchieved,
-      recentOrders: recentOrders || [],
       salesCount: (employees || []).filter((e) => e.role === "Sales").length,
       orderProgressToday,
       todayTotalDone,
@@ -163,16 +164,26 @@ export default function Dashboard({ profile }) {
                 </div>
               </div>
             )}
-            <div className="divide-y divide-stone-100">
-              {stats.orderProgressToday.map((a) => (
-                <div key={a.id} className="py-1.5 flex items-center justify-between text-sm gap-3">
-                  <span className="truncate flex items-center gap-2">
-                    <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${PRIORITY_STYLE[a.priority]}`}>{a.priority}</span>
-                    {a.order_number} — {a.customer_name}{a.item_description ? ` · ${a.item_description}` : ""}
-                  </span>
-                  <span className="font-mono text-xs text-stone-500 whitespace-nowrap">{a.done}{a.target_qty ? `/${a.target_qty}` : ""}</span>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="plan-table">
+                <thead className="text-xs uppercase text-stone-500 text-left">
+                  <tr><th className="py-1.5 pr-3">Production Manager</th><th className="pr-3">Order</th><th className="pr-3">Item</th><th className="pr-3">Priority</th><th className="pr-3">Assigned</th><th className="pr-3">Start</th><th className="pr-3">End</th><th className="text-right">Output</th></tr>
+                </thead>
+                <tbody className="divide-y divide-stone-100">
+                  {stats.orderProgressToday.map((a) => (
+                    <tr key={a.id}>
+                      <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{a.pm_by || "—"}</td>
+                      <td className="pr-3">{a.order_number} — {a.customer_name}</td>
+                      <td className="pr-3">{a.item_description || "All items"}</td>
+                      <td className="pr-3"><span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${PRIORITY_STYLE[a.priority]}`}>{a.priority}</span></td>
+                      <td className="pr-3 whitespace-nowrap text-xs">{a.assigned_by_role === "pm" ? "Self assigned" : a.assigned_by_role === "gm" ? `Assigned by GM${a.assigned_by ? ` (${a.assigned_by})` : ""}` : `Assigned by Admin${a.assigned_by ? ` (${a.assigned_by})` : ""}`}</td>
+                      <td className="pr-3 whitespace-nowrap text-xs">{fmtD(a.start)}</td>
+                      <td className="pr-3 whitespace-nowrap text-xs">{fmtD(a.end)}</td>
+                      <td className="text-right font-mono text-xs whitespace-nowrap">{a.done}{a.target_qty ? `/${a.target_qty}` : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -212,10 +223,12 @@ export default function Dashboard({ profile }) {
 
       <DayReport profile={profile} />
 
+      <TeamsToday />
+
       {stats.teamsWorkingToday.length > 0 && (
         <Card className="p-4">
           <h3 className="font-semibold text-sm mb-3 flex items-center gap-1.5">
-            <Users2 size={14} className="text-indigo-700" /> Teams working today
+            <Users2 size={14} className="text-indigo-700" /> Manpower assigned to orders today
           </h3>
           <div className="space-y-2.5">
             {stats.teamsWorkingToday.map((t, idx) => {
@@ -239,29 +252,6 @@ export default function Dashboard({ profile }) {
           </div>
         </Card>
       )}
-
-      <Card className="p-4">
-        <h3 className="font-semibold text-sm mb-3">Orders in progress</h3>
-        {stats.recentOrders.length === 0 ? (
-          <p className="text-sm text-stone-500">No orders logged yet.</p>
-        ) : (
-          <div className="divide-y divide-stone-100">
-            {stats.recentOrders.map((o) => (
-              <div key={o.id} className="py-2 flex items-center justify-between text-sm gap-3">
-                <div>
-                  <div className="font-medium">{o.order_number} — {o.customer_name}</div>
-                  <div className="text-xs text-stone-500">
-                    Planned {o.planned_start_date || "—"} → {o.planned_end_date || "—"} · Due {o.due_date || "—"}
-                  </div>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${ORDER_STATUS_COLORS[o.status] || "bg-stone-100 text-stone-700"}`}>
-                  {o.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
 
     </div>
   );

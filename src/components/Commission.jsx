@@ -70,7 +70,7 @@ export default function Commission({ profile }) {
   // salespeople to show in the progress cards: everyone with orders, plus Sales employees (managers) / me
   const salesEmps = people.filter((p) => p.role === "Sales" && p.status !== "Inactive");
   const idsInProgress = new Set(progress.map((p) => p.salesperson_id));
-  const cardIds = [...new Set([...progress.filter((p) => p.period_key === activeKey).map((p) => p.salesperson_id), ...(isAdmin || ["gm", "pm"].includes(profile?.role) ? salesEmps.map((s) => s.id) : profile?.employee_id ? [profile.employee_id] : [])])];
+  const cardIds = [...new Set([...progress.filter((p) => p.period_key === activeKey).map((p) => p.salesperson_id), ...(isAdmin || ["gm", "pm", "sales_manager"].includes(profile?.role) ? salesEmps.map((s) => s.id) : profile?.employee_id ? [profile.employee_id] : [])])];
   const cards = cardIds
     .map((id) => {
       const p = progress.find((x) => x.salesperson_id === id && x.period_key === activeKey);
@@ -128,7 +128,7 @@ export default function Commission({ profile }) {
           <select className={inputCls + " w-auto"} value={activeKey} onChange={(e) => setPeriodKey(e.target.value)}>
             {keys.map((k) => <option key={k} value={k}>{periodKeyLabel(k)}{k === curKey ? " (current)" : ""}</option>)}
           </select>
-          {(isAdmin || ["gm", "pm"].includes(profile?.role)) && (
+          {(isAdmin || ["gm", "pm", "sales_manager"].includes(profile?.role)) && (
             <select className={inputCls + " w-auto"} value={spF} onChange={(e) => setSpF(e.target.value)}>
               <option value="All">All salespeople</option>
               {[...new Set([...salesEmps.map((s) => s.id), ...idsInProgress])].map((id) => <option key={id} value={id}>{nameOf(id)}</option>)}

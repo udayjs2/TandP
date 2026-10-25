@@ -23,7 +23,7 @@ export default function Reports({ profile }) {
   const FULL = ["admin", "hr"];
   const defs = [
     { id: "overview", label: "Business Overview", icon: LayoutDashboard, roles: ["admin", "finance"], render: () => <BusinessOverview /> },
-    { id: "sales", label: "Sales & CRM", icon: Users2, roles: ["admin", "gm", "pm", "sales"], render: () => <SalesReport /> },
+    { id: "sales", label: "Sales & CRM", icon: Users2, roles: ["admin", "gm", "pm", "sales", "sales_manager"], render: () => <SalesReport /> },
     { id: "production", label: "Production", icon: Factory, roles: [...FULL, "gm", "pm", "tl"], render: () => <ProductionReport /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: [...FULL, "gm", "pm", "tl", "quality_manager"], render: () => <QualityReport profile={profile} /> },
     { id: "hr", label: "HR, Attendance & Payroll", icon: Users, roles: FULL, render: () => <HrReport /> },
