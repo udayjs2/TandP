@@ -139,11 +139,6 @@ export default function TeamsToday() {
       <div className="space-y-4" data-testid="teams-today">
         <Cell title="General Manager" people={gm} />
         <div>
-          <Heading>Cutting — reports to the General Manager{gm.length ? ` (${gm.map((p) => p.name).join(", ")})` : ""}</Heading>
-          <Row><TeamColumn title="Cutting team" lead={cutLeads[0] || null} members={[...cutLeads.slice(1), ...cutMembers]} /></Row>
-        </div>
-
-        <div>
           <Heading>Management Team{gm.length ? ` — under ${gm.map((p) => p.name).join(", ")} (General Manager)` : ""}</Heading>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Cell title="Production Manager" people={pm} />
@@ -163,10 +158,11 @@ export default function TeamsToday() {
         </div>
 
         <div>
-          <Heading>HR and Sales teams</Heading>
+          <Heading>HR, Sales &amp; Cutting Teams — reports to the General Manager{gm.length ? ` (${gm.map((p) => p.name).join(", ")})` : ""}</Heading>
           <Row>
             <TeamColumn title="HR team" lead={hr[0] || null} members={[...hr.slice(1), ...hrMembers]} />
             <TeamColumn title="Sales team" lead={sm[0] || null} members={[...sm.slice(1), ...salesMembers]} />
+            <TeamColumn title="Cutting team" lead={cutLeads[0] || null} members={[...cutLeads.slice(1), ...cutMembers]} />
           </Row>
         </div>
 
