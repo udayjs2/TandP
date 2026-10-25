@@ -717,3 +717,23 @@ No new migration (item size ranges are stored inside the order's items).
 - **Customer tracking page:** three buttons right under "Check status" — *View dispatches*, *Confirm what you received*, *See payments*. They activate once the order number and tracking code are typed. Each opens the dispatch page on that tab, which also has a tab bar to switch between them.
 - **Back to order tracking** button at the top and bottom of the dispatch page.
 - **Order create/edit:** each item can define a size range — Numbers (e.g. 9 to 46), Letters (XS to 5XL), or Custom (e.g. `9-16, 20, 22, Free`). In Log cutting count, choosing that item shows its own size range first.
+
+## v55 — Invoices: dispatch batches, payments, negative balance
+
+No migration.
+
+- **Negative balance:** an invoice that has received more than its total now shows the negative amount (e.g. `-₹10,000`, status "Paid (excess)") instead of 0. Extra money stays on the order's latest invoice. `fmtMoney` shows negatives as `-₹…` everywhere.
+- **New / edit invoice linked to an order:** lists every dispatch (Dispatch 1, 2 … with date, item, qty) and every payment (Advance, Payment 2 …). Tick the dispatch batch(es) this invoice covers and click *Use ticked dispatches as the invoice lines* (enter the prices). The advance auto-fill excludes payments already counted against the order's other invoices, so batch 2 doesn't double-count batch 1's payments.
+- **Printed invoice:** adds DISPATCH DETAILS and PAYMENT DETAILS (whole order) tables; shows "Excess Received (credit)" when the balance is negative.
+
+## v56 — Order Assignment, planned-day dashboard, day-end report
+
+Run `supabase/migration_49.sql` after migration_48 (also enable the **pg_cron** extension in Supabase → Database → Extensions if you want the 6 PM report to be created even when nobody has the app open; the migration schedules it at 18:00 IST).
+
+- **Production Management → Order Assignment** (Admin, GM, PM; Team Leads see their own work).
+  - GM/Admin assign a priority order (Top / High / Normal / Low, date, target) → it waits for the **Production Manager**, who accepts it or changes priority/date with a reason. Every change is logged (History).
+  - **Plan the day:** the PM ticks the orders to run on a day, with priority, target and Team Lead.
+  - PM/GM/Admin assign a **Team Lead**; the Team Lead accepts (or declines with a reason), starts, and marks completed with pieces made. Moving the date asks the Team Lead to accept again. Unfinished work from earlier days shows as "Carried over" with *Move to today*.
+- **Dashboard:** Today's production progress now shows only the orders planned for today (in priority order). New **Team Leaders — today's work** table (Team Leader, Order, Items, Total output). Unpaid / overdue invoice cards removed.
+- **Day-end report** (Dashboard): Production, Cutting and Sales messages with **Copy for WhatsApp**. Admin/GM/PM can generate/regenerate; everyone else can read and copy. Created automatically at 6 PM (pg_cron) or the first time a manager opens the dashboard after 6 PM.
+- Team Leads must be linked to their employee record (User Management) to see their assignments.

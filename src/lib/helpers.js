@@ -1,5 +1,7 @@
-export const fmtMoney = (n) =>
-  `₹${(Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+export const fmtMoney = (n) => {
+  const v = Number(n) || 0;
+  return `${v < 0 ? "-" : ""}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+};
 
 // Always compute "today" in India Standard Time — toISOString() converts
 // to UTC first, which silently shows "yesterday" for roughly the first 5.5

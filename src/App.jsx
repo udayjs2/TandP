@@ -26,6 +26,7 @@ import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
 import Output from "./components/Output";
 import ProgressHistory from "./components/ProgressHistory";
+import OrderAssignment from "./components/OrderAssignment";
 import { loadGarmentNames } from "./lib/garments";
 import Quality from "./components/Quality";
 import Reports from "./components/Reports";
@@ -138,6 +139,7 @@ export default function App() {
   const productionTabs = [
     { id: "orders", label: "Orders", icon: Package, roles: ["admin", "gm", "pm", "tl"], render: () => <Orders profile={profile} /> },
     { id: "cutting", label: "Cutting", icon: Scissors, roles: ["admin", "gm", "pm", "cutting_master"], render: () => <Cutting profile={profile} /> },
+    { id: "assignment", label: "Order Assignment", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl"], render: () => <OrderAssignment profile={profile} /> },
     { id: "output", label: "Output", icon: BarChart3, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <Output /> },
     { id: "progress-history", label: "Progress History", icon: History, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <ProgressHistory /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl", "quality_manager", "qc"], render: () => <Quality profile={profile} /> },

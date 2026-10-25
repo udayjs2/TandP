@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { X, Receipt } from "lucide-react";
+import { supabase } from "../supabaseClient";
 import { Btn } from "./ui";
 import { fmtMoney, itemsTotal } from "../lib/helpers";
 
@@ -7,6 +9,13 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
   const total = itemsTotal(items);
   const advanceReceived = Number(invoice.advance_received) || 0;
   const balanceDue = total - advanceReceived;
+  const [deliveries, setDeliveries] = useState([]);
+  const [pays, setPays] = useState([]);
+  useEffect(() => {
+    if (!invoice.linked_order_id) return;
+    supabase.from("order_deliveries").select("date, item_description, quantity").eq("order_id", invoice.linked_order_id).order("date").then(({ data }) => setDeliveries(data || []));
+    supabase.from("order_payments").select("amount, payment_date, mode").eq("order_id", invoice.linked_order_id).order("payment_date").then(({ data }) => setPays(data || []));
+  }, [invoice.linked_order_id]);
   const businessName = settings.business_name || "T&P Textiles";
 
   return (
@@ -101,12 +110,42 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
               </tr>
             )}
             <tr>
-              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">Balance Due</td>
+              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{balanceDue < 0 ? "Excess Received (credit)" : "Balance Due"}</td>
               <td className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{fmtMoney(balanceDue)}</td>
             </tr>
           </tbody>
         </table>
         <p className="text-xs text-stone-500 mb-5">Note: Prices include GST as applicable.</p>
+
+        {deliveries.length > 0 && (
+          <div className="mb-5">
+            <div className="font-bold text-sm mb-1.5">DISPATCH DETAILS</div>
+            <table className="w-full text-sm border border-stone-800 border-collapse">
+              <thead><tr className="bg-stone-50"><th className="border border-stone-800 text-left py-1.5 px-2">Dispatch</th><th className="border border-stone-800 text-left py-1.5 px-2">Date</th><th className="border border-stone-800 text-left py-1.5 px-2">Item</th><th className="border border-stone-800 text-right py-1.5 px-2">Qty</th></tr></thead>
+              <tbody>
+                {deliveries.map((d, k) => (
+                  <tr key={k}><td className="border border-stone-800 py-1.5 px-2">{k + 1}</td><td className="border border-stone-800 py-1.5 px-2">{d.date}</td><td className="border border-stone-800 py-1.5 px-2">{d.item_description}</td><td className="border border-stone-800 text-right py-1.5 px-2">{d.quantity}</td></tr>
+                ))}
+                <tr><td colSpan={3} className="border border-stone-800 text-right py-1.5 px-2 font-semibold">Total dispatched</td><td className="border border-stone-800 text-right py-1.5 px-2 font-semibold">{deliveries.reduce((t, d) => t + Number(d.quantity || 0), 0)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {pays.length > 0 && (
+          <div className="mb-5">
+            <div className="font-bold text-sm mb-1.5">PAYMENT DETAILS (whole order)</div>
+            <table className="w-full text-sm border border-stone-800 border-collapse">
+              <thead><tr className="bg-stone-50"><th className="border border-stone-800 text-left py-1.5 px-2">Received as</th><th className="border border-stone-800 text-left py-1.5 px-2">Date</th><th className="border border-stone-800 text-left py-1.5 px-2">Mode</th><th className="border border-stone-800 text-right py-1.5 px-2">Amount (₹)</th></tr></thead>
+              <tbody>
+                {pays.map((p, k) => (
+                  <tr key={k}><td className="border border-stone-800 py-1.5 px-2">{k === 0 ? "Advance" : `Payment ${k + 1}`}</td><td className="border border-stone-800 py-1.5 px-2">{p.payment_date}</td><td className="border border-stone-800 py-1.5 px-2">{p.mode}</td><td className="border border-stone-800 text-right py-1.5 px-2">{fmtMoney(p.amount)}</td></tr>
+                ))}
+                <tr><td colSpan={3} className="border border-stone-800 text-right py-1.5 px-2 font-semibold">Total received</td><td className="border border-stone-800 text-right py-1.5 px-2 font-semibold">{fmtMoney(pays.reduce((t, p) => t + Number(p.amount || 0), 0))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {(settings.account_name || settings.bank_name || settings.account_number) && (
           <div className="mb-5">

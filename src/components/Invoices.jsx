@@ -23,6 +23,7 @@ export default function Invoices({ isAdmin }) {
     const pool = {};
     payments.forEach((p) => (pool[p.order_id] = (pool[p.order_id] || 0) + Number(p.amount || 0)));
     const out = {};
+    const lastOf = {};
     [...invoices]
       .sort((a, b) => (a.issue_date || "").localeCompare(b.issue_date || "") || (a.created_at || "").localeCompare(b.created_at || ""))
       .forEach((i) => {
@@ -31,10 +32,13 @@ export default function Invoices({ isAdmin }) {
           const share = Math.min(pool[i.linked_order_id] || 0, total);
           pool[i.linked_order_id] = (pool[i.linked_order_id] || 0) - share;
           out[i.id] = i.status === "Paid" ? Math.max(share, total) : share; // a manually-marked Paid invoice counts as fully paid
+          lastOf[i.linked_order_id] = i.id;
         } else {
           out[i.id] = i.status === "Paid" ? total : Number(i.advance_received || 0);
         }
       });
+    // money received beyond the invoiced total is kept on the order's latest invoice, so the balance shows as negative (excess received)
+    Object.entries(lastOf).forEach(([oid, iid]) => { if ((pool[oid] || 0) > 0) out[iid] += pool[oid]; });
     return out;
   })();
 
@@ -98,7 +102,7 @@ export default function Invoices({ isAdmin }) {
 
   const paidFlag = (i) => {
     const amount = amountOf(i);
-    return i.status === "Paid" || (amount > 0 && Math.max(0, amount - (paidById[i.id] || 0)) <= 0);
+    return i.status === "Paid" || (amount > 0 && amount - (paidById[i.id] || 0) <= 0);
   };
   const openInvoices = invoices.filter((i) => !paidFlag(i));
   const paidInvoices = invoices.filter(paidFlag);
@@ -147,7 +151,7 @@ export default function Invoices({ isAdmin }) {
             {shownInvoices.map((i) => {
               const amount = amountOf(i);
               const paid = paidById[i.id] || 0;
-              const balanceDue = Math.max(0, amount - paid);
+              const balanceDue = amount - paid;
               const isPaid = i.status === "Paid" || (amount > 0 && balanceDue <= 0);
               const overdue = !isPaid && i.due_date && i.due_date < today;
               return (
@@ -158,14 +162,14 @@ export default function Invoices({ isAdmin }) {
                   <td className="px-4 py-2.5 text-stone-500">{i.due_date || "—"}</td>
                   <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(amount)}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-emerald-700">{fmtMoney(paid)}</td>
-                  <td className={`px-4 py-2.5 text-right font-mono font-semibold ${balanceDue > 0 ? "text-rose-700" : "text-stone-400"}`}>{fmtMoney(balanceDue)}</td>
+                  <td className={`px-4 py-2.5 text-right font-mono font-semibold ${balanceDue > 0 ? "text-rose-700" : balanceDue < 0 ? "text-amber-700" : "text-stone-400"}`} title={balanceDue < 0 ? "More has been received than this invoice total" : undefined}>{fmtMoney(balanceDue)}</td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                         isPaid ? "bg-emerald-100 text-emerald-800" : overdue ? "bg-rose-100 text-rose-800" : paid > 0 ? "bg-sky-100 text-sky-800" : "bg-amber-100 text-amber-800"
                       }`}
                     >
-                      {isPaid ? "Paid" : overdue ? "Overdue" : paid > 0 ? "Part paid" : "Unpaid"}
+                      {isPaid ? (balanceDue < 0 ? "Paid (excess)" : "Paid") : overdue ? "Overdue" : paid > 0 ? "Part paid" : "Unpaid"}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
@@ -200,7 +204,7 @@ export default function Invoices({ isAdmin }) {
         </table>
       </Card>
       <p className="text-xs text-stone-400">Paid = payments logged for the order in Finance → Payments, applied to its invoices oldest first. When an invoice is fully covered its status changes to Paid automatically.</p>
-      {modal && <InvoiceModal inv={modal} orders={orders} onClose={() => setModal(null)} onSave={save} count={invoices.length} />}
+      {modal && <InvoiceModal invoices={invoices} inv={modal} orders={orders} onClose={() => setModal(null)} onSave={save} count={invoices.length} />}
       {settingsOpen && <BusinessSettingsModal settings={settings} onClose={() => setSettingsOpen(false)} onSave={saveSettings} />}
       {printInvoice && <PrintInvoice invoice={printInvoice} settings={settings} onClose={() => setPrintInvoice(null)} />}
     </div>
@@ -282,7 +286,7 @@ function BusinessSettingsModal({ settings, onClose, onSave }) {
   );
 }
 
-function InvoiceModal({ inv, orders, onClose, onSave, count }) {
+function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
   const initialItems =
     inv.items && inv.items.length
       ? inv.items
@@ -302,6 +306,34 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
   });
   const [items, setItems] = useState(initialItems);
   const [loadingAdvance, setLoadingAdvance] = useState(false);
+  const [deliveries, setDeliveries] = useState([]);
+  const [pays, setPays] = useState([]);
+  const [pick, setPick] = useState({});
+
+  // dispatches + payments of the linked order (shown so each batch can be invoiced and its payments seen)
+  const loadOrderInfo = async (orderId) => {
+    if (!orderId) { setDeliveries([]); setPays([]); setPick({}); return; }
+    const [{ data: d }, { data: p }] = await Promise.all([
+      supabase.from("order_deliveries").select("id, date, item_description, quantity").eq("order_id", orderId).order("date"),
+      supabase.from("order_payments").select("id, amount, payment_date, mode").eq("order_id", orderId).order("payment_date"),
+    ]);
+    setDeliveries(d || []); setPays(p || []); setPick({});
+    return p || [];
+  };
+  useEffect(() => { if (f.linked_order_id) loadOrderInfo(f.linked_order_id); /* eslint-disable-next-line */ }, []);
+
+  // payments already counted against the order's other invoices are not counted again
+  const otherInvoicesTotal = (orderId) =>
+    invoices.filter((x) => x.linked_order_id === orderId && x.id !== f.id).reduce((t, x) => t + (x.items?.length ? itemsTotal(x.items) : Number(x.amount) || 0), 0);
+
+  const useSelectedDeliveries = () => {
+    const chosen = deliveries.filter((d) => pick[d.id]);
+    if (!chosen.length) return;
+    const byItem = {};
+    chosen.forEach((d) => { byItem[d.item_description] = (byItem[d.item_description] || 0) + Number(d.quantity || 0); });
+    const priceOf = (desc) => items.find((it) => it.description === desc)?.price || "";
+    setItems(Object.entries(byItem).map(([description, quantity]) => ({ description, quantity, price: priceOf(description) })));
+  };
 
   const applyOrder = async (orderId) => {
     const o = orders.find((x) => x.id === orderId);
@@ -311,11 +343,12 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
     }
     if (orderId) {
       setLoadingAdvance(true);
-      const { data } = await supabase.from("order_payments").select("amount").eq("order_id", orderId);
+      const data = await loadOrderInfo(orderId);
       const advanceTotal = (data || []).reduce((s, p) => s + Number(p.amount || 0), 0);
       setLoadingAdvance(false);
-      setF((prev) => ({ ...prev, advance_received: advanceTotal || "" }));
-    }
+      // payments already used by the order's other invoices (earlier batches) are not counted again
+      setF((prev) => ({ ...prev, advance_received: Math.max(0, advanceTotal - otherInvoicesTotal(orderId)) || "" }));
+    } else loadOrderInfo(null);
   };
 
   const addItem = () => setItems([...items, { description: "", quantity: 1, price: "" }]);
@@ -354,6 +387,30 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
         <Field label="Customer">
           <input required className={inputCls} value={f.customer_name} onChange={(e) => setF({ ...f, customer_name: e.target.value })} />
         </Field>
+
+        {f.linked_order_id && (deliveries.length > 0 || pays.length > 0) && (
+          <div className="border border-stone-200 rounded-lg p-3 mb-3 bg-stone-50 text-xs">
+            {deliveries.length > 0 && (<>
+              <div className="font-semibold text-stone-700 mb-1">Dispatches of this order — tick the batch(es) this invoice is for</div>
+              {deliveries.map((d, k) => (
+                <label key={d.id} className="flex items-center gap-2 py-0.5">
+                  <input type="checkbox" checked={!!pick[d.id]} onChange={(e) => setPick({ ...pick, [d.id]: e.target.checked })} />
+                  <span className="text-stone-500">Dispatch {k + 1} · {d.date}</span><span className="flex-1">{d.item_description}</span><span className="font-mono">{d.quantity} pcs</span>
+                </label>
+              ))}
+              <button type="button" onClick={useSelectedDeliveries} className="mt-1 font-medium text-indigo-700 hover:text-indigo-900">Use ticked dispatches as the invoice lines</button>
+            </>)}
+            {pays.length > 0 && (
+              <div className={deliveries.length ? "mt-3 pt-2 border-t border-stone-200" : ""}>
+                <div className="font-semibold text-stone-700 mb-1">Payments received on this order</div>
+                {pays.map((p, k) => (
+                  <div key={p.id} className="flex justify-between py-0.5"><span className="text-stone-500">{k === 0 ? "Advance" : `Payment ${k + 1}`} · {p.payment_date} · {p.mode}</span><span className="font-mono">{fmtMoney(p.amount)}</span></div>
+                ))}
+                <div className="flex justify-between font-semibold pt-1"><span>Total received</span><span className="font-mono">{fmtMoney(pays.reduce((t, p) => t + Number(p.amount || 0), 0))}</span></div>
+              </div>
+            )}
+          </div>
+        )}
 
         <span className="block text-xs font-medium text-stone-600 mb-1">Items</span>
         <div className="border border-stone-200 rounded-lg overflow-hidden mb-2">
@@ -416,7 +473,7 @@ function InvoiceModal({ inv, orders, onClose, onSave, count }) {
         </p>
 
         <div className="text-right text-base font-bold mb-3 border-t border-stone-200 pt-2">
-          Balance Due: <span className="font-mono">{fmtMoney(balanceDue)}</span>
+          {balanceDue < 0 ? "Excess received" : "Balance Due"}: <span className={`font-mono ${balanceDue < 0 ? "text-amber-700" : ""}`}>{fmtMoney(balanceDue)}</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
