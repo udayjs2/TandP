@@ -3,7 +3,8 @@ import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History 
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
-import { garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem } from "../lib/garments";
+import GarmentMaster from "./GarmentMaster";
+import { itemSizes, itemSizeText, garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem } from "../lib/garments";
 
 const LETTER_SIZES = ["2XS", "XS", "S", "M", "L", "XL", "2XL"];
 // Numeric sizes are even numbers as sold in the market.
@@ -132,13 +133,18 @@ export default function Cutting({ profile }) {
   const shownEntries = view === "pending" ? pendingEntries : view === "approved" ? approvedEntries : rejectedEntries;
   const EMPTY = { pending: "Nothing waiting for review.", approved: "No approved cutting entries yet.", rejected: "No rejected cutting entries." };
 
+  const tabBar = (
+    <div className="subtab-bar">
+      {[["pending", `Pending review (${pendingEntries.length})`], ["approved", `Approved (${approvedEntries.length})`], ["rejected", `Rejected (${rejectedEntries.length})`], ["master", "Garment Design & Size Master"]].map(([id, label]) => (
+        <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
+      ))}
+    </div>
+  );
+  if (view === "master") return <div className="space-y-4">{tabBar}<GarmentMaster profile={profile} /></div>;
+
   return (
     <div className="space-y-4">
-      <div className="subtab-bar">
-        {[["pending", `Pending review (${pendingEntries.length})`], ["approved", `Approved (${approvedEntries.length})`], ["rejected", `Rejected (${rejectedEntries.length})`]].map(([id, label]) => (
-          <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
-        ))}
-      </div>
+      {tabBar}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{view === "pending" ? "Cutting — pending review" : view === "approved" ? "Approved cutting" : "Rejected cutting (sent back to the cutting master)"}</h2>
         {(isCuttingMaster || profile?.role === "pm") && (
@@ -352,9 +358,16 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
   const itemGarment = garmentOfItem(items.find((it) => it.description === itemDesc), garments);
   // follow the chosen item: its garment's size chart opens automatically
   useEffect(() => {
-    if (itemGarment) setGroupKey(`g:${itemGarment.id}`);
+    if (itemSizes(items.find((it) => it.description === itemDesc)).length) setGroupKey("r:item");
+    else if (itemGarment) setGroupKey(`g:${itemGarment.id}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemDesc, garments.length]);
+  const selItem = items.find((it) => it.description === itemDesc);
+  const rangeSizes = itemSizes(selItem);
+  if (rangeSizes.length) {
+    const rg = { key: "r:item", prefix: itemGarment?.size_prefix || "", label: `${selItem.description} — order size range (${itemSizeText(selItem)})`, sizes: rangeSizes };
+    groups = [rg, ...groups.filter((g) => g.key !== rg.key)];
+  }
   const group = groups.find((g) => g.key === groupKey) || groups[0] || allGroups[0] || { key: "", prefix: "", label: "", sizes: [] };
 
   const save = async (e) => {

@@ -708,3 +708,12 @@ Orders are often dispatched in parts, so quality checks and approval can now be 
 - Lots appear in Quality → "Partial dispatches" filter and in the order's Deliveries window.
 - Deliveries can be logged against an approved lot, capped at that lot's quantity per item. The whole-order approval path is unchanged.
 - Partial dispatches do not change the order status; Shipped still needs full approval.
+
+## v54 — Size master in Cutting, customer tracking tools, per-item size ranges
+
+No new migration (item size ranges are stored inside the order's items).
+
+- **Garment Design & Size Master** moved from Orders to the **Cutting** sub-module (last tab).
+- **Customer tracking page:** three buttons right under "Check status" — *View dispatches*, *Confirm what you received*, *See payments*. They activate once the order number and tracking code are typed. Each opens the dispatch page on that tab, which also has a tab bar to switch between them.
+- **Back to order tracking** button at the top and bottom of the dispatch page.
+- **Order create/edit:** each item can define a size range — Numbers (e.g. 9 to 46), Letters (XS to 5XL), or Custom (e.g. `9-16, 20, 22, Free`). In Log cutting count, choosing that item shows its own size range first.

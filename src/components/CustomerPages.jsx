@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Star, ThumbsUp, ThumbsDown, CheckCircle2 } from "lucide-react";
+import { Loader2, ArrowLeft, Star, ThumbsUp, ThumbsDown, CheckCircle2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Field, inputCls, Btn } from "./ui";
 import { FEEDBACK_ITEMS, DELIVERY_TIMINGS } from "../lib/helpers";
@@ -125,6 +125,7 @@ export function AgreementPage() {
           </div>
         </Card>
       )}
+      <a href={trackUrl} className="flex items-center justify-center gap-1.5 text-sm font-medium text-indigo-800 mt-5"><ArrowLeft size={15} /> Back to order tracking</a>
     </Shell>
   );
 }
@@ -242,6 +243,8 @@ export function DeliveryPage() {
   const [answer, setAnswer] = useState({}); // delivery id -> { accepted, reason }
   const [busy, setBusy] = useState("");
   const [msgs, setMsgs] = useState({});
+  const [tab, setTab] = useState(["dispatches", "confirm", "payments"].includes(params.get("view")) ? params.get("view") : "dispatches");
+  const trackUrl = `/?track=1&order=${encodeURIComponent(order)}&code=${encodeURIComponent(code)}`;
 
   const load = async () => {
     const { data: d } = await supabase.rpc("public_delivery_status", { p_order_number: order, p_tracking_code: code });
@@ -285,6 +288,12 @@ export function DeliveryPage() {
 
   return (
     <Shell subtitle="Your dispatch — please check and confirm">
+      <a href={trackUrl} className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-800 hover:text-indigo-950 mb-3"><ArrowLeft size={15} /> Back to order tracking</a>
+      <div className="grid grid-cols-3 gap-2 mb-4" role="tablist">
+        {[["dispatches", "View dispatches"], ["confirm", pendingRows.length ? `Confirm what you received (${pendingRows.length})` : "Confirm what you received"], ["payments", "See payments"]].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`rounded-lg border px-2 py-2 text-xs font-medium leading-tight ${tab === id ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-700 border-stone-300 hover:bg-stone-50"}`}>{label}</button>
+        ))}
+      </div>
       <Card className="p-5 mb-4">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-semibold text-lg">{data.order_number}</h2>
@@ -306,7 +315,8 @@ export function DeliveryPage() {
         </table>
       </Card>
 
-      {pendingRows.length > 0 && (
+      {tab === "confirm" && pendingRows.length === 0 && <Card className="p-5 mb-4 text-sm text-stone-500">Nothing is waiting for your confirmation. Thank you!</Card>}
+      {tab === "confirm" && pendingRows.length > 0 && (
         <Card className="p-5 mb-4">
           <h3 className="font-semibold mb-1">Please confirm what you received</h3>
           <p className="text-xs text-stone-500 mb-3">Check the count and quality of each dispatch. Accept it, or tell us how many pieces you accept and why the rest are not accepted.</p>
@@ -337,7 +347,7 @@ export function DeliveryPage() {
         </Card>
       )}
 
-      <Card className="p-5 mb-4">
+      {tab === "dispatches" && <Card className="p-5 mb-4">
         <h3 className="font-semibold mb-2">Delivery history</h3>
         {deliveries.length === 0 ? <p className="text-sm text-stone-400">Nothing has been dispatched yet.</p> : (
           <div className="space-y-2">
@@ -358,9 +368,9 @@ export function DeliveryPage() {
             ))}
           </div>
         )}
-      </Card>
+      </Card>}
 
-      {(payments.length > 0 || invoices.length > 0) && (
+      {tab === "payments" && (
         <Card className="p-5">
           <h3 className="font-semibold mb-2">Payments</h3>
           {payments.length > 0 ? (
@@ -383,6 +393,7 @@ export function DeliveryPage() {
           )}
         </Card>
       )}
+      <a href={trackUrl} className="flex items-center justify-center gap-1.5 text-sm font-medium text-indigo-800 mt-5"><ArrowLeft size={15} /> Back to order tracking</a>
     </Shell>
   );
 }

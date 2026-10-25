@@ -5,9 +5,8 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, DELAY_CAUSES, FEEDBACK_ITEMS, isOrderOverdue, daysBetween } from "../lib/helpers";
 import { AgreementModal } from "./OrderAgreement";
 import ActualCostModal from "./ActualCost";
-import GarmentMaster from "./GarmentMaster";
 import { LotCard, RequestLotModal, lotRemaining } from "./DispatchLots";
-import { loadGarmentNames } from "../lib/garments";
+import { loadGarmentNames, SIZE_MODES, LETTER_ORDER, itemSizes, itemSizeText } from "../lib/garments";
 
 // Why an order cannot move to this status yet (empty string = allowed).
 // Shipped needs quality approval and then dispatch approval (PM, then GM); Completed = delivered, only after Shipped.
@@ -173,11 +172,11 @@ export default function Orders({ profile }) {
   return (
     <div className="space-y-4">
       <div className="subtab-bar">
-        {[["active", `Active (${activeOrders.length})`], ["completed", `Completed (${doneOrders.length})`], ["master", "Garment Design & Size Master"]].map(([id, label]) => (
+        {[["active", `Active (${activeOrders.length})`], ["completed", `Completed (${doneOrders.length})`]].map(([id, label]) => (
           <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
         ))}
       </div>
-      {view === "master" ? <GarmentMaster profile={profile} /> : (<>
+      {(<>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">{view === "active" ? `Orders (${shownOrders.length}${shownOrders.length !== activeOrders.length ? ` of ${activeOrders.length}` : ""})` : `Completed orders (${shownOrders.length})`}</h2>
         {view === "completed" ? null : (
@@ -441,7 +440,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
           if (!f.customer_name) return;
           const cleanItems = items
             .filter((it) => it.description || it.quantity)
-            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, ...(it.garment_type_id ? { garment_type_id: it.garment_type_id } : {}), ...(it.model ? { model: it.model } : {}) }));
+            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, ...(it.garment_type_id ? { garment_type_id: it.garment_type_id } : {}), ...(it.model ? { model: it.model } : {}), ...(it.size_mode && itemSizes(it).length ? { size_mode: it.size_mode, size_from: it.size_from ?? "", size_to: it.size_to ?? "", size_custom: it.size_custom || "" } : {}) }));
           onSave({ ...f, items: cleanItems, daily_target: Number(f.daily_target) || 0, salesLink: canLinkSales && sales.dirty ? { salesperson: sales.salesperson, value: sales.value } : null });
         }}
       >
@@ -501,6 +500,28 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
                 <option value="">Model (optional)</option>
                 {(garments.find((g) => g.id === it.garment_type_id)?.models || []).map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
+              <select className="border border-stone-300 rounded px-1.5 py-1 text-xs text-stone-600" value={it.size_mode || ""} aria-label="Size range type"
+                onChange={(e) => { const m = e.target.value; updateItem(idx, m === "num" ? { size_mode: m, size_from: "9", size_to: "46" } : m === "let" ? { size_mode: m, size_from: "XS", size_to: "5XL" } : { size_mode: m }); }}>
+                {SIZE_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              {it.size_mode === "num" && (<>
+                <input type="number" min="1" max="60" aria-label="Size from" className="w-14 border border-stone-300 rounded px-1.5 py-1 text-xs text-right" value={it.size_from ?? ""} onChange={(e) => updateItem(idx, { size_from: e.target.value })} />
+                <span>to</span>
+                <input type="number" min="1" max="60" aria-label="Size to" className="w-14 border border-stone-300 rounded px-1.5 py-1 text-xs text-right" value={it.size_to ?? ""} onChange={(e) => updateItem(idx, { size_to: e.target.value })} />
+              </>)}
+              {it.size_mode === "let" && (<>
+                <select aria-label="Size from" className="border border-stone-300 rounded px-1.5 py-1 text-xs" value={it.size_from || "XS"} onChange={(e) => updateItem(idx, { size_from: e.target.value })}>{LETTER_ORDER.map((x) => <option key={x}>{x}</option>)}</select>
+                <span>to</span>
+                <select aria-label="Size to" className="border border-stone-300 rounded px-1.5 py-1 text-xs" value={it.size_to || "5XL"} onChange={(e) => updateItem(idx, { size_to: e.target.value })}>{LETTER_ORDER.map((x) => <option key={x}>{x}</option>)}</select>
+              </>)}
+              {it.size_mode === "custom" && (
+                <input aria-label="Custom sizes" className="flex-1 min-w-[10rem] border border-stone-300 rounded px-1.5 py-1 text-xs" placeholder="e.g. 9-16, 20, 22, Free" value={it.size_custom || ""} onChange={(e) => updateItem(idx, { size_custom: e.target.value })} />
+              )}
+              {it.size_mode && (itemSizes(it).length
+                ? <span className="text-stone-500">{itemSizes(it).length} sizes: {itemSizeText(it)}</span>
+                : <span className="text-rose-600">Check the size range</span>)}
             </div>
             </div>
           ))}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Search, PackageCheck } from "lucide-react";
+import { Loader2, Search, PackageCheck, Truck, ThumbsUp, IndianRupee } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Field, inputCls, Btn } from "./ui";
 import { ORDER_STATUSES } from "../lib/helpers";
@@ -42,6 +42,8 @@ export default function TrackOrder() {
 
   // "Rejected by Customer" only appears in the tracker for an order that is in that state
 const stages = ORDER_STATUSES.filter((s) => s !== "Rejected by Customer" || result?.status === "Rejected by Customer");
+  const ready = !!orderNumber.trim() && !!code.trim();
+  const deliveryUrl = (v) => `/?delivery=1&view=${v}&order=${encodeURIComponent(orderNumber.trim())}&code=${encodeURIComponent(code.trim())}`;
   const stageIndex = result ? stages.indexOf(result.status) : -1;
 
   return (
@@ -64,6 +66,14 @@ const stages = ORDER_STATUSES.filter((s) => s !== "Rejected by Customer" || resu
               <Btn type="submit" className="w-full justify-center" disabled={loading}>
                 {loading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Check status
               </Btn>
+            </div>
+            <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-2" role="toolbar" aria-label="Dispatch tools">
+              {[["dispatches", "View dispatches", Truck], ["confirm", "Confirm what you received", ThumbsUp], ["payments", "See payments", IndianRupee]].map(([v, label, Icon]) => (
+                <a key={v} href={ready ? deliveryUrl(v) : undefined} aria-disabled={!ready}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs font-medium text-center ${ready ? "border-indigo-300 text-indigo-900 bg-indigo-50 hover:bg-indigo-100" : "border-stone-200 text-stone-400 bg-stone-50 pointer-events-none"}`}>
+                  <Icon size={14} /> {label}
+                </a>
+              ))}
             </div>
           </form>
           <p className="text-xs text-stone-400 mt-2">Both the order number and tracking code were shared with you by T&amp;P Textiles.</p>
@@ -137,11 +147,6 @@ const stages = ORDER_STATUSES.filter((s) => s !== "Rejected by Customer" || resu
               })}
               {(!result.items || result.items.length === 0) && <p className="text-sm text-stone-400">No item details available yet.</p>}
             </div>
-            {(result.items || []).some((it) => Number(it.delivered) > 0) && (
-              <a href={`/?delivery=1&order=${encodeURIComponent(orderNumber.trim())}&code=${encodeURIComponent(code.trim())}`} className="block mt-4 text-center text-sm font-medium text-indigo-800 underline">
-                View dispatches, confirm what you received and see payments
-              </a>
-            )}
           </Card>
         )}
       </div>

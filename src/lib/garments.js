@@ -51,3 +51,27 @@ export const guessGarment = (desc, garments) => {
 // the garment an order item belongs to: explicit link first, then a name guess
 export const garmentOfItem = (item, garments) =>
   (garments || []).find((g) => g.id === item?.garment_type_id) || guessGarment(item?.description, garments);
+
+// ---- Size range defined on an order item (stored in the item itself: size_mode / size_from / size_to / size_custom)
+export const SIZE_MODES = [["", "No size range"], ["num", "Numbers (e.g. 9 to 46)"], ["let", "Letters (XS to 5XL)"], ["custom", "Custom range / names"]];
+export const parseCustomSizes = (text) => {
+  const out = [];
+  String(text || "").split(/[,;\n]+/).map((t) => t.trim()).filter(Boolean).forEach((tok) => {
+    const m = tok.match(/^(\d+(?:\.\d+)?)\s*(?:-|to|–)\s*(\d+(?:\.\d+)?)$/i);
+    const list = m ? numbersBetween(m[1], m[2]) : [tok];
+    list.forEach((x) => { if (!out.includes(x)) out.push(x); });
+  });
+  return out.slice(0, 200);
+};
+export const itemSizes = (it) => {
+  if (!it || !it.size_mode) return [];
+  if (it.size_mode === "num") return numbersBetween(it.size_from, it.size_to);
+  if (it.size_mode === "let") return lettersBetween(it.size_from, it.size_to);
+  if (it.size_mode === "custom") return parseCustomSizes(it.size_custom);
+  return [];
+};
+export const itemSizeText = (it) => {
+  const l = itemSizes(it);
+  if (!l.length) return "";
+  return it.size_mode === "custom" ? l.join(", ") : `${l[0]} – ${l[l.length - 1]}`;
+};
