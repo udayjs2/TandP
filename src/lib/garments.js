@@ -30,6 +30,14 @@ export const numbersBetween = (from, to, step = 1) => {
   for (let x = a; x <= b + 1e-9; x += st) out.push(String(Math.round(x * 100) / 100));
   return out;
 };
+// Garment sizes on an order are even numbers only (10, 12, 14 …): a range like 10 to 40 skips the odd ones.
+export const evenNumbersBetween = (from, to) => {
+  let a = Math.ceil(Number(from)), b = Math.floor(Number(to));
+  if (!isFinite(a) || !isFinite(b)) return [];
+  if (a % 2) a += 1;
+  if (b % 2) b -= 1;
+  return numbersBetween(a, b, 2);
+};
 export const KID_SIZES = ["0–3 M", "3–6 M", "6–9 M", "9–12 M", ...Array.from({ length: 16 }, (_, i) => `${i + 1} Y`)];
 
 // "T-shirts" -> the garment whose name best matches the item description (used for orders that were
@@ -53,19 +61,19 @@ export const garmentOfItem = (item, garments) =>
   (garments || []).find((g) => g.id === item?.garment_type_id) || guessGarment(item?.description, garments);
 
 // ---- Size range defined on an order item (stored in the item itself: size_mode / size_from / size_to / size_custom)
-export const SIZE_MODES = [["", "No size range"], ["num", "Numbers (e.g. 9 to 46)"], ["let", "Letters (XS to 5XL)"], ["custom", "Custom range / names"]];
+export const SIZE_MODES = [["", "No size range"], ["num", "Numbers (e.g. 10 to 40 — even sizes only)"], ["let", "Letters (XS to 5XL)"], ["custom", "Custom range / names"]];
 export const parseCustomSizes = (text) => {
   const out = [];
   String(text || "").split(/[,;\n]+/).map((t) => t.trim()).filter(Boolean).forEach((tok) => {
     const m = tok.match(/^(\d+(?:\.\d+)?)\s*(?:-|to|–)\s*(\d+(?:\.\d+)?)$/i);
-    const list = m ? numbersBetween(m[1], m[2]) : [tok];
+    const list = m ? evenNumbersBetween(m[1], m[2]) : [tok];
     list.forEach((x) => { if (!out.includes(x)) out.push(x); });
   });
   return out.slice(0, 200);
 };
 export const itemSizes = (it) => {
   if (!it || !it.size_mode) return [];
-  if (it.size_mode === "num") return numbersBetween(it.size_from, it.size_to);
+  if (it.size_mode === "num") return evenNumbersBetween(it.size_from, it.size_to);
   if (it.size_mode === "let") return lettersBetween(it.size_from, it.size_to);
   if (it.size_mode === "custom") return parseCustomSizes(it.size_custom);
   return [];

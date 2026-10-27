@@ -770,3 +770,12 @@ Run `supabase/migration_52.sql` after 51 (order: 44 → 45 → … → 52), then
 - **New login role `cutting`** (Cutter) — can use the Cutting module like the Cutting Master.
 - **Dashboard chart:** General Manager → "Management Team" (Production Manager | HR | Sales Manager) → under the Production Manager: Team Lead teams (by *Reports to*), Quality team and Ironing team → "HR, Sales & Cutting Teams — reports to the General Manager" → other staff by department.
 - Migration maps old roles/departments to the new lists automatically.
+
+## v60 — Even size ranges, damaged pieces
+
+Run `supabase/migration_53.sql` after 52 (order: 44 → … → 53), then redeploy.
+
+- **Even sizes only.** A numeric size range on an order item (create or edit order) lists even sizes only: 10 to 40 → 10, 12, 14 … 40. A start/end that is odd is moved inward (9 to 41 → 10 to 40). Ranges typed in "Custom" (e.g. 10-16) follow the same rule; single entries you type (e.g. 15, Free) are kept as typed. The Cutting count form shows the same even sizes.
+- **Cutting → Damaged pieces** (new sub-tab). "Add damaged pieces": choose order, item, **During cutting** or **During stitching**, date, and the damaged pieces per size (+ optional note). The list shows totals for each stage; each approved cutting card shows the item's damage so far.
+- Who can add: Production Manager, Team Lead, General Manager, Admin/HR; the Cutting Master and Cutters can add "during cutting" only. Team Leads now see the Cutting tab (view + damaged pieces only). Remove: PM/GM/Admin or the person who logged it.
+- Damaged pieces are recorded separately and do not change the cutting or stitching counts.

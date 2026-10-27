@@ -503,7 +503,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1 text-xs">
               <select className="border border-stone-300 rounded px-1.5 py-1 text-xs text-stone-600" value={it.size_mode || ""} aria-label="Size range type"
-                onChange={(e) => { const m = e.target.value; updateItem(idx, m === "num" ? { size_mode: m, size_from: "9", size_to: "46" } : m === "let" ? { size_mode: m, size_from: "XS", size_to: "5XL" } : { size_mode: m }); }}>
+                onChange={(e) => { const m = e.target.value; updateItem(idx, m === "num" ? { size_mode: m, size_from: "10", size_to: "46" } : m === "let" ? { size_mode: m, size_from: "XS", size_to: "5XL" } : { size_mode: m }); }}>
                 {SIZE_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
               {it.size_mode === "num" && (<>
@@ -517,7 +517,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
                 <select aria-label="Size to" className="border border-stone-300 rounded px-1.5 py-1 text-xs" value={it.size_to || "5XL"} onChange={(e) => updateItem(idx, { size_to: e.target.value })}>{LETTER_ORDER.map((x) => <option key={x}>{x}</option>)}</select>
               </>)}
               {it.size_mode === "custom" && (
-                <input aria-label="Custom sizes" className="flex-1 min-w-[10rem] border border-stone-300 rounded px-1.5 py-1 text-xs" placeholder="e.g. 9-16, 20, 22, Free" value={it.size_custom || ""} onChange={(e) => updateItem(idx, { size_custom: e.target.value })} />
+                <input aria-label="Custom sizes" className="flex-1 min-w-[10rem] border border-stone-300 rounded px-1.5 py-1 text-xs" placeholder="e.g. 10-16, 20, 22, Free (ranges list even sizes only)" value={it.size_custom || ""} onChange={(e) => updateItem(idx, { size_custom: e.target.value })} />
               )}
               {it.size_mode && (itemSizes(it).length
                 ? <span className="text-stone-500">{itemSizes(it).length} sizes: {itemSizeText(it)}</span>

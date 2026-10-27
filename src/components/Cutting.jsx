@@ -65,15 +65,20 @@ export default function Cutting({ profile }) {
   const [rejectEntry, setRejectEntry] = useState(null);
   const [resendEntry, setResendEntry] = useState(null);
   const [fabrics, setFabrics] = useState([]);
-  const [view, setView] = useState("pending"); // pending | approved | rejected
+  const [view, setView] = useState("pending"); // pending | approved | rejected | damage | master
+  const [damage, setDamage] = useState([]);
+  const [damageModal, setDamageModal] = useState(false);
+  const canLogDamage = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "cutting"].includes(profile?.role);
 
   const load = async () => {
-    const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }] = await Promise.all([
+    const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }, { data: dm }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", '(Completed,Shipped,"Rejected by Customer")'),
       supabase.from("cutting_entries").select("*").order("cut_date", { ascending: false }),
       supabase.from("inventory_fabric").select("id, fabric_type, color, weight_gsm, stock_kg, stock_meters").order("fabric_type"),
       supabase.from("cutting_stitch_log").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false }),
+      supabase.from("cutting_damage").select("*").order("damage_date", { ascending: false }).order("created_at", { ascending: false }),
     ]);
+    setDamage(dm || []);
     setLogs(lg || []);
     setFabrics(fab || []);
     setOrders(ord || []);
@@ -87,6 +92,7 @@ export default function Cutting({ profile }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "cutting_entries" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory_fabric" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "cutting_stitch_log" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cutting_damage" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -135,9 +141,22 @@ export default function Cutting({ profile }) {
 
   const tabBar = (
     <div className="subtab-bar">
-      {[["pending", `Pending review (${pendingEntries.length})`], ["approved", `Approved (${approvedEntries.length})`], ["rejected", `Rejected (${rejectedEntries.length})`], ["master", "Garment Design & Size Master"]].map(([id, label]) => (
+      {[["pending", `Pending review (${pendingEntries.length})`], ["approved", `Approved (${approvedEntries.length})`], ["rejected", `Rejected (${rejectedEntries.length})`], ["damage", `Damaged pieces (${damage.length})`], ["master", "Garment Design & Size Master"]].map(([id, label]) => (
         <button key={id} onClick={() => setView(id)} className={`subtab ${view === id ? "subtab-active" : ""}`}>{label}</button>
       ))}
+    </div>
+  );
+  const removeDamage = async (row) => {
+    if (!window.confirm(`Remove this damaged-pieces entry (${row.total} pcs, ${row.stage.toLowerCase()})?`)) return;
+    const { data, error } = await supabase.rpc("delete_damage", { p_id: row.id });
+    if (error || data?.ok === false) alert(`Couldn't remove:\n${error?.message || data?.error}`);
+    load();
+  };
+  if (view === "damage") return (
+    <div className="space-y-4">
+      {tabBar}
+      <DamageView rows={damage} orderLabel={orderLabel} canLog={canLogDamage} canRemove={(r) => canApprove || r.logged_by === profile?.name} onAdd={() => setDamageModal(true)} onRemove={removeDamage} />
+      {damageModal && <DamageModal orders={orders} entries={entries} onClose={() => setDamageModal(false)} onSaved={load} />}
     </div>
   );
   if (view === "master") return <div className="space-y-4">{tabBar}<GarmentMaster profile={profile} /></div>;
@@ -201,6 +220,11 @@ export default function Cutting({ profile }) {
                 })}
               </div>
 
+              {(() => {
+                const dm = damage.filter((d) => d.order_id === entry.order_id && d.item_description === entry.item_description);
+                const dc = dm.filter((d) => d.stage === "Cutting").reduce((t, d) => t + d.total, 0), ds = dm.filter((d) => d.stage === "Stitching").reduce((t, d) => t + d.total, 0);
+                return dc + ds > 0 ? <div className="mb-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-1.5">Damaged for this item (whole order): {dc} during cutting · {ds} during stitching</div> : null;
+              })()}
               {entry.status === "Approved" && (
                 <div className="mb-2">
                   <button
@@ -605,6 +629,122 @@ function CompleteSizesModal({ entry, onClose, onSaved }) {
         <div className="flex justify-end gap-2 mt-4">
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save for this day"}</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function DamageView({ rows, orderLabel, canLog, canRemove, onAdd, onRemove }) {
+  const sum = (stage) => rows.filter((r) => r.stage === stage).reduce((t, r) => t + r.total, 0);
+  return (
+    <div className="space-y-3" data-testid="damage-view">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg font-semibold">Damaged pieces</h2>
+        {canLog && <Btn onClick={onAdd}><AlertTriangle size={15} /> Add damaged pieces</Btn>}
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="p-3"><div className="text-[11px] text-stone-500">Damaged during cutting</div><div className="text-xl font-semibold">{sum("Cutting")}</div></Card>
+        <Card className="p-3"><div className="text-[11px] text-stone-500">Damaged during stitching</div><div className="text-xl font-semibold">{sum("Stitching")}</div></Card>
+        <Card className="p-3"><div className="text-[11px] text-stone-500">Total damaged</div><div className="text-xl font-semibold">{sum("Cutting") + sum("Stitching")}</div></Card>
+      </div>
+      <Card className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead><tr>
+            <th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Order</th><th className="text-left px-3 py-2">Item</th>
+            <th className="text-left px-3 py-2">Damaged</th><th className="text-left px-3 py-2">Sizes</th><th className="text-right px-3 py-2">Pieces</th><th className="text-left px-3 py-2">Logged by</th><th className="px-3 py-2"></th>
+          </tr></thead>
+          <tbody className="divide-y divide-stone-100">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-3 py-2 whitespace-nowrap">{r.damage_date}</td>
+                <td className="px-3 py-2">{orderLabel(r.order_id)}</td>
+                <td className="px-3 py-2">{r.item_description}</td>
+                <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full font-medium ${r.stage === "Cutting" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}>During {r.stage.toLowerCase()}</span></td>
+                <td className="px-3 py-2">{Object.entries(r.sizes || {}).map(([k, v]) => `${sizeLabel(k)}: ${v}`).join(", ")}{r.note ? <div className="text-[11px] text-stone-400">{r.note}</div> : null}</td>
+                <td className="px-3 py-2 text-right font-mono">{r.total}</td>
+                <td className="px-3 py-2 text-stone-500">{r.logged_by || "—"}</td>
+                <td className="px-3 py-2 text-right">{canRemove(r) && <button onClick={() => onRemove(r)} className="text-stone-400 hover:text-rose-700" title="Remove"><Trash2 size={12} /></button>}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-stone-400">No damaged pieces recorded yet.</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+// One entry: order + item, which stage the damage happened in, and the damaged pieces per size.
+function DamageModal({ orders, entries, onClose, onSaved }) {
+  const [orderId, setOrderId] = useState("");
+  const [itemDesc, setItemDesc] = useState("");
+  const [stage, setStage] = useState("Cutting");
+  const [day, setDay] = useState(todayStr());
+  const [counts, setCounts] = useState({});
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const order = orders.find((o) => o.id === orderId);
+  const items = order?.items || [];
+  const selItem = items.find((it) => it.description === itemDesc);
+  // sizes: those already cut for this item, else the item's own size range
+  const cutKeys = [];
+  entries.filter((e) => e.order_id === orderId && e.item_description === itemDesc && e.status !== "Rejected").forEach((e) => Object.keys(e.sizes || {}).forEach((k) => { if (!cutKeys.includes(k)) cutKeys.push(k); }));
+  const sizeKeys = cutKeys.length ? cutKeys : itemSizes(selItem);
+
+  const save = async (e) => {
+    e.preventDefault();
+    const clean = Object.fromEntries(Object.entries(counts).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)]));
+    if (!orderId || !itemDesc) return alert("Choose the order and the item.");
+    if (!Object.keys(clean).length) return alert("Enter the damaged pieces for at least one size.");
+    setSaving(true);
+    const { data, error } = await supabase.rpc("log_damage", { p_order: orderId, p_item: itemDesc, p_date: day, p_stage: stage, p_sizes: clean, p_note: note || null });
+    setSaving(false);
+    if (error || data?.ok === false) return alert(`Couldn't save:\n${error?.message || data?.error}`);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <Modal title="Add damaged pieces" onClose={onClose}>
+      <form onSubmit={save}>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Order">
+            <select required className={inputCls} value={orderId} onChange={(e) => { setOrderId(e.target.value); setItemDesc(""); setCounts({}); }}>
+              <option value="">— select —</option>
+              {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>)}
+            </select>
+          </Field>
+          <Field label="Item">
+            <select required className={inputCls} value={itemDesc} onChange={(e) => { setItemDesc(e.target.value); setCounts({}); }} disabled={!orderId}>
+              <option value="">— select —</option>
+              {items.map((it, i) => <option key={i} value={it.description}>{it.description}</option>)}
+            </select>
+          </Field>
+          <Field label="Damaged">
+            <select className={inputCls} value={stage} onChange={(e) => setStage(e.target.value)}>
+              <option value="Cutting">During cutting</option>
+              <option value="Stitching">During stitching</option>
+            </select>
+          </Field>
+          <Field label="Date"><input type="date" required max={todayStr()} className={inputCls} value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+        </div>
+        {sizeKeys.length === 0 ? (
+          <p className="text-xs text-stone-400 mb-3">{itemDesc ? "No sizes found for this item yet — log the cutting count first, or define a size range on the order." : "Choose an order and item to enter the damaged pieces by size."}</p>
+        ) : (
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+            {sizeKeys.map((k) => (
+              <div key={k}>
+                <span className="block text-[11px] text-stone-500 mb-0.5">{sizeLabel(k)}</span>
+                <input type="number" min="0" step="1" aria-label={`Damaged ${k}`} className={`${inputCls} text-right`} value={counts[k] ?? ""} onChange={(e) => setCounts({ ...counts, [k]: e.target.value })} />
+              </div>
+            ))}
+          </div>
+        )}
+        <Field label="Note (optional)"><input className={inputCls} placeholder="e.g. fabric cut, oil stain, needle holes" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <div className="flex justify-end gap-2 mt-3">
+          <Btn type="button" variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
         </div>
       </form>
     </Modal>
