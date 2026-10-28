@@ -16,6 +16,8 @@ export const DEFAULT_DEPT = {
 export const SALES_PERSON_ROLES = ["Sales Executive", "Sales"];
 export const isSalesPerson = (role) => SALES_PERSON_ROLES.includes(role);
 export const isSalesSide = (role) => ["Sales Executive", "Sales Manager", "Sales"].includes(role);
+// anyone who can be named as the salesperson on an order: role Sales Manager / Sales Executive, or department Sales
+export const isSalesStaff = (e) => !!e && (isSalesSide(e.role) || e.department === "Sales");
 export const FLOOR_DEPTS = ["Production", "Ironing & Packing", "Cutting"];
 
 // People who hold an organisation role. The employee's own Role is the source of the name; the login role is

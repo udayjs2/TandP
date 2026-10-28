@@ -779,3 +779,15 @@ Run `supabase/migration_53.sql` after 52 (order: 44 → … → 53), then redepl
 - **Cutting → Damaged pieces** (new sub-tab). "Add damaged pieces": choose order, item, **During cutting** or **During stitching**, date, and the damaged pieces per size (+ optional note). The list shows totals for each stage; each approved cutting card shows the item's damage so far.
 - Who can add: Production Manager, Team Lead, General Manager, Admin/HR; the Cutting Master and Cutters can add "during cutting" only. Team Leads now see the Cutting tab (view + damaged pieces only). Remove: PM/GM/Admin or the person who logged it.
 - Damaged pieces are recorded separately and do not change the cutting or stitching counts.
+
+## v61 — Salesperson on existing orders, per-piece actual cost, leftover fabric
+
+No new migration (run 44 → 53 if you haven't). Redeploy only.
+
+- **Assign a salesperson to any order:** Orders → Edit order → Salesperson. The list is every active employee whose Role is Sales Manager or Sales Executive, or whose Department is Sales. (The old list looked only for the role "Sales", which migration 52 renamed to "Sales Executive", so it was empty.)
+- **Actual cost (Finance → Order Profitability → Actual cost, or the calculator icon in Orders):**
+  - **Cost of what was used** = fabric used in cutting × Inventory price per kg/metre + trims issued + other expenses tagged to the order + labour.
+  - **Cost per piece** = that total ÷ pieces made (stitched); if nothing is stitched yet, pieces cut. A per-piece table splits it into fabric / trims / other / labour, plus fabric used per piece cut.
+  - **Actual cost so far — as bought** = the same figure as the Order Profitability card (raw-material purchases tagged to the order + labour + overhead). Unchanged.
+  - **Leftover fabric:** bought − used = leftover. Only the fabric used is charged to the order; leftover stays in Inventory as stock (not a loss). When it is cut for another order, that order is charged at the Inventory weighted-average price, and the first order's cost does not change. Purchases count as company spending when bought; per-order cost counts when used.
+  - Profit is shown on both bases when both are available. Damaged pieces (Cutting → Damaged pieces) are listed; their cost is carried by the good pieces.

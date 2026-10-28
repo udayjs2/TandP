@@ -5,6 +5,7 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, HOUR_SLOTS, orderItemsRequired, ORDER_STATUSES, ORDER_STATUS_COLORS, buildItemBreakdown, computeLaborCost, fmtMoney, DELAY_CAUSES, FEEDBACK_ITEMS, isOrderOverdue, daysBetween } from "../lib/helpers";
 import { AgreementModal } from "./OrderAgreement";
 import ActualCostModal from "./ActualCost";
+import { isSalesStaff } from "../lib/orgRoles";
 import { LotCard, RequestLotModal, lotRemaining } from "./DispatchLots";
 import { loadGarmentNames, SIZE_MODES, LETTER_ORDER, itemSizes, itemSizeText } from "../lib/garments";
 
@@ -303,7 +304,7 @@ export default function Orders({ profile }) {
                   <button onClick={() => setProgressOrder(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Track progress">
                     <ClipboardList size={14} />
                   </button>
-                  <button onClick={() => setModal(o)} className="text-stone-400 hover:text-indigo-700 p-1">
+                  <button onClick={() => setModal(o)} className="text-stone-400 hover:text-indigo-700 p-1" title="Edit order">
                     <Pencil size={14} />
                   </button>
                   <button onClick={() => remove(o.id)} className="text-stone-400 hover:text-rose-700 p-1">
@@ -396,7 +397,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
   const [sales, setSales] = useState({ salesperson: "", value: "", dirty: false });
   useEffect(() => {
     if (!canLinkSales) return;
-    supabase.from("employees").select("id, name, role, status").eq("role", "Sales").order("name").then(({ data }) => setSalespeople((data || []).filter((e) => e.status !== "Inactive")));
+    supabase.from("employees").select("id, name, role, department, status").order("name").then(({ data }) => setSalespeople((data || []).filter((e) => e.status !== "Inactive" && isSalesStaff(e))));
     if (order.id) supabase.from("order_sales").select("salesperson_id, order_value").eq("order_id", order.id).maybeSingle().then(({ data }) => {
       if (data) setSales({ salesperson: data.salesperson_id || "", value: data.order_value || "", dirty: false });
     });
@@ -455,7 +456,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
             <Field label="Salesperson (for commission)">
               <select className={inputCls} value={sales.salesperson} onChange={(e) => setSales({ ...sales, salesperson: e.target.value, dirty: true })}>
                 <option value="">— none —</option>
-                {salespeople.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {salespeople.map((p) => <option key={p.id} value={p.id}>{p.name}{p.role ? ` — ${p.role}` : ""}</option>)}
               </select>
             </Field>
             <Field label="Order value (₹)">

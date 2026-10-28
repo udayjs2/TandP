@@ -667,7 +667,7 @@ function OrderProfitability() {
           <Card key={order.id} className="p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="font-semibold text-sm flex items-center gap-2">{order.order_number} — {order.customer_name}
-                <button onClick={() => setCostFor({ order, revenue })} className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800 hover:bg-indigo-100">Actual cost</button>
+                <button onClick={() => setCostFor({ order, revenue, bought: { material: materialCost, labor: laborCost, overhead: Number(fin.overhead_cost || 0), total: totalCost } })} className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-indigo-50 text-indigo-800 hover:bg-indigo-100">Actual cost</button>
               </div>
               <div className="text-sm">
                 <span className="text-stone-500">Revenue </span>
@@ -732,7 +732,7 @@ function OrderProfitability() {
         ))}
         {rows.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No orders yet.</Card>}
       </div>
-      {costFor && <ActualCostModal order={costFor.order} revenue={costFor.revenue} onClose={() => setCostFor(null)} />}
+      {costFor && <ActualCostModal order={costFor.order} revenue={costFor.revenue} bought={costFor.bought} onClose={() => setCostFor(null)} />}
     </div>
   );
 }
