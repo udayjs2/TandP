@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History } from "lucide-react";
+import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History, Plus } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
 import GarmentMaster from "./GarmentMaster";
-import { itemSizes, itemSizeText, garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem } from "../lib/garments";
+import { itemSizes, itemSizeText, garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem, SIZE_MODES, LETTER_ORDER } from "../lib/garments";
 
 const LETTER_SIZES = ["2XS", "XS", "S", "M", "L", "XL", "2XL"];
 // Numeric sizes are even numbers as sold in the market.
@@ -68,6 +68,8 @@ export default function Cutting({ profile }) {
   const [view, setView] = useState("pending"); // pending | approved | rejected | damage | master
   const [damage, setDamage] = useState([]);
   const [damageModal, setDamageModal] = useState(false);
+  const [itemModal, setItemModal] = useState(false);
+  const canAddItems = ["cutting_master", "cutting", "admin", "hr", "gm", "pm"].includes(profile?.role);
   const canLogDamage = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "cutting"].includes(profile?.role);
 
   const load = async () => {
@@ -166,11 +168,14 @@ export default function Cutting({ profile }) {
       {tabBar}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{view === "pending" ? "Cutting — pending review" : view === "approved" ? "Approved cutting" : "Rejected cutting (sent back to the cutting master)"}</h2>
-        {(isCuttingMaster || profile?.role === "pm") && (
-          <Btn onClick={() => setModal({})}>
-            <Scissors size={15} /> Log cutting count
-          </Btn>
-        )}
+        <div className="flex gap-2 flex-wrap">
+          {canAddItems && <Btn variant="ghost" onClick={() => setItemModal(true)}><Plus size={15} /> Add item / size range to an order</Btn>}
+          {(isCuttingMaster || profile?.role === "pm") && (
+            <Btn onClick={() => setModal({})}>
+              <Scissors size={15} /> Log cutting count
+            </Btn>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-3">
@@ -327,6 +332,7 @@ export default function Cutting({ profile }) {
         {shownEntries.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">{EMPTY[view]}</Card>}
       </div>
 
+      {itemModal && <AddItemModal orders={orders} onClose={() => setItemModal(false)} onSaved={load} />}
       {modal && <CuttingModal orders={orders} fabrics={fabrics} profile={profile} onClose={() => setModal(null)} onSaved={load} />}
       {resendEntry && <CuttingModal orders={orders} fabrics={fabrics} profile={profile} entry={resendEntry} onClose={() => setResendEntry(null)} onSaved={() => { load(); setView("pending"); }} />}
       {rejectEntry && <RejectModal entry={rejectEntry} orderLabel={orderLabel(rejectEntry.order_id)} onClose={() => setRejectEntry(null)} onSaved={load} />}
@@ -456,6 +462,7 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
           </select>
         </Field>
         <Field label="Item">
+          {!resend && orderId && <div className="text-[11px] text-stone-400 mb-1">Item or size range missing from the order? Close this and use “Add item / size range to an order”.</div>}
           <select required className={inputCls} value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} disabled={!orderId || resend}>
             <option value="">— select item —</option>
             {items.map((it) => (
@@ -745,6 +752,87 @@ function DamageModal({ orders, entries, onClose, onSaved }) {
         <div className="flex justify-end gap-2 mt-3">
           <Btn type="button" variant="ghost" onClick={onClose}>Cancel</Btn>
           <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// Cutting Master: put an item (and its size range) on an order when the order does not have it yet.
+// Orders shows these items tagged "Added by …".
+function AddItemModal({ orders, onClose, onSaved }) {
+  const [orderId, setOrderId] = useState("");
+  const [existing, setExisting] = useState(""); // an item already on the order that has no size range
+  const [desc, setDesc] = useState("");
+  const [qty, setQty] = useState("");
+  const [f, setF] = useState({ size_mode: "num", size_from: "10", size_to: "40", size_custom: "" });
+  const [saving, setSaving] = useState(false);
+  const order = orders.find((o) => o.id === orderId);
+  const noRange = (order?.items || []).filter((it) => !it.size_mode);
+  const sizes = itemSizes(f);
+  const name = existing || desc;
+
+  const save = async (e) => {
+    e.preventDefault();
+    if (!orderId) return alert("Choose the order.");
+    if (!name.trim()) return alert("Enter the item name.");
+    if (!sizes.length) return alert("Check the size range.");
+    setSaving(true);
+    const { data, error } = await supabase.rpc("cutting_add_item", { p_order: orderId, p_description: name.trim(), p_quantity: existing ? 0 : Number(qty) || 0, p_size_mode: f.size_mode, p_size_from: f.size_from, p_size_to: f.size_to, p_size_custom: f.size_custom });
+    setSaving(false);
+    if (error || data?.ok === false) return alert(`Couldn't save:\n${error?.message || data?.error} ${error ? "(run migration_54.sql if needed)" : ""}`);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <Modal title="Add item / size range to an order" onClose={onClose}>
+      <form onSubmit={save}>
+        <p className="text-xs text-stone-500 mb-3">Use this when the order does not list the item, or lists it without a size range. The item appears in Orders marked “Added by Cutting”. Items that are already complete cannot be changed here.</p>
+        <Field label="Order">
+          <select required className={inputCls} value={orderId} onChange={(e) => { setOrderId(e.target.value); setExisting(""); }}>
+            <option value="">— select —</option>
+            {orders.map((o) => <option key={o.id} value={o.id}>{o.order_number} — {o.customer_name}</option>)}
+          </select>
+        </Field>
+        {orderId && (
+          <div className="text-xs text-stone-500 mb-2">On the order now: {(order?.items || []).map((it) => `${it.description}${it.size_mode ? ` (${itemSizeText(it)})` : " (no size range)"}`).join(", ") || "no items"}</div>
+        )}
+        {noRange.length > 0 && (
+          <Field label="Item">
+            <select className={inputCls} value={existing} onChange={(e) => setExisting(e.target.value)}>
+              <option value="">New item (not on the order)</option>
+              {noRange.map((it, i) => <option key={i} value={it.description}>Add size range to: {it.description}</option>)}
+            </select>
+          </Field>
+        )}
+        {!existing && (
+          <div className="grid grid-cols-[1fr_110px] gap-3">
+            <Field label="New item name"><input className={inputCls} placeholder="e.g. Girls over coat" value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+            <Field label="Quantity (optional)"><input type="number" min="0" className={`${inputCls} text-right`} value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs mb-1">
+          <select className="border border-stone-300 rounded px-1.5 py-1.5 text-xs" aria-label="Size range type" value={f.size_mode}
+            onChange={(e) => { const m = e.target.value; setF(m === "num" ? { ...f, size_mode: m, size_from: "10", size_to: "40" } : m === "let" ? { ...f, size_mode: m, size_from: "XS", size_to: "5XL" } : { ...f, size_mode: m }); }}>
+            {SIZE_MODES.filter(([v]) => v).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          {f.size_mode === "num" && (<>
+            <input type="number" min="1" max="60" aria-label="Size from" className="w-16 border border-stone-300 rounded px-1.5 py-1.5 text-xs text-right" value={f.size_from} onChange={(e) => setF({ ...f, size_from: e.target.value })} />
+            <span>to</span>
+            <input type="number" min="1" max="60" aria-label="Size to" className="w-16 border border-stone-300 rounded px-1.5 py-1.5 text-xs text-right" value={f.size_to} onChange={(e) => setF({ ...f, size_to: e.target.value })} />
+          </>)}
+          {f.size_mode === "let" && (<>
+            <select aria-label="Size from" className="border border-stone-300 rounded px-1.5 py-1.5 text-xs" value={f.size_from} onChange={(e) => setF({ ...f, size_from: e.target.value })}>{LETTER_ORDER.map((x) => <option key={x}>{x}</option>)}</select>
+            <span>to</span>
+            <select aria-label="Size to" className="border border-stone-300 rounded px-1.5 py-1.5 text-xs" value={f.size_to} onChange={(e) => setF({ ...f, size_to: e.target.value })}>{LETTER_ORDER.map((x) => <option key={x}>{x}</option>)}</select>
+          </>)}
+          {f.size_mode === "custom" && <input aria-label="Custom sizes" className="flex-1 min-w-[10rem] border border-stone-300 rounded px-1.5 py-1.5 text-xs" placeholder="e.g. 10-16, 20, Free" value={f.size_custom} onChange={(e) => setF({ ...f, size_custom: e.target.value })} />}
+        </div>
+        <div className="text-xs mb-3" data-testid="add-item-sizes">{sizes.length ? <span className="text-stone-500">{sizes.length} sizes: {itemSizeText(f)}</span> : <span className="text-rose-600">Check the size range</span>}</div>
+        <div className="flex justify-end gap-2">
+          <Btn type="button" variant="ghost" onClick={onClose}>Cancel</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Saving…" : "Add to order"}</Btn>
         </div>
       </form>
     </Modal>

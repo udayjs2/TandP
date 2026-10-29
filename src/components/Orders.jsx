@@ -229,7 +229,12 @@ export default function Orders({ profile }) {
                     {fb && <span className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-amber-50 text-amber-800">Feedback {fbAvg.toFixed(1)}★</span>}
                   </div>
                   <div className="text-sm text-stone-500">
-                    {(o.items || []).map((it) => `${it.description} × ${it.quantity}`).join(", ") || "No items"}
+                    {(o.items || []).length === 0 ? "No items" : (o.items || []).map((it, i) => (
+                      <span key={i}>{i > 0 ? ", " : ""}{it.description} × {it.quantity}
+                        {it.added_by && <span className="ml-1 text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-amber-100 text-amber-800" data-testid="added-by" title={`Item added from the Cutting module${it.added_at ? ` on ${String(it.added_at).slice(0, 10)}` : ""}`}>added by {it.added_by_role === "cutting_master" ? "Cutting Master" : it.added_by_role === "cutting" ? "Cutter" : "Cutting"} {it.added_by}</span>}
+                        {!it.added_by && it.size_added_by && <span className="ml-1 text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-amber-100 text-amber-800" data-testid="added-by" title="Size range added from the Cutting module">sizes added by {it.size_added_by}</span>}
+                      </span>
+                    ))}
                   </div>
                   <div className="text-xs text-stone-400 mt-1 flex flex-wrap gap-x-3">
                     <span>Ordered {o.order_date}</span>
@@ -441,7 +446,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
           if (!f.customer_name) return;
           const cleanItems = items
             .filter((it) => it.description || it.quantity)
-            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, ...(it.garment_type_id ? { garment_type_id: it.garment_type_id } : {}), ...(it.model ? { model: it.model } : {}), ...(it.size_mode && itemSizes(it).length ? { size_mode: it.size_mode, size_from: it.size_from ?? "", size_to: it.size_to ?? "", size_custom: it.size_custom || "" } : {}) }));
+            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, ...(it.garment_type_id ? { garment_type_id: it.garment_type_id } : {}), ...(it.model ? { model: it.model } : {}), ...(it.added_by ? { added_by: it.added_by, added_by_role: it.added_by_role, added_at: it.added_at } : {}), ...(it.size_added_by ? { size_added_by: it.size_added_by, size_added_by_role: it.size_added_by_role, size_added_at: it.size_added_at } : {}), ...(it.size_mode && itemSizes(it).length ? { size_mode: it.size_mode, size_from: it.size_from ?? "", size_to: it.size_to ?? "", size_custom: it.size_custom || "" } : {}) }));
           onSave({ ...f, items: cleanItems, daily_target: Number(f.daily_target) || 0, salesLink: canLinkSales && sales.dirty ? { salesperson: sales.salesperson, value: sales.value } : null });
         }}
       >
@@ -524,6 +529,7 @@ function OrderModal({ order, onClose, onSave, count, rcaBlocked, canLinkSales })
                 ? <span className="text-stone-500">{itemSizes(it).length} sizes: {itemSizeText(it)}</span>
                 : <span className="text-rose-600">Check the size range</span>)}
             </div>
+            {(it.added_by || it.size_added_by) && <div className="text-[11px] text-amber-700 mt-1">{it.added_by ? `Item added from the Cutting module by ${it.added_by}` : `Size range added from the Cutting module by ${it.size_added_by}`}</div>}
             </div>
           ))}
         </div>

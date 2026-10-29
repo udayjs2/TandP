@@ -791,3 +791,11 @@ No new migration (run 44 → 53 if you haven't). Redeploy only.
   - **Actual cost so far — as bought** = the same figure as the Order Profitability card (raw-material purchases tagged to the order + labour + overhead). Unchanged.
   - **Leftover fabric:** bought − used = leftover. Only the fabric used is charged to the order; leftover stays in Inventory as stock (not a loss). When it is cut for another order, that order is charged at the Inventory weighted-average price, and the first order's cost does not change. Purchases count as company spending when bought; per-order cost counts when used.
   - Profit is shown on both bases when both are available. Damaged pieces (Cutting → Damaged pieces) are listed; their cost is carried by the good pieces.
+
+## v62 — Cutting Master can add items / size ranges to an order
+
+Run `supabase/migration_54.sql` after 53 (order 44 → … → 54), then redeploy.
+
+- **Cutting → "Add item / size range to an order"** (Cutting Master, Cutters, and PM/GM/Admin). Pick the order; either add a **new item** (name, optional quantity, size range) or add a **size range to an existing item that has none**. Items that already have a range cannot be changed here, and finished/shipped/rejected orders are locked.
+- The Cutting Master still has **no access to the Orders module**; the change goes through a restricted function (`cutting_add_item`).
+- **Orders** shows those items with an "added by Cutting Master <name>" tag (and "sizes added by …" when only the range was added), also in Edit order. Editing the order keeps the tag.
