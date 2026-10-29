@@ -22,15 +22,17 @@ export default function ActualCostModal({ order, piecesMade = 0, revenue = null,
   useEffect(() => {
     (async () => {
       const sum = (o) => Object.values(o || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-      const [{ data: cut }, { data: dmg }, { data: buy }, { data: fin }] = await Promise.all([
+      const [{ data: cut }, { data: dmg }, { data: buy }, { data: fin }, { data: prog }] = await Promise.all([
         supabase.from("cutting_entries").select("sizes, completed_sizes, status").eq("order_id", order.id),
         supabase.from("cutting_damage").select("stage, total").eq("order_id", order.id),
         supabase.from("expenditures").select("amount").eq("linked_order_id", order.id).eq("category", "Raw Material"),
         supabase.from("order_finance").select("overhead_cost, raw_material_cost").eq("order_id", order.id).maybeSingle(),
+        supabase.from("order_progress").select("quantity").eq("order_id", order.id),
       ]);
       const live = (cut || []).filter((c) => c.status !== "Rejected");
       setExtra({
         cutPieces: live.filter((c) => c.status === "Approved").reduce((a, c) => a + sum(c.sizes), 0),
+        progressMade: (prog || []).reduce((a, r) => a + (Number(r.quantity) || 0), 0), // the "completed" total shown in Order progress
         stitched: live.reduce((a, c) => a + sum(c.completed_sizes), 0),
         dmgCut: (dmg || []).filter((d) => d.stage === "Cutting").reduce((a, d) => a + Number(d.total || 0), 0),
         dmgStitch: (dmg || []).filter((d) => d.stage === "Stitching").reduce((a, d) => a + Number(d.total || 0), 0),
@@ -42,10 +44,11 @@ export default function ActualCostModal({ order, piecesMade = 0, revenue = null,
 
   const num = (n) => Number(n || 0);
   const t = data?.totals;
-  // pieces for the per-piece price: pieces stitched (made) first, then the Orders-tab count, then pieces cut
-  const made = extra?.stitched > 0 ? extra.stitched : piecesMade;
+  // pieces for the per-piece price = pieces made as recorded in Order progress (the same total the Orders tab shows);
+  // only if none are recorded there: the stitching log in Cutting, then pieces cut
+  const made = extra?.progressMade > 0 ? extra.progressMade : piecesMade > 0 ? piecesMade : num(extra?.stitched);
   const pieces = made > 0 ? made : num(extra?.cutPieces);
-  const piecesNote = made > 0 ? `${pieces} pieces made` : pieces > 0 ? `${pieces} pieces cut (none stitched yet)` : null;
+  const piecesNote = made > 0 ? `${pieces} pieces made` : pieces > 0 ? `${pieces} pieces cut (none made yet)` : null;
   const perPiece = t && pieces > 0 ? t.total / pieces : null;
   const pp = (v) => (pieces > 0 ? fmtMoney(num(v) / pieces) : "—");
   const fabricMetric = (() => {

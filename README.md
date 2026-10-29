@@ -799,3 +799,7 @@ Run `supabase/migration_54.sql` after 53 (order 44 → … → 54), then redeplo
 - **Cutting → "Add item / size range to an order"** (Cutting Master, Cutters, and PM/GM/Admin). Pick the order; either add a **new item** (name, optional quantity, size range) or add a **size range to an existing item that has none**. Items that already have a range cannot be changed here, and finished/shipped/rejected orders are locked.
 - The Cutting Master still has **no access to the Orders module**; the change goes through a restricted function (`cutting_add_item`).
 - **Orders** shows those items with an "added by Cutting Master <name>" tag (and "sizes added by …" when only the range was added), also in Edit order. Editing the order keeps the tag.
+
+## v63 — Actual cost: pieces made now match Order progress
+
+No migration; redeploy only. In Actual cost, "pieces made" (and so the cost per piece) used the stitching log in Cutting, which can be lower than the real output. It now uses the same total as Order progress (the sum of all hourly/daily output entries for the order). Only if nothing is recorded in Order progress does it fall back to the stitching log, then to pieces cut. The cost screen says which count it used.
