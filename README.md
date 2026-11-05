@@ -852,3 +852,9 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 - **Earned leave is 4 days a quarter** (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec), no carry-over. Only the current quarter's balance is shown ("Earned leave (Oct–Dec)"). Each new quarter starts again at 4. A request must fall inside one quarter. Casual (7) and Sick (10) stay yearly.
 - **Attendance bonus:** if an employee has no absent, leave (any kind), half-day or unmarked day in all three months of a quarter (and was employed from its first day), their 4 unused earned-leave days are paid as **4 × monthly salary ÷ 30** with the first month's salary of the next quarter (Jan, Apr, Jul, Oct). It shows under the employee's name in Payroll, in their own Payroll tab, on the payslip, and is included in net pay. It is worked out from attendance each time, so it is paid once with that month.
 - Run `supabase/migration_60.sql` (after 59). The yearly Earned requests already in the system are not counted in the new quarterly balance.
+
+## v71 — Casual leave earned monthly, earned leave not applied for, sick leave max 2 a month
+- **Casual leave** is earned month by month: 7 days a year = 7 ÷ 12 ≈ 0.58 a month, counted from the joining month (or January) up to the current month (joined in March → 9 months = 5.25 days by November). The balance card shows "x earned so far (0.58 a month)" and requests are checked against what has been earned so far.
+- **Earned leave can no longer be applied for.** It is gone from the request form (the database also refuses it). The card only explains that it is paid as the attendance bonus (v70) when a quarter has no leave or absence.
+- **Sick leave:** at most 2 days in a month (counting approved + pending), one request per month, plus the yearly 10.
+- Run `supabase/migration_61.sql` (after 60).

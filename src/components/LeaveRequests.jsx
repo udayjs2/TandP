@@ -5,6 +5,7 @@ import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr, quarterLabel, quarterMonths } from "../lib/helpers";
 
 const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"], ["Unpaid", "Leave without pay"]];
+const fmtDays = (n) => String(Math.round(Number(n || 0) * 100) / 100);
 const typeLabel = (t) => (LEAVE_TYPES.find(([v]) => v === t) || [t, t || "Leave"])[1];
 // days between two dates, Sundays excluded
 const workDays = (a, b) => { let n = 0; for (let d = new Date(`${a}T00:00:00`); d <= new Date(`${b}T00:00:00`); d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n += 1; return n; };
@@ -80,15 +81,23 @@ export default function LeaveRequests({ profile }) {
         <div data-testid="leave-balance">
           <h3 className="font-semibold text-sm mb-2">My leave balance ({new Date().getFullYear()})</h3>
           <div className="grid grid-cols-3 gap-2">
-            {(balance.length ? balance : LEAVE_TYPES.filter(([v]) => v !== "Unpaid").map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => (
+            {(balance.length ? balance : LEAVE_TYPES.filter(([v]) => v !== "Unpaid").map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => b.leave_type === "Earned" ? (
+              <Card key="Earned" className="p-3" data-type="Earned">
+                <div className="text-[11px] text-stone-500">Earned leave ({quarterLabel(todayStr()).replace(/ \d{4}$/, "")})</div>
+                <div className="text-2xl font-semibold font-mono">{fmtDays(b.entitled)}<span className="text-xs font-normal text-stone-400"> days</span></div>
+                <div className="text-[11px] text-stone-400">Not applied for — paid as an attendance bonus if you have no leave or absence in the quarter</div>
+              </Card>
+            ) : (
               <Card key={b.leave_type} className="p-3" data-type={b.leave_type}>
-                <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}{b.period === "quarter" ? ` (${quarterLabel(todayStr()).replace(/ \d{4}$/, "")})` : ""}</div>
-                <div className="text-2xl font-semibold font-mono">{Number(b.balance)}<span className="text-xs font-normal text-stone-400"> left</span></div>
-                <div className="text-[11px] text-stone-400">{Number(b.used)} used{Number(b.pending) > 0 ? ` · ${Number(b.pending)} pending` : ""} · {Number(b.entitled)} a {b.period === "quarter" ? "quarter" : "year"}</div>
+                <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}</div>
+                <div className="text-2xl font-semibold font-mono">{fmtDays(b.balance)}<span className="text-xs font-normal text-stone-400"> left</span></div>
+                <div className="text-[11px] text-stone-400">
+                  {b.period === "accrual" ? `${fmtDays(b.entitled)} earned so far (${fmtDays(Number(b.yearly || 7) / 12)} a month)` : `${fmtDays(b.entitled)} a year`} · {fmtDays(b.used)} used{Number(b.pending) > 0 ? ` · ${fmtDays(b.pending)} pending` : ""}{b.leave_type === "Sick" ? " · max 2 a month" : ""}
+                </div>
               </Card>
             ))}
           </div>
-          <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days. Earned leave is 4 days each quarter and does not carry over. If you have no absent or leave day in a whole quarter, 4 days' salary is added to your pay in the first month of the next quarter as an attendance bonus.</p>
+          <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days. Casual leave is earned month by month (7 days over 12 months, counted from your joining month). Earned leave cannot be applied for: if you have no absent or leave day in a whole quarter, 4 days' salary is added to your pay in the first month of the next quarter as an attendance bonus.</p>
         </div>
       )}
 
@@ -156,12 +165,12 @@ export default function LeaveRequests({ profile }) {
         </Card>
       )}
 
-      {modal && <RequestModal profile={profile} balance={balance} onClose={() => setModal(false)} onSaved={load} />}
+      {modal && <RequestModal profile={profile} balance={balance} requests={myRequests} onClose={() => setModal(false)} onSaved={load} />}
     </div>
   );
 }
 
-function RequestModal({ profile, balance, onClose, onSaved }) {
+function RequestModal({ profile, balance, requests, onClose, onSaved }) {
   const [leaveType, setLeaveType] = useState("");
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(todayStr());
@@ -172,18 +181,20 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
   const bal = (balance || []).find((b) => b.leave_type === leaveType);
   const unpaid = leaveType === "Unpaid";
   const left = unpaid ? Infinity : bal ? Number(bal.balance) : 0;
-  // earned leave is a per-quarter balance: the dates must fall inside the current quarter
-  const qm = quarterMonths(todayStr());
-  const qStart = `${qm[0]}-01`;
-  const qEnd = `${qm[2]}-${String(new Date(Number(qm[2].slice(0, 4)), Number(qm[2].slice(5)), 0).getDate()).padStart(2, "0")}`;
-  const outsideQuarter = leaveType === "Earned" && (startDate < qStart || endDate > qEnd);
+  // sick leave: at most 2 days in a month, and a request stays inside one month
+  const sick = leaveType === "Sick";
+  const monthOf = (d) => String(d).slice(0, 7);
+  const sickTaken = sick ? (requests || []).filter((r) => r.leave_type === "Sick" && ["Approved", "Pending"].includes(r.status) && monthOf(r.start_date) === monthOf(startDate)).reduce((t, r) => t + Number(r.days || 0), 0) : 0;
+  const sickCross = sick && monthOf(startDate) !== monthOf(endDate);
+  const sickOver = sick && !sickCross && sickTaken + days > 2;
   const save = async (e) => {
     e.preventDefault();
     if (!leaveType) return alert("Choose the leave type.");
     if (endDate < startDate) return alert("The end date is before the start date.");
     if (days <= 0) return alert("These dates are only Sundays; no leave is needed.");
-    if (outsideQuarter) return alert(`Earned leave is given per quarter. Choose dates inside this quarter (${quarterLabel(todayStr())}).`);
-    if (days > left) return alert(`You have only ${left} day(s) of ${typeLabel(leaveType)} left this year.`);
+    if (sickCross) return alert("Sick leave: please raise a separate request for each month.");
+    if (sickOver) return alert(`Sick leave is limited to 2 days a month (${sickTaken} already taken or pending in that month).`);
+    if (days > left) return alert(`You have only ${left} day(s) of ${typeLabel(leaveType)} available.`);
     setSaving(true);
     const { error } = await supabase.from("leave_requests").insert({
       leave_type: leaveType,
@@ -207,9 +218,9 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
         <Field label="Leave type">
           <select required className={inputCls} value={leaveType} onChange={(e) => setLeaveType(e.target.value)} aria-label="Leave type">
             <option value="">— select the leave type —</option>
-            {LEAVE_TYPES.map(([v, l]) => {
+            {LEAVE_TYPES.filter(([v]) => v !== "Earned").map(([v, l]) => {
               const b = (balance || []).find((x) => x.leave_type === v);
-              return <option key={v} value={v}>{v === "Unpaid" ? `${l} — salary is deducted` : `${l}${b ? ` — ${Number(b.balance)} left` : ""}`}</option>;
+              return <option key={v} value={v}>{v === "Unpaid" ? `${l} — salary is deducted` : `${l}${b ? ` — ${fmtDays(b.balance)} left` : ""}${v === "Sick" ? " (max 2 a month)" : ""}`}</option>;
             })}
           </select>
         </Field>
@@ -221,8 +232,8 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
             <input type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
         </div>
-        <p className={`text-xs mb-2 ${leaveType && days > left ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
-          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}{outsideQuarter ? ` — earned leave only for dates in ${quarterLabel(todayStr())}` : ""}
+        <p className={`text-xs mb-2 ${leaveType && (days > left || sickOver || sickCross) ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
+          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${fmtDays(left)} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}{sickCross ? " — sick leave: one request per month" : sickOver ? ` — sick leave is limited to 2 days a month (${sickTaken} already this month)` : ""}
         </p>
         <Field label="Reason (optional)">
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />
