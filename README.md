@@ -827,3 +827,8 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 - No more creating schools: **choose the Order first** (the school's uniform order), then add students / import Excel / CSV against that order.
 - Run `supabase/migration_57.sql` (after 56): adds `order_id` to students. Students already linked to an order through an old school move across automatically; others are not carried over.
 - **Photo scan is hidden** (it uses the paid Anthropic API). To enable later: add `ANTHROPIC_API_KEY` and `VITE_MEASUREMENT_SCAN=on` in Vercel env vars and redeploy.
+
+## v66 — Attendance calendar in Payroll
+- Payroll → each employee's **Leave / absent days** number is now a button that opens a month calendar: green = present, light green = half day, yellow = leave / absent, dashed yellow = nothing marked (counted absent), grey = Sunday. The dates they were away are listed under the calendar.
+- The count is worked out from attendance: leave + absent + days (up to yesterday, from the joining date) with no attendance marked + half of each half-day. It no longer shows 0 for people who simply were not marked.
+- Employees see the same calendar on their own Payroll tab. Pay is unchanged (only present + paid leave days are paid). No database change.

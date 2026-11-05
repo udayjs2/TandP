@@ -35,7 +35,33 @@ export const workingDaysInMonth = (mk) => daysInMonth(mk) - sundaysInMonth(mk);
 // present = days present on working days (half day = 0.5); a Sunday attendance is not counted
 // leave   = approved leave days on working days (paid leave: balance is checked when the leave is approved)
 // paid    = present + leave, never more than the working days
-export const paidDaysFromAttendance = (rows, mk) => {
+// One entry per calendar day of the month: Sundays are off, days with no record (before today and after the
+// join date) count as "unmarked" = absent. state: present | half | leave | absent | unmarked | sunday | future | before
+export const monthCalendar = (rows, mk, today = todayStr(), joined = "") => {
+  const byDate = {};
+  (rows || []).forEach((r) => (byDate[r.date] = r.status));
+  const total = daysInMonth(mk);
+  const days = [];
+  for (let d = 1; d <= total; d++) {
+    const date = `${mk}-${String(d).padStart(2, "0")}`;
+    const [y, m] = mk.split("-").map(Number);
+    const dow = new Date(y, m - 1, d).getDay();
+    const st = byDate[date];
+    let state;
+    if (dow === 0) state = "sunday";
+    else if (joined && date < joined) state = "before";
+    else if (st === "Present") state = "present";
+    else if (st === "Half Day") state = "half";
+    else if (st === "Leave") state = "leave";
+    else if (st === "Absent") state = "absent";
+    else if (date >= today) state = "future";
+    else state = "unmarked";
+    days.push({ date, day: d, dow, state, status: st || null });
+  }
+  return days;
+};
+
+export const paidDaysFromAttendance = (rows, mk, opts = {}) => {
   let present = 0;
   let leave = 0;
   let absent = 0;
@@ -48,8 +74,13 @@ export const paidDaysFromAttendance = (rows, mk) => {
     else if (r.status === "Leave") leave += 1;
     else if (r.status === "Absent") absent += 1;
   });
+  const cal = monthCalendar(rows, mk, opts.today, opts.joined);
+  const unmarked = cal.filter((c) => c.state === "unmarked").length;
+  const halves = cal.filter((c) => c.state === "half").length;
+  // days the employee was away: leave + absent + days with nothing marked (+ half the half-days)
+  const off = leave + absent + unmarked + halves * 0.5;
   const workingDays = workingDaysInMonth(mk);
-  return { present, leave, absent, paid: Math.min(workingDays, present + leave), workingDays, sundays: sundaysInMonth(mk), workedDays: present };
+  return { present, leave, absent, unmarked, off, paid: Math.min(workingDays, present + leave), workingDays, sundays: sundaysInMonth(mk), workedDays: present };
 };
 
 // monthly pay for the days paid: base × paid ÷ working days (a fixed salary, not ÷ calendar days)

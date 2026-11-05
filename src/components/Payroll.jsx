@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Receipt } from "lucide-react";
+import { Receipt, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, inputCls, Btn } from "./ui";
+import { Card, inputCls, Btn, Modal } from "./ui";
+import AttendanceCalendar from "./AttendanceCalendar";
 import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryForPaidDays, workingDaysInMonth } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
@@ -19,6 +20,8 @@ function AdminPayroll() {
   const [profiles, setProfiles] = useState([]);
   const [settings, setSettings] = useState({});
   const [payslip, setPayslip] = useState(null);
+  const [calFor, setCalFor] = useState(null); // { employee } shown in the attendance calendar
+  const [rawAtt, setRawAtt] = useState({}); // { empId: [{date,status}] }
   const [investors, setInvestors] = useState([]);
   const [defaultInvestor, setDefaultInvestor] = useState(""); // used when "Mark paid" is clicked on a row with no investor
   const totalDays = daysInMonth(mk);
@@ -45,8 +48,9 @@ function AdminPayroll() {
     (att || []).forEach((r) => (grouped[r.employee_id] = grouped[r.employee_id] || []).push(r));
     const byEmp = {};
     (emp || []).forEach((e) => {
-      byEmp[e.id] = paidDaysFromAttendance(grouped[e.id] || [], mk); // includes all Sundays
+      byEmp[e.id] = paidDaysFromAttendance(grouped[e.id] || [], mk, { joined: e.join_date || "" });
     });
+    setRawAtt(grouped);
     setAttByEmp(byEmp);
     const rows = {};
     (pay || []).forEach((r) => (rows[r.employee_id] = r));
@@ -125,7 +129,7 @@ function AdminPayroll() {
             <tr>
               <th className="text-left px-4 py-2.5">Employee</th>
               <th className="text-right px-4 py-2.5">Present days</th>
-              <th className="text-right px-4 py-2.5">Leaves</th>
+              <th className="text-right px-4 py-2.5" title="Leave + absent + days with no attendance marked">Leave / absent days</th>
               <th className="text-right px-4 py-2.5">Bonus (₹)</th>
               <th className="text-right px-4 py-2.5">Deductions (₹)</th>
               <th className="text-right px-4 py-2.5">Net pay</th>
@@ -140,7 +144,11 @@ function AdminPayroll() {
               <tr key={emp.id} className="hover:bg-stone-50">
                 <td className="px-4 py-2.5 font-medium">{emp.name}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{att.present}/{workingDays}</td>
-                <td className="px-4 py-2.5 text-right font-mono">{att.leave}</td>
+                <td className="px-4 py-2.5 text-right font-mono">
+                  <button onClick={() => setCalFor(emp)} className={`inline-flex items-center gap-1 hover:underline ${att.off ? "text-amber-700 font-semibold" : ""}`} title="View attendance calendar" data-testid={`leaves-${emp.id}`}>
+                    <CalendarDays size={13} /> {att.off}
+                  </button>
+                </td>
                 <td className="px-4 py-2.5 text-right">
                   <input
                     type="number"
@@ -217,13 +225,18 @@ function AdminPayroll() {
         Salary is fixed per month: net pay = base salary × (days present + paid leave) ÷ working days + bonus − deductions. Working days are the Mon–Sat days of the month; Sundays are paid and are not counted as present days, so a full-attendance month pays the same base salary in a 28-, 29-, 30- or 31-day month. Link a login account so staff
         can see their own payroll and leave count under their own Payroll tab.
       </p>
+      {calFor && (
+        <Modal title={`${calFor.name} — attendance ${mk}`} onClose={() => setCalFor(null)}>
+          <AttendanceCalendar rows={rawAtt[calFor.id] || []} mk={mk} joined={calFor.join_date || ""} />
+        </Modal>
+      )}
       {payslip && (
         <PrintPayslip
           employee={payslip.employee}
           month={mk}
           present={payslip.att.present}
           leaves={payslip.att.leave}
-          absent={payslip.att.absent}
+          absent={payslip.att.absent + payslip.att.unmarked}
           paid={payslip.att.paid}
           totalDays={workingDays}
           entry={payrollRows[payslip.employee.id] || { bonus: 0, deductions: 0 }}
@@ -245,6 +258,7 @@ function MyPayroll({ profile }) {
   const [mk, setMk] = useState(monthKey());
   const [employee, setEmployee] = useState(null);
   const [att, setAtt] = useState({ present: 0, leave: 0, absent: 0, paid: 0 });
+  const [myRows, setMyRows] = useState([]);
   const [entry, setEntry] = useState({ bonus: 0, deductions: 0, status: "Pending" });
   const [settings, setSettings] = useState({});
   const [showPayslip, setShowPayslip] = useState(false);
@@ -265,8 +279,9 @@ function MyPayroll({ profile }) {
       supabase.from("settings").select("*").eq("id", 1).single(),
     ]);
     setEmployee(emp || null);
-    const counts = paidDaysFromAttendance(attRows || [], mk);
+    const counts = paidDaysFromAttendance(attRows || [], mk, { joined: emp?.join_date || "" });
     setAtt(counts);
+    setMyRows(attRows || []);
     setEntry(pay || { bonus: 0, deductions: 0, status: "Pending" });
     setSettings(set || {});
     setLoading(false);
@@ -303,15 +318,14 @@ function MyPayroll({ profile }) {
         <div className="grid grid-cols-2 gap-y-2 text-sm mb-4">
           <span className="text-stone-500">Present days</span>
           <span className="text-right font-mono">{att.present} / {workingDays}</span>
-          <span className="text-stone-500">Leaves taken</span>
-          <span className="text-right font-mono">{att.leave}</span>
-          <span className="text-stone-500">Absent days</span>
-          <span className="text-right font-mono">{att.absent}</span>
+          <span className="text-stone-500">Leave / absent days</span>
+          <span className="text-right font-mono">{att.off}</span>
           <span className="text-stone-500">Bonus</span>
           <span className="text-right font-mono">{fmtMoney(entry.bonus)}</span>
           <span className="text-stone-500">Deductions</span>
           <span className="text-right font-mono">−{fmtMoney(entry.deductions)}</span>
         </div>
+        <div className="mb-4"><AttendanceCalendar rows={myRows} mk={mk} joined={employee?.join_date || ""} /></div>
         <div className="flex justify-between items-center border-t border-stone-200 pt-3 mb-4">
           <span className="font-semibold">Net pay</span>
           <span className="font-mono font-bold text-lg">{fmtMoney(net)}</span>
@@ -326,7 +340,7 @@ function MyPayroll({ profile }) {
           month={mk}
           present={att.present}
           leaves={att.leave}
-          absent={att.absent}
+          absent={att.absent + (att.unmarked || 0)}
           paid={att.paid}
           totalDays={workingDays}
           entry={entry}
