@@ -69,9 +69,9 @@ export default function DailyReport() {
   if (!data) return <p className="text-sm text-stone-500">Loading…</p>;
 
   const d = data;
-  const NOT_WORKING = ["Leave", "Absent", "Unmarked"];
+  const NOT_WORKING = ["Leave", "Unpaid Leave", "Absent", "Unmarked"];
   const shown = d.people.filter((p) => filter === "All" || (filter === "Not working" ? NOT_WORKING.includes(p.status) : p.status === filter));
-  const FILTERS = ["All", "Present", "Half Day", "Leave", "Absent", "Unmarked", "Not working"];
+  const FILTERS = ["All", "Present", "Half Day", "Leave", "Unpaid Leave", "Absent", "Unmarked", "Not working"];
   const countFor = (f) => (f === "All" ? d.people.length : f === "Not working" ? d.people.filter((p) => NOT_WORKING.includes(p.status)).length : d.people.filter((p) => p.status === f).length);
   const hitTarget = d.target > 0 ? Math.round((d.total / d.target) * 100) : null;
   const present = d.counts.Present + d.counts["Half Day"];

@@ -6,18 +6,19 @@ const CELL = {
   half: "bg-emerald-200 text-emerald-900",
   leave: "bg-amber-300 text-amber-950",
   absent: "bg-amber-300 text-amber-950",
+  lop: "bg-amber-300 text-amber-950",
   unmarked: "bg-amber-100 text-amber-900 border border-amber-300 border-dashed",
   sunday: "bg-stone-100 text-stone-400",
   future: "bg-white text-stone-300 border border-stone-100",
   before: "bg-white text-stone-200",
 };
-const TITLE = { present: "Present", half: "Half day", leave: "Leave", absent: "Absent", unmarked: "Not marked (counted absent)", sunday: "Sunday", future: "", before: "Before joining" };
+const TITLE = { lop: "Leave without pay (salary deducted)", present: "Present", half: "Half day", leave: "Leave", absent: "Absent", unmarked: "Not marked (counted absent)", sunday: "Sunday", future: "", before: "Before joining" };
 
 // Month calendar: green = present, yellow = leave / absent / not marked
 export default function AttendanceCalendar({ rows, mk, joined, today }) {
   const days = monthCalendar(rows, mk, today, joined);
   const lead = (days[0].dow + 6) % 7; // Monday first
-  const off = days.filter((d) => ["leave", "absent", "unmarked"].includes(d.state));
+  const off = days.filter((d) => ["leave", "lop", "absent", "unmarked"].includes(d.state));
   const fmt = (d) => `${d.day}`;
   return (
     <div data-testid="att-calendar">
@@ -37,7 +38,7 @@ export default function AttendanceCalendar({ rows, mk, joined, today }) {
       </div>
       <div className="text-sm mt-3" data-testid="att-off-dates">
         <span className="font-medium">Away on ({off.length}):</span>{" "}
-        {off.length ? off.map((d) => `${fmt(d)}${d.state === "leave" ? " (leave)" : d.state === "absent" ? " (absent)" : " (not marked)"}`).join(", ") : <span className="text-stone-500">no leave or absent days</span>}
+        {off.length ? off.map((d) => `${fmt(d)}${d.state === "leave" ? " (leave)" : d.state === "lop" ? " (no pay)" : d.state === "absent" ? " (absent)" : " (not marked)"}`).join(", ") : <span className="text-stone-500">no leave or absent days</span>}
       </div>
     </div>
   );

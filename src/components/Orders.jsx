@@ -1192,7 +1192,7 @@ function ShareBox({ url, text }) {
 }
 
 export function SendAgreementModal({ order, onClose, onChanged }) {
-  const url = `${window.location.origin}/?agree=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
+  const url = `${window.location.origin}/?track=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
   const st = order.agreement_status || "Not sent";
   const [busy, setBusy] = useState(false);
   const open = async () => {
@@ -1219,7 +1219,7 @@ export function SendAgreementModal({ order, onClose, onChanged }) {
         <Btn onClick={open} disabled={busy} className="w-full justify-center"><Send size={14} /> Open for customer confirmation</Btn>
       ) : (
         <>
-          <ShareBox url={url} text={`Please review and confirm order ${order.order_number}:`} />
+          <ShareBox url={url} text={`Track order ${order.order_number}, review and confirm the agreement, and see measurements, dispatches and payments here:`} />
           {st !== "Sent" && <Btn variant="ghost" onClick={open} disabled={busy} className="w-full justify-center mt-2">Reopen / send again (clears the answer)</Btn>}
         </>
       )}
@@ -1229,7 +1229,7 @@ export function SendAgreementModal({ order, onClose, onChanged }) {
 
 // ===================== Customer feedback link =====================
 function FeedbackLinkModal({ order, feedback, onClose }) {
-  const url = `${window.location.origin}/?feedback=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
+  const url = `${window.location.origin}/?track=1&order=${encodeURIComponent(order.order_number)}&code=${encodeURIComponent(order.tracking_code)}`;
   const ready = ["Completed", "Shipped", "Rejected by Customer"].includes(order.status);
   const [sentAt, setSentAt] = useState(order.feedback_sent_at);
   const markSent = async () => {
@@ -1259,7 +1259,7 @@ function FeedbackLinkModal({ order, feedback, onClose }) {
       ) : (
         <>
           <p className="text-sm text-stone-600 mb-3">Send this link after completion or shipping. The customer rates fabric, stitching, size, durability, pricing, design and colour matching, packing and delivery timing.</p>
-          <ShareBox url={url} text={`Thank you for your order ${order.order_number}. We would love your feedback:`} />
+          <ShareBox url={url} text={`Thank you for your order ${order.order_number}. Open your tracking link and tap "Give feedback":`} />
           <div className="flex items-center justify-between mt-3 text-xs text-stone-500">
             <span>{sentAt ? `Marked sent ${new Date(sentAt).toLocaleDateString("en-IN")}` : "Not marked as sent"}</span>
             {!sentAt && <button onClick={markSent} className="text-indigo-700 hover:underline">Mark as sent</button>}

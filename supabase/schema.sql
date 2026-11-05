@@ -5540,3 +5540,69 @@ create index if not exists measurement_students_order_idx on measurement_student
 -- students entered under a school that was linked to an order move to that order
 update measurement_students s set order_id = sc.order_id
 from measurement_schools sc where s.school_id = sc.id and s.order_id is null and sc.order_id is not null;
+-- migration_58.sql — v67: "Leave without pay" request type. Run after migration_57.sql. Safe to run twice.
+-- Salary is monthly ÷ 30 per day; leave from the balance is not deducted, leave without pay is.
+alter table leave_requests drop constraint if exists leave_requests_type_check;
+alter table leave_requests add constraint leave_requests_type_check check (leave_type in ('Casual','Earned','Sick','Unpaid'));
+
+create or replace function leave_request_check() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_ent numeric; v_used numeric; v_year int := extract(year from new.start_date)::int;
+begin
+  if new.end_date < new.start_date then raise exception 'The end date is before the start date'; end if;
+  if new.leave_type is null then raise exception 'Choose the leave type'; end if;
+  new.days := leave_working_days(new.start_date, new.end_date);
+  if new.days <= 0 then raise exception 'These dates are only Sundays; no leave is needed'; end if;
+  if extract(year from new.end_date)::int <> v_year then raise exception 'Please raise separate requests for each year'; end if;
+  -- leave without pay has no balance to check
+  if new.leave_type <> 'Unpaid' and (tg_op = 'INSERT' or (new.status = 'Pending' and (old.status is distinct from 'Pending' or old.leave_type is distinct from new.leave_type or old.start_date <> new.start_date or old.end_date <> new.end_date))) then
+    select days_per_year into v_ent from leave_entitlements where leave_type = new.leave_type;
+    select coalesce(sum(days), 0) into v_used from leave_requests
+      where employee_id = new.employee_id and leave_type = new.leave_type and status in ('Approved','Pending')
+        and extract(year from start_date) = v_year and (tg_op = 'INSERT' or id <> new.id);
+    if v_used + new.days > coalesce(v_ent, 0) then
+      raise exception 'Only % day(s) of % leave left this year (% requested)', greatest(0, coalesce(v_ent, 0) - v_used), new.leave_type, new.days;
+    end if;
+  end if;
+  return new;
+end $$;
+
+-- approved leave -> Attendance ("Leave", or "Unpaid Leave" for leave without pay), never on Sundays
+create or replace function sync_leave_to_attendance()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_st text;
+begin
+  if new.status = 'Approved' and old.status is distinct from 'Approved' then
+    v_st := case when new.leave_type = 'Unpaid' then 'Unpaid Leave' else 'Leave' end;
+    insert into attendance (employee_id, date, status)
+    select new.employee_id, d::date, v_st
+    from generate_series(new.start_date, new.end_date, interval '1 day') d
+    where extract(dow from d) <> 0
+    on conflict (employee_id, date) do update set status = v_st
+      where attendance.check_in is null;      -- never overwrite a real punch
+  elsif old.status = 'Approved' and new.status is distinct from 'Approved' then
+    delete from attendance
+    where employee_id = new.employee_id and date between new.start_date and new.end_date
+      and status in ('Leave','Unpaid Leave') and check_in is null;
+  end if;
+  return new;
+end;
+$$;
+-- migration_59.sql — v68: customers see their order's student measurements from the tracking link. Run after migration_58.sql.
+-- Read-only; needs the order number + tracking code, like the dispatch / payments pages.
+create or replace function public_order_measurements(p_order_number text, p_tracking_code text)
+returns json language plpgsql security definer set search_path = public as $$
+declare o orders%rowtype;
+begin
+  select * into o from orders where order_number = p_order_number and tracking_code = p_tracking_code;
+  if not found then return null; end if;
+  return json_build_object(
+    'order_number', o.order_number, 'customer_name', o.customer_name,
+    'items', (select coalesce(json_agg(json_build_object('name', i.name, 'fields', i.fields) order by i.sort_no, i.name), '[]'::json) from measurement_items i),
+    'students', (select coalesce(json_agg(json_build_object(
+        'name', s.student_name, 'class_name', s.class_name, 'section', s.section, 'roll_no', s.roll_no,
+        'records', (select coalesce(json_object_agg(r.item, json_build_object('size', r.size, 'm', r.m)), '{}'::json) from measurement_records r where r.student_id = s.id))
+        order by s.class_name, s.section, s.student_name), '[]'::json)
+      from measurement_students s where s.order_id = o.id));
+end $$;
+grant execute on function public_order_measurements(text, text) to anon, authenticated;

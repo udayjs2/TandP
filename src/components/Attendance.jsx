@@ -4,12 +4,13 @@ import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
 import { daysInMonth, workingDaysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
 
-const ATT_STATUSES = ["Present", "Absent", "Half Day", "Leave"];
+const ATT_STATUSES = ["Present", "Absent", "Half Day", "Leave", "Unpaid Leave"];
 const ATT_COLORS = {
   Present: "bg-emerald-100 text-emerald-800 border-emerald-300",
   Absent: "bg-rose-100 text-rose-800 border-rose-300",
   "Half Day": "bg-amber-100 text-amber-800 border-amber-300",
   Leave: "bg-stone-200 text-stone-700 border-stone-300",
+  "Unpaid Leave": "bg-rose-50 text-rose-700 border-rose-300",
 };
 
 export default function Attendance({ profile }) {

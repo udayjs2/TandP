@@ -243,8 +243,15 @@ export function DeliveryPage() {
   const [answer, setAnswer] = useState({}); // delivery id -> { accepted, reason }
   const [busy, setBusy] = useState("");
   const [msgs, setMsgs] = useState({});
-  const [tab, setTab] = useState(["dispatches", "confirm", "payments"].includes(params.get("view")) ? params.get("view") : "dispatches");
+  const [tab, setTab] = useState(["dispatches", "confirm", "payments", "measurements"].includes(params.get("view")) ? params.get("view") : "dispatches");
   const trackUrl = `/?track=1&order=${encodeURIComponent(order)}&code=${encodeURIComponent(code)}`;
+
+  const [meas, setMeas] = useState(undefined);
+  const [mf, setMf] = useState({ q: "", cls: "" });
+  useEffect(() => {
+    if (tab === "measurements" && meas === undefined) supabase.rpc("public_order_measurements", { p_order_number: order, p_tracking_code: code }).then(({ data: d }) => setMeas(d || null));
+    // eslint-disable-next-line
+  }, [tab]);
 
   const load = async () => {
     const { data: d } = await supabase.rpc("public_delivery_status", { p_order_number: order, p_tracking_code: code });
@@ -289,12 +296,12 @@ export function DeliveryPage() {
   return (
     <Shell subtitle="Your dispatch — please check and confirm">
       <a href={trackUrl} className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-800 hover:text-indigo-950 mb-3"><ArrowLeft size={15} /> Back to order tracking</a>
-      <div className="grid grid-cols-3 gap-2 mb-4" role="tablist">
-        {[["dispatches", "View dispatches"], ["confirm", pendingRows.length ? `Confirm what you received (${pendingRows.length})` : "Confirm what you received"], ["payments", "See payments"]].map(([id, label]) => (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4" role="tablist">
+        {[["dispatches", "View dispatches"], ["confirm", pendingRows.length ? `Confirm what you received (${pendingRows.length})` : "Confirm what you received"], ["payments", "See payments"], ["measurements", "Measurements"]].map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`rounded-lg border px-2 py-2 text-xs font-medium leading-tight ${tab === id ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-700 border-stone-300 hover:bg-stone-50"}`}>{label}</button>
         ))}
       </div>
-      <Card className="p-5 mb-4">
+      {tab !== "measurements" && <Card className="p-5 mb-4">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-semibold text-lg">{data.order_number}</h2>
           <span className="text-xs text-stone-500">{data.customer_name}</span>
@@ -313,7 +320,56 @@ export function DeliveryPage() {
             ))}
           </tbody>
         </table>
-      </Card>
+      </Card>}
+
+
+      {tab === "measurements" && (() => {
+        if (meas === undefined) return <Card className="p-5 mb-4 text-sm text-stone-500"><Loader2 className="inline animate-spin mr-1" size={15} />Loading measurements…</Card>;
+        if (meas === null) return <Card className="p-5 mb-4 text-sm text-rose-700 bg-rose-50 border-rose-200">Measurements aren't available. Please ask T&amp;P Textiles to send the link again.</Card>;
+        const students = meas.students || [];
+        const used = (meas.items || []).filter((it) => students.some((st) => st.records?.[it.name]));
+        const classes = [...new Set(students.map((st) => st.class_name).filter(Boolean))];
+        const shown = students.filter((st) => (!mf.cls || st.class_name === mf.cls) && (!mf.q || `${st.name} ${st.roll_no || ""}`.toLowerCase().includes(mf.q.toLowerCase())));
+        return (
+          <Card className="p-5 mb-4" data-testid="cust-measurements">
+            <div className="flex items-center justify-between mb-1"><h2 className="font-semibold text-lg">{meas.order_number}</h2><span className="text-xs text-stone-500">{meas.customer_name}</span></div>
+            <h3 className="font-semibold text-sm mb-2">Student measurements <span className="text-stone-400 font-normal">· {shown.length} of {students.length} students</span></h3>
+            {students.length === 0 ? <p className="text-sm text-stone-400">No measurements have been entered for this order yet.</p> : (
+              <>
+                <div className="flex gap-2 mb-3">
+                  <input className={inputCls} placeholder="Student name or roll no" value={mf.q} onChange={(e) => setMf({ ...mf, q: e.target.value })} aria-label="Search students" />
+                  <select className={inputCls + " w-auto"} value={mf.cls} onChange={(e) => setMf({ ...mf, cls: e.target.value })} aria-label="Class">
+                    <option value="">All classes</option>
+                    {classes.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                  </select>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-stone-500 uppercase">
+                      <tr><th className="text-left py-1 pr-2">Student</th><th className="text-left pr-2">Class</th>
+                        {used.map((it) => <th key={it.name} className="text-left pr-2">{it.name}</th>)}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100">
+                      {shown.map((st, k) => (
+                        <tr key={k} className="align-top">
+                          <td className="py-1.5 pr-2 font-medium">{st.name}{st.roll_no ? <span className="text-stone-400"> #{st.roll_no}</span> : null}</td>
+                          <td className="pr-2 whitespace-nowrap">{[st.class_name, st.section].filter(Boolean).join(" ")}</td>
+                          {used.map((it) => {
+                            const r = st.records?.[it.name];
+                            if (!r) return <td key={it.name} className="pr-2 text-stone-300">—</td>;
+                            const parts = Object.entries(r.m || {}).filter(([, v]) => v !== "" && v != null);
+                            return <td key={it.name} className="pr-2"><span className="font-semibold">{r.size ? `Size ${r.size}` : ""}</span>{parts.length ? <div className="text-stone-500">{parts.map(([k2, v]) => `${k2} ${v}`).join(" · ")}</div> : null}</td>;
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </Card>
+        );
+      })()}
 
       {tab === "confirm" && pendingRows.length === 0 && <Card className="p-5 mb-4 text-sm text-stone-500">Nothing is waiting for your confirmation. Thank you!</Card>}
       {tab === "confirm" && pendingRows.length > 0 && (

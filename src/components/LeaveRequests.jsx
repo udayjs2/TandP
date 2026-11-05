@@ -4,7 +4,7 @@ import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
 
-const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"]];
+const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"], ["Unpaid", "Leave without pay"]];
 const typeLabel = (t) => (LEAVE_TYPES.find(([v]) => v === t) || [t, t || "Leave"])[1];
 // days between two dates, Sundays excluded
 const workDays = (a, b) => { let n = 0; for (let d = new Date(`${a}T00:00:00`); d <= new Date(`${b}T00:00:00`); d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n += 1; return n; };
@@ -80,7 +80,7 @@ export default function LeaveRequests({ profile }) {
         <div data-testid="leave-balance">
           <h3 className="font-semibold text-sm mb-2">My leave balance ({new Date().getFullYear()})</h3>
           <div className="grid grid-cols-3 gap-2">
-            {(balance.length ? balance : LEAVE_TYPES.map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => (
+            {(balance.length ? balance : LEAVE_TYPES.filter(([v]) => v !== "Unpaid").map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => (
               <Card key={b.leave_type} className="p-3" data-type={b.leave_type}>
                 <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}</div>
                 <div className="text-2xl font-semibold font-mono">{Number(b.balance)}<span className="text-xs font-normal text-stone-400"> left</span></div>
@@ -170,7 +170,8 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
 
   const days = endDate >= startDate ? workDays(startDate, endDate) : 0;
   const bal = (balance || []).find((b) => b.leave_type === leaveType);
-  const left = bal ? Number(bal.balance) : 0;
+  const unpaid = leaveType === "Unpaid";
+  const left = unpaid ? Infinity : bal ? Number(bal.balance) : 0;
   const save = async (e) => {
     e.preventDefault();
     if (!leaveType) return alert("Choose the leave type.");
@@ -202,7 +203,7 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
             <option value="">— select the leave type —</option>
             {LEAVE_TYPES.map(([v, l]) => {
               const b = (balance || []).find((x) => x.leave_type === v);
-              return <option key={v} value={v}>{l}{b ? ` — ${Number(b.balance)} left` : ""}</option>;
+              return <option key={v} value={v}>{v === "Unpaid" ? `${l} — salary is deducted` : `${l}${b ? ` — ${Number(b.balance)} left` : ""}`}</option>;
             })}
           </select>
         </Field>
@@ -215,7 +216,7 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
           </Field>
         </div>
         <p className={`text-xs mb-2 ${leaveType && days > left ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
-          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{leaveType && days > left ? " — not enough balance" : ""}
+          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}
         </p>
         <Field label="Reason (optional)">
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />

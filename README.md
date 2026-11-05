@@ -832,3 +832,15 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 - Payroll → each employee's **Leave / absent days** number is now a button that opens a month calendar: green = present, light green = half day, yellow = leave / absent, dashed yellow = nothing marked (counted absent), grey = Sunday. The dates they were away are listed under the calendar.
 - The count is worked out from attendance: leave + absent + days (up to yesterday, from the joining date) with no attendance marked + half of each half-day. It no longer shows 0 for people who simply were not marked.
 - Employees see the same calendar on their own Payroll tab. Pay is unchanged (only present + paid leave days are paid). No database change.
+
+## v67 — Salary = monthly ÷ 30 per day; leave without pay
+- Every month (28/29/30/31 days) one day's salary is **monthly ÷ 30** (₹25,000 → ₹833.33). Net = salary − per-day × unpaid days + bonus − deductions. One absent day → ₹24,166.67.
+- Unpaid days: absent, days with no attendance marked, half a day for each half-day, leave without pay, and days before the joining date. Leave taken from the available balance (casual / earned / sick) and Sundays are never deducted.
+- New leave type **Leave without pay** (no balance check). When approved it is written to Attendance as "Unpaid Leave" (can also be marked by hand) and deducted. The payslip shows "Unpaid days: n × ₹x" as a deduction line.
+- Run `supabase/migration_58.sql` (after 57).
+
+## v68 — Measurements, agreement and feedback on the customer tracking link
+- The tracking page (`/?track=1&order=…&code=…`) now has six buttons: View dispatches, Confirm what you received, See payments, **Measurements**, **Order agreement**, **Give feedback**.
+- **Measurements** opens the same page as dispatches / payments, with a tab listing the order's students (class, section, roll no) and each garment's size and measurements; the customer can search by name and filter by class. Read-only.
+- In Orders, the agreement and feedback icons still open the status/answers, but the link they share is now the single tracking link (the old `?agree=` / `?feedback=` links keep working).
+- Run `supabase/migration_59.sql` (after 58).

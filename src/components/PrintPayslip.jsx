@@ -2,7 +2,7 @@ import { X, Receipt } from "lucide-react";
 import { Btn } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
-export default function PrintPayslip({ employee, month, present, leaves, absent, paid, totalDays, entry, net, settings, onClose }) {
+export default function PrintPayslip({ employee, month, present, leaves, absent, paid, deductDays, perDay, totalDays, entry, net, settings, onClose }) {
   return (
     <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
       <style>{`
@@ -64,7 +64,7 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
               <td className="text-right py-2">{present}</td>
             </tr>
             <tr className="border-b border-stone-200">
-              <td className="py-2">Paid days (present + paid leave)</td>
+              <td className="py-2">Paid days (30 − days deducted)</td>
               <td className="text-right py-2">{paid ?? present}</td>
             </tr>
             <tr className="border-b border-stone-200">
@@ -90,6 +90,12 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
               <td className="py-2">Base salary (monthly)</td>
               <td className="text-right py-2">{fmtMoney(employee.base_salary)}</td>
             </tr>
+            {deductDays > 0 && (
+              <tr className="border-b border-stone-200">
+                <td className="py-2">Unpaid days: {deductDays} × {fmtMoney(perDay)} (monthly ÷ 30)</td>
+                <td className="text-right py-2">−{fmtMoney(perDay * deductDays)}</td>
+              </tr>
+            )}
             <tr className="border-b border-stone-200">
               <td className="py-2">Bonus</td>
               <td className="text-right py-2">{fmtMoney(entry.bonus)}</td>

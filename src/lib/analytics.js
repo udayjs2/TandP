@@ -83,7 +83,7 @@ export function periodStats(from, to, { attendance, progress, cuts, cuttingEmpId
     statusByEmpDay[`${a.employee_id}|${a.date}`] = a.status;
     if (a.status === "Present") present[a.date] += 1;
     else if (a.status === "Half Day") present[a.date] += 0.5;
-    else if (a.status === "Leave" && !isSunday(a.date)) {
+    else if ((a.status === "Leave" || a.status === "Unpaid Leave") && !isSunday(a.date)) {
       leave[a.date] += 1;
       leaveByEmp[a.employee_id] = (leaveByEmp[a.employee_id] || 0) + 1;
     }
@@ -104,7 +104,7 @@ export function periodStats(from, to, { attendance, progress, cuts, cuttingEmpId
       if (isSunday(d)) return;
       cutterOff[d] = cutters.every((id) => {
         const st = statusByEmpDay[`${id}|${d}`];
-        return !st || st === "Leave" || st === "Absent";
+        return !st || st === "Leave" || st === "Unpaid Leave" || st === "Absent";
       });
     });
   }

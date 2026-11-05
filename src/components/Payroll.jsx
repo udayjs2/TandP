@@ -3,7 +3,7 @@ import { Receipt, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
 import AttendanceCalendar from "./AttendanceCalendar";
-import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryForPaidDays, workingDaysInMonth } from "../lib/helpers";
+import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryAfterDeductions, perDaySalary, workingDaysInMonth } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
 export default function Payroll({ profile }) {
@@ -76,8 +76,8 @@ function AdminPayroll() {
     // The net amount is stored with the row so a Paid salary posts to Finance -> Expenditures
     // (category "Salary") with the exact figure shown here. Re-saved on any bonus/deduction edit.
     const emp = employees.find((x) => x.id === empId);
-    const att = attByEmp[empId] || { paid: 0 };
-    next.net_pay = Math.max(0, Math.round((salaryForPaidDays(emp?.base_salary, att.paid, workingDays) + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
+    const att = attByEmp[empId] || { deductDays: 0 };
+    next.net_pay = Math.max(0, Math.round((salaryAfterDeductions(emp?.base_salary, att.deductDays) + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
     delete next.paid_at;
     if (next.status === "Paid" && !next.investor_id && defaultInvestor) next.investor_id = defaultInvestor;
     if (!next.investor_id) next.investor_id = null;
@@ -102,9 +102,9 @@ function AdminPayroll() {
   };
 
   const rows = employees.map((e) => {
-    const att = attByEmp[e.id] || { present: 0, leave: 0, absent: 0, paid: 0 };
+    const att = attByEmp[e.id] || { present: 0, leave: 0, absent: 0, paid: 30, deductDays: 0 };
     const entry = payrollRows[e.id] || { bonus: 0, deductions: 0, status: "Pending" };
-    const net = salaryForPaidDays(e.base_salary, att.paid, workingDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+    const net = salaryAfterDeductions(e.base_salary, att.deductDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
     const linkedProfile = profiles.find((p) => p.employee_id === e.id);
     return { emp: e, att, entry, net, linkedProfile };
   });
@@ -222,7 +222,7 @@ function AdminPayroll() {
         </table>
       </Card>
       <p className="text-xs text-stone-400">
-        Salary is fixed per month: net pay = base salary × (days present + paid leave) ÷ working days + bonus − deductions. Working days are the Mon–Sat days of the month; Sundays are paid and are not counted as present days, so a full-attendance month pays the same base salary in a 28-, 29-, 30- or 31-day month. Link a login account so staff
+        Salary is monthly ÷ 30 per day, in every month (28, 29, 30 or 31 days). Net pay = base salary − (base ÷ 30 × unpaid days) + bonus − deductions. Unpaid days are absent days, days with no attendance marked, half a day for each half-day and leave without pay; leave taken from the available balance and Sundays are not deducted. Link a login account so staff
         can see their own payroll and leave count under their own Payroll tab.
       </p>
       {calFor && (
@@ -235,13 +235,15 @@ function AdminPayroll() {
           employee={payslip.employee}
           month={mk}
           present={payslip.att.present}
-          leaves={payslip.att.leave}
+          leaves={payslip.att.leave + payslip.att.lop}
           absent={payslip.att.absent + payslip.att.unmarked}
           paid={payslip.att.paid}
+          deductDays={payslip.att.deductDays}
+          perDay={perDaySalary(payslip.employee.base_salary)}
           totalDays={workingDays}
           entry={payrollRows[payslip.employee.id] || { bonus: 0, deductions: 0 }}
           net={
-            salaryForPaidDays(payslip.employee.base_salary, payslip.att.paid, workingDays) +
+            salaryAfterDeductions(payslip.employee.base_salary, payslip.att.deductDays) +
             Number((payrollRows[payslip.employee.id] || {}).bonus || 0) -
             Number((payrollRows[payslip.employee.id] || {}).deductions || 0)
           }
@@ -304,7 +306,7 @@ function MyPayroll({ profile }) {
   }
 
   const workingDays = workingDaysInMonth(mk);
-  const net = salaryForPaidDays(employee?.base_salary, att.paid, workingDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+  const net = salaryAfterDeductions(employee?.base_salary, att.deductDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
 
   return (
     <div className="space-y-4">
@@ -339,9 +341,11 @@ function MyPayroll({ profile }) {
           employee={employee}
           month={mk}
           present={att.present}
-          leaves={att.leave}
+          leaves={att.leave + att.lop}
           absent={att.absent + (att.unmarked || 0)}
           paid={att.paid}
+          deductDays={att.deductDays}
+          perDay={perDaySalary(employee?.base_salary)}
           totalDays={workingDays}
           entry={entry}
           net={net}
