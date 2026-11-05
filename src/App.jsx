@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
-  MapPinned, ClipboardList, Bot, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, History, Factory, UsersRound, Handshake, LineChart,
+  MapPinned, ClipboardList, Bot, Tv, Banknote, Scissors, CalendarDays, Loader2, Boxes, BarChart3, History, Factory, UsersRound, Handshake, LineChart, Ruler,
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import LoginScreen from "./components/LoginScreen";
@@ -30,6 +30,7 @@ import OrderAssignment from "./components/OrderAssignment";
 import { loadGarmentNames } from "./lib/garments";
 import Quality from "./components/Quality";
 import Reports from "./components/Reports";
+import Measurements from "./components/Measurements";
 import ModuleShell from "./components/ModuleShell";
 import { MODULE_ROLES } from "./lib/helpers";
 
@@ -144,6 +145,7 @@ export default function App() {
     { id: "progress-history", label: "Progress History", icon: History, roles: ["admin", "gm", "pm", "tl", "quality_manager"], render: () => <ProgressHistory /> },
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: ["admin", "gm", "pm", "tl", "quality_manager", "qc"], render: () => <Quality profile={profile} /> },
     { id: "operation-log", label: "Operation Log", icon: ClipboardList, roles: ["admin", "gm", "pm", "tl"], render: () => <OperationLog profile={profile} /> },
+    { id: "measurements", label: "Measurements", icon: Ruler, roles: ["admin", "gm", "pm", "tl", "cutting_master", "cutting", "sales_manager", "sales"], render: () => <Measurements profile={profile} /> },
     { id: "planner", label: "Planner", icon: CalendarClock, roles: ["admin", "gm", "pm"], render: () => <Planner /> },
   ];
   const inventoryTabs = [
@@ -174,7 +176,7 @@ export default function App() {
       <Header tabs={visibleTabs} tab={activeTab} setTab={setTab} profile={profile} onLogout={logout} saving={false} />
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === "dashboard" && <Dashboard profile={profile} />}
-        {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Orders, cutting, daily output, quality inspection and the planner." tabs={pick("production", productionTabs)} />}
+        {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Orders, cutting, measurements, daily output, quality inspection and the planner." tabs={pick("production", productionTabs)} />}
         {activeTab === "hr" && <ModuleShell title="HR & Workforce Management" subtitle="Employees, attendance, leave, payroll and staff advances." tabs={pick("hr", hrTabs)} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
         {activeTab === "inventory" && <ModuleShell title="Inventory & Procurement" subtitle="Fabric, accessories, machines and spare parts, and purchase requests." tabs={pick("inventory", inventoryTabs)} />}

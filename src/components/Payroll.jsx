@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn } from "./ui";
-import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance } from "../lib/helpers";
+import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryForPaidDays, workingDaysInMonth } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
 export default function Payroll({ profile }) {
@@ -22,6 +22,7 @@ function AdminPayroll() {
   const [investors, setInvestors] = useState([]);
   const [defaultInvestor, setDefaultInvestor] = useState(""); // used when "Mark paid" is clicked on a row with no investor
   const totalDays = daysInMonth(mk);
+  const workingDays = workingDaysInMonth(mk);
 
   const load = async () => {
     const start = `${mk}-01`;
@@ -71,9 +72,8 @@ function AdminPayroll() {
     // The net amount is stored with the row so a Paid salary posts to Finance -> Expenditures
     // (category "Salary") with the exact figure shown here. Re-saved on any bonus/deduction edit.
     const emp = employees.find((x) => x.id === empId);
-    const att = attByEmp[empId] || { present: 0 };
-    const daily = (Number(emp?.base_salary) || 0) / totalDays;
-    next.net_pay = Math.max(0, Math.round((daily * att.present + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
+    const att = attByEmp[empId] || { paid: 0 };
+    next.net_pay = Math.max(0, Math.round((salaryForPaidDays(emp?.base_salary, att.paid, workingDays) + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
     delete next.paid_at;
     if (next.status === "Paid" && !next.investor_id && defaultInvestor) next.investor_id = defaultInvestor;
     if (!next.investor_id) next.investor_id = null;
@@ -98,10 +98,9 @@ function AdminPayroll() {
   };
 
   const rows = employees.map((e) => {
-    const att = attByEmp[e.id] || { present: 0, leave: 0, absent: 0 };
-    const daily = (Number(e.base_salary) || 0) / totalDays;
+    const att = attByEmp[e.id] || { present: 0, leave: 0, absent: 0, paid: 0 };
     const entry = payrollRows[e.id] || { bonus: 0, deductions: 0, status: "Pending" };
-    const net = daily * att.present + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+    const net = salaryForPaidDays(e.base_salary, att.paid, workingDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
     const linkedProfile = profiles.find((p) => p.employee_id === e.id);
     return { emp: e, att, entry, net, linkedProfile };
   });
@@ -125,7 +124,7 @@ function AdminPayroll() {
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
             <tr>
               <th className="text-left px-4 py-2.5">Employee</th>
-              <th className="text-right px-4 py-2.5">Paid days</th>
+              <th className="text-right px-4 py-2.5">Present days</th>
               <th className="text-right px-4 py-2.5">Leaves</th>
               <th className="text-right px-4 py-2.5">Bonus (₹)</th>
               <th className="text-right px-4 py-2.5">Deductions (₹)</th>
@@ -140,7 +139,7 @@ function AdminPayroll() {
             {rows.map(({ emp, att, entry, net, linkedProfile }) => (
               <tr key={emp.id} className="hover:bg-stone-50">
                 <td className="px-4 py-2.5 font-medium">{emp.name}</td>
-                <td className="px-4 py-2.5 text-right font-mono">{att.present}/{totalDays}</td>
+                <td className="px-4 py-2.5 text-right font-mono">{att.present}/{workingDays}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{att.leave}</td>
                 <td className="px-4 py-2.5 text-right">
                   <input
@@ -215,7 +214,7 @@ function AdminPayroll() {
         </table>
       </Card>
       <p className="text-xs text-stone-400">
-        Net pay = (base salary ÷ days in month) × paid days + bonus − deductions. Paid days = days present + all Sundays in the month (Sundays are paid by default). Link a login account so staff
+        Salary is fixed per month: net pay = base salary × (days present + paid leave) ÷ working days + bonus − deductions. Working days are the Mon–Sat days of the month; Sundays are paid and are not counted as present days, so a full-attendance month pays the same base salary in a 28-, 29-, 30- or 31-day month. Link a login account so staff
         can see their own payroll and leave count under their own Payroll tab.
       </p>
       {payslip && (
@@ -225,10 +224,11 @@ function AdminPayroll() {
           present={payslip.att.present}
           leaves={payslip.att.leave}
           absent={payslip.att.absent}
-          totalDays={totalDays}
+          paid={payslip.att.paid}
+          totalDays={workingDays}
           entry={payrollRows[payslip.employee.id] || { bonus: 0, deductions: 0 }}
           net={
-            (Number(payslip.employee.base_salary) || 0) / totalDays * payslip.att.present +
+            salaryForPaidDays(payslip.employee.base_salary, payslip.att.paid, workingDays) +
             Number((payrollRows[payslip.employee.id] || {}).bonus || 0) -
             Number((payrollRows[payslip.employee.id] || {}).deductions || 0)
           }
@@ -244,7 +244,7 @@ function AdminPayroll() {
 function MyPayroll({ profile }) {
   const [mk, setMk] = useState(monthKey());
   const [employee, setEmployee] = useState(null);
-  const [att, setAtt] = useState({ present: 0, leave: 0, absent: 0 });
+  const [att, setAtt] = useState({ present: 0, leave: 0, absent: 0, paid: 0 });
   const [entry, setEntry] = useState({ bonus: 0, deductions: 0, status: "Pending" });
   const [settings, setSettings] = useState({});
   const [showPayslip, setShowPayslip] = useState(false);
@@ -288,8 +288,8 @@ function MyPayroll({ profile }) {
     );
   }
 
-  const daily = (Number(employee?.base_salary) || 0) / totalDays;
-  const net = daily * att.present + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+  const workingDays = workingDaysInMonth(mk);
+  const net = salaryForPaidDays(employee?.base_salary, att.paid, workingDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
 
   return (
     <div className="space-y-4">
@@ -302,7 +302,7 @@ function MyPayroll({ profile }) {
         <div className="text-xs text-stone-500 mb-4">{employee?.employee_number} · {employee?.department || "—"}</div>
         <div className="grid grid-cols-2 gap-y-2 text-sm mb-4">
           <span className="text-stone-500">Present days</span>
-          <span className="text-right font-mono">{att.present} / {totalDays}</span>
+          <span className="text-right font-mono">{att.present} / {workingDays}</span>
           <span className="text-stone-500">Leaves taken</span>
           <span className="text-right font-mono">{att.leave}</span>
           <span className="text-stone-500">Absent days</span>
@@ -327,7 +327,8 @@ function MyPayroll({ profile }) {
           present={att.present}
           leaves={att.leave}
           absent={att.absent}
-          totalDays={totalDays}
+          paid={att.paid}
+          totalDays={workingDays}
           entry={entry}
           net={net}
           settings={settings}

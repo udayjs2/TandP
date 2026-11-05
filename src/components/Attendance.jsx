@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
-import { daysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
+import { daysInMonth, workingDaysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
 
 const ATT_STATUSES = ["Present", "Absent", "Half Day", "Leave"];
 const ATT_COLORS = {
@@ -44,9 +44,10 @@ export default function Attendance({ profile }) {
   const loadMonth = async () => {
     const start = `${mk}-01`;
     const end = `${mk}-${String(totalDays).padStart(2, "0")}`;
-    const { data } = await supabase.from("attendance").select("employee_id, status").gte("date", start).lte("date", end);
+    const { data } = await supabase.from("attendance").select("employee_id, status, date").gte("date", start).lte("date", end);
     const counts = {};
     (data || []).forEach((r) => {
+      if (r.date && new Date(`${r.date}T00:00:00`).getDay() === 0) return; // Sundays are not counted as present days
       const add = r.status === "Present" ? 1 : r.status === "Half Day" ? 0.5 : 0;
       counts[r.employee_id] = (counts[r.employee_id] || 0) + add;
     });
@@ -221,7 +222,7 @@ export default function Attendance({ profile }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right font-mono">
-                    {monthCounts[e.id] || 0} / {totalDays}
+                    {monthCounts[e.id] || 0} / {workingDaysInMonth(mk)}
                   </td>
                 </tr>
               );

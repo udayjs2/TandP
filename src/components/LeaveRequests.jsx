@@ -4,6 +4,11 @@ import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
 import { todayStr } from "../lib/helpers";
 
+const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"]];
+const typeLabel = (t) => (LEAVE_TYPES.find(([v]) => v === t) || [t, t || "Leave"])[1];
+// days between two dates, Sundays excluded
+const workDays = (a, b) => { let n = 0; for (let d = new Date(`${a}T00:00:00`); d <= new Date(`${b}T00:00:00`); d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n += 1; return n; };
+
 const STATUS_COLORS = {
   Pending: "bg-amber-100 text-amber-800",
   Approved: "bg-emerald-100 text-emerald-800",
@@ -17,6 +22,7 @@ export default function LeaveRequests({ profile }) {
   const [employeeNames, setEmployeeNames] = useState({});
   const [reviewed, setReviewed] = useState([]);
   const [modal, setModal] = useState(false);
+  const [balance, setBalance] = useState([]);
 
   const load = async () => {
     const [{ data: mine }, { data: all }, { data: employees }] = await Promise.all([
@@ -27,6 +33,10 @@ export default function LeaveRequests({ profile }) {
       supabase.from("employees").select("id, name"),
     ]);
     setMyRequests(mine || []);
+    if (profile?.employee_id) {
+      const { data: bal } = await supabase.rpc("leave_balance", { p_employee: profile.employee_id });
+      setBalance(Array.isArray(bal) ? bal : []);
+    }
     const names = {};
     (employees || []).forEach((e) => (names[e.id] = e.name));
     setEmployeeNames(names);
@@ -66,6 +76,22 @@ export default function LeaveRequests({ profile }) {
         )}
       </div>
 
+      {profile?.employee_id && (
+        <div data-testid="leave-balance">
+          <h3 className="font-semibold text-sm mb-2">My leave balance ({new Date().getFullYear()})</h3>
+          <div className="grid grid-cols-3 gap-2">
+            {(balance.length ? balance : LEAVE_TYPES.map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => (
+              <Card key={b.leave_type} className="p-3" data-type={b.leave_type}>
+                <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}</div>
+                <div className="text-2xl font-semibold font-mono">{Number(b.balance)}<span className="text-xs font-normal text-stone-400"> left</span></div>
+                <div className="text-[11px] text-stone-400">{Number(b.used)} used{Number(b.pending) > 0 ? ` · ${Number(b.pending)} pending` : ""} · {Number(b.entitled)} a year</div>
+              </Card>
+            ))}
+          </div>
+          <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days.</p>
+        </div>
+      )}
+
       {(toApprove.length > 0 || isAdmin) && (
         <div>
           <h3 className="font-semibold text-sm mb-2 flex items-center gap-1.5">
@@ -76,7 +102,7 @@ export default function LeaveRequests({ profile }) {
               <Card key={r.id} className="p-3.5 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <div className="font-medium text-sm">{employeeNames[r.employee_id] || "—"}</div>
-                  <div className="text-xs text-stone-500">{r.start_date} → {r.end_date}{r.reason ? ` · ${r.reason}` : ""}</div>
+                  <div className="text-xs text-stone-500">{r.start_date} → {r.end_date} · {typeLabel(r.leave_type)}{r.days != null ? ` · ${Number(r.days)} day${Number(r.days) === 1 ? "" : "s"}` : ""}{r.reason ? ` · ${r.reason}` : ""}</div>
                 </div>
                 <div className="flex gap-2">
                   <Btn variant="ghost" onClick={() => decide(r, "Rejected")}><X size={13} /> Reject</Btn>
@@ -97,7 +123,7 @@ export default function LeaveRequests({ profile }) {
               <Card key={r.id} className="p-3 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <div className="text-sm font-medium">{employeeNames[r.employee_id] || "—"}</div>
-                  <div className="text-xs text-stone-500">{r.start_date} → {r.end_date}{r.reviewed_by ? ` · by ${r.reviewed_by}` : ""}</div>
+                  <div className="text-xs text-stone-500">{r.start_date} → {r.end_date} · {typeLabel(r.leave_type)}{r.days != null ? ` · ${Number(r.days)}d` : ""}{r.reviewed_by ? ` · by ${r.reviewed_by}` : ""}</div>
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[r.status]}`}>{r.status}</span>
               </Card>
@@ -113,7 +139,7 @@ export default function LeaveRequests({ profile }) {
             {myRequests.map((r) => (
               <Card key={r.id} className="p-3.5 flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-sm">{r.start_date} → {r.end_date}</div>
+                  <div className="text-sm">{r.start_date} → {r.end_date} <span className="text-xs text-stone-500">· {typeLabel(r.leave_type)}{r.days != null ? ` · ${Number(r.days)} day${Number(r.days) === 1 ? "" : "s"}` : ""}</span></div>
                   {r.reason && <div className="text-xs text-stone-400">{r.reason}</div>}
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[r.status]}`}>{r.status}</span>
@@ -130,21 +156,30 @@ export default function LeaveRequests({ profile }) {
         </Card>
       )}
 
-      {modal && <RequestModal profile={profile} onClose={() => setModal(false)} onSaved={load} />}
+      {modal && <RequestModal profile={profile} balance={balance} onClose={() => setModal(false)} onSaved={load} />}
     </div>
   );
 }
 
-function RequestModal({ profile, onClose, onSaved }) {
+function RequestModal({ profile, balance, onClose, onSaved }) {
+  const [leaveType, setLeaveType] = useState("");
   const [startDate, setStartDate] = useState(todayStr());
   const [endDate, setEndDate] = useState(todayStr());
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const days = endDate >= startDate ? workDays(startDate, endDate) : 0;
+  const bal = (balance || []).find((b) => b.leave_type === leaveType);
+  const left = bal ? Number(bal.balance) : 0;
   const save = async (e) => {
     e.preventDefault();
+    if (!leaveType) return alert("Choose the leave type.");
+    if (endDate < startDate) return alert("The end date is before the start date.");
+    if (days <= 0) return alert("These dates are only Sundays; no leave is needed.");
+    if (days > left) return alert(`You have only ${left} day(s) of ${typeLabel(leaveType)} left this year.`);
     setSaving(true);
     const { error } = await supabase.from("leave_requests").insert({
+      leave_type: leaveType,
       employee_id: profile.employee_id,
       start_date: startDate,
       end_date: endDate,
@@ -162,6 +197,15 @@ function RequestModal({ profile, onClose, onSaved }) {
   return (
     <Modal title="Request leave" onClose={onClose}>
       <form onSubmit={save}>
+        <Field label="Leave type">
+          <select required className={inputCls} value={leaveType} onChange={(e) => setLeaveType(e.target.value)} aria-label="Leave type">
+            <option value="">— select the leave type —</option>
+            {LEAVE_TYPES.map(([v, l]) => {
+              const b = (balance || []).find((x) => x.leave_type === v);
+              return <option key={v} value={v}>{l}{b ? ` — ${Number(b.balance)} left` : ""}</option>;
+            })}
+          </select>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="From">
             <input type="date" className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
@@ -170,6 +214,9 @@ function RequestModal({ profile, onClose, onSaved }) {
             <input type="date" className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
         </div>
+        <p className={`text-xs mb-2 ${leaveType && days > left ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
+          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{leaveType && days > left ? " — not enough balance" : ""}
+        </p>
         <Field label="Reason (optional)">
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>

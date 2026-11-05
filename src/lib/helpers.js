@@ -27,8 +27,14 @@ export const sundaysInMonth = (mk) => {
   return c;
 };
 
-// Paid days = days present on non-Sundays (half day = 0.5) + every Sunday in the month,
-// capped at the days in the month. Present on a Sunday doesn't pay twice.
+// Working days = the days of the month that are not Sundays (Mon–Sat). Salary is a fixed amount per month:
+// full attendance on every working day pays the full base salary whether the month has 28, 29, 30 or 31 days,
+// and Sundays are always paid. Sundays never count towards "present days".
+export const workingDaysInMonth = (mk) => daysInMonth(mk) - sundaysInMonth(mk);
+
+// present = days present on working days (half day = 0.5); a Sunday attendance is not counted
+// leave   = approved leave days on working days (paid leave: balance is checked when the leave is approved)
+// paid    = present + leave, never more than the working days
 export const paidDaysFromAttendance = (rows, mk) => {
   let present = 0;
   let leave = 0;
@@ -36,14 +42,19 @@ export const paidDaysFromAttendance = (rows, mk) => {
   (rows || []).forEach((r) => {
     const [y, m, d] = r.date.split("-").map(Number);
     const isSunday = new Date(y, m - 1, d).getDay() === 0;
-    if (r.status === "Present" && !isSunday) present += 1;
-    else if (r.status === "Half Day" && !isSunday) present += 0.5;
+    if (isSunday) return;
+    if (r.status === "Present") present += 1;
+    else if (r.status === "Half Day") present += 0.5;
     else if (r.status === "Leave") leave += 1;
     else if (r.status === "Absent") absent += 1;
   });
-  const sundays = sundaysInMonth(mk);
-  return { present: Math.min(daysInMonth(mk), present + sundays), workedDays: present, sundays, leave, absent };
+  const workingDays = workingDaysInMonth(mk);
+  return { present, leave, absent, paid: Math.min(workingDays, present + leave), workingDays, sundays: sundaysInMonth(mk), workedDays: present };
 };
+
+// monthly pay for the days paid: base × paid ÷ working days (a fixed salary, not ÷ calendar days)
+export const salaryForPaidDays = (base, paid, workingDays) =>
+  workingDays > 0 ? ((Number(base) || 0) * paid) / workingDays : 0;
 
 export const itemsTotal = (items = []) =>
   items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
@@ -230,7 +241,7 @@ const EVERYONE = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "quality_ma
 export const MODULE_ROLES = {
   dashboard: EVERYONE,
   "floor-display": EVERYONE,
-  production: ["admin", "gm", "pm", "tl", "cutting_master", "cutting", "quality_manager", "qc"],
+  production: ["admin", "gm", "pm", "tl", "cutting_master", "cutting", "quality_manager", "qc", "sales_manager", "sales"], // sales roles get Production Management for its Measurements tab only
   hr: EVERYONE,
   sales: ["admin", "sales", "sales_manager"],
   inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance"],

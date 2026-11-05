@@ -2,7 +2,7 @@ import { X, Receipt } from "lucide-react";
 import { Btn } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
-export default function PrintPayslip({ employee, month, present, leaves, absent, totalDays, entry, net, settings, onClose }) {
+export default function PrintPayslip({ employee, month, present, leaves, absent, paid, totalDays, entry, net, settings, onClose }) {
   return (
     <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
       <style>{`
@@ -56,12 +56,16 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
           </thead>
           <tbody>
             <tr className="border-b border-stone-200">
-              <td className="py-2">Days in month</td>
+              <td className="py-2">Working days (Mon–Sat; Sundays are paid)</td>
               <td className="text-right py-2">{totalDays}</td>
             </tr>
             <tr className="border-b border-stone-200">
-              <td className="py-2">Paid days (present + Sundays)</td>
+              <td className="py-2">Present days</td>
               <td className="text-right py-2">{present}</td>
+            </tr>
+            <tr className="border-b border-stone-200">
+              <td className="py-2">Paid days (present + paid leave)</td>
+              <td className="text-right py-2">{paid ?? present}</td>
             </tr>
             <tr className="border-b border-stone-200">
               <td className="py-2">Leaves taken</td>

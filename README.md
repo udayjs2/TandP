@@ -803,3 +803,27 @@ Run `supabase/migration_54.sql` after 53 (order 44 → … → 54), then redeplo
 ## v63 — Actual cost: pieces made now match Order progress
 
 No migration; redeploy only. In Actual cost, "pieces made" (and so the cost per piece) used the stitching log in Cutting, which can be lower than the real output. It now uses the same total as Order progress (the sum of all hourly/daily output entries for the order). Only if nothing is recorded in Order progress does it fall back to the stitching log, then to pieces cut. The cost screen says which count it used.
+
+## v64 — Fixed monthly salary, leave types & balances, Measurements module
+
+Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 44 → … → 56), then redeploy.
+
+**Salary and present days (no migration needed for this part)**
+- Salary is a fixed amount per month. Net pay = base salary × (days present + paid leave) ÷ working days + bonus − deductions. Working days = the Mon–Sat days of the month, so full attendance pays the same base salary in a 28-, 29-, 30- or 31-day month. Sundays are paid and are **not** counted as present days (Attendance, Payroll, My Payroll and the payslip all show "present / working days").
+- Migration 55 stops approved leave from writing "Leave" onto Sundays and deletes the Sunday "Leave" rows already there (this was inflating the leave counts).
+
+**Leave types and balances (migration 55)**
+- Leave types: Casual 7, Earned 16, Sick 10 per calendar year (table `leave_entitlements`; Admin can edit the numbers there). Employees choose the type when raising a request and see the balance on the Leave Requests page. Requests count working days only (Sundays excluded) and are refused when the balance is not enough (pending requests are reserved). Approved leave is paid leave. Existing requests become Casual leave.
+
+**Measurements (migration 56; top-level module "Measurements")**
+- Schools → students (name, class, section, roll no) → per-garment **size** and measurements (Shirt / T-Shirt: length, shoulder, chest; Pant / Short / Skirt: waist, length; Coat; add your own garments with "Garments & measurements").
+- **Import Excel / CSV**: columns are recognised from their headings and can be corrected before importing; the same file can be imported again to update sizes without creating duplicates. "Blank template" downloads the layout.
+- **Scan paper sheets**: photos are read by Claude (needs `ANTHROPIC_API_KEY` on Vercel, as for the AI manager) and shown as a draft to correct before saving.
+- Filter by class, section, garment and size ("32 pants in class 6"), with the count shown; **Size count** tab shows students per size and a class × size table. Export Excel.
+- Access: Admin, HR, GM, PM, TL, Cutting Master, Cutters, Sales Manager, Sales (delete: Admin, HR, GM, PM, Cutting Master, Sales Manager).
+
+## v65 — Measurements moved under Production Management
+- Measurements is now a tab inside **Production Management** (no longer a separate module). Sales Manager / Sales roles were added to the Production Management module so they can reach it.
+- No more creating schools: **choose the Order first** (the school's uniform order), then add students / import Excel / CSV against that order.
+- Run `supabase/migration_57.sql` (after 56): adds `order_id` to students. Students already linked to an order through an old school move across automatically; others are not carried over.
+- **Photo scan is hidden** (it uses the paid Anthropic API). To enable later: add `ANTHROPIC_API_KEY` and `VITE_MEASUREMENT_SCAN=on` in Vercel env vars and redeploy.
