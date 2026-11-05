@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Check, X, Clock } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { todayStr } from "../lib/helpers";
+import { todayStr, quarterLabel, quarterMonths } from "../lib/helpers";
 
 const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"], ["Unpaid", "Leave without pay"]];
 const typeLabel = (t) => (LEAVE_TYPES.find(([v]) => v === t) || [t, t || "Leave"])[1];
@@ -82,13 +82,13 @@ export default function LeaveRequests({ profile }) {
           <div className="grid grid-cols-3 gap-2">
             {(balance.length ? balance : LEAVE_TYPES.filter(([v]) => v !== "Unpaid").map(([v]) => ({ leave_type: v, entitled: 0, used: 0, pending: 0, balance: 0 }))).map((b) => (
               <Card key={b.leave_type} className="p-3" data-type={b.leave_type}>
-                <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}</div>
+                <div className="text-[11px] text-stone-500">{typeLabel(b.leave_type)}{b.period === "quarter" ? ` (${quarterLabel(todayStr()).replace(/ \d{4}$/, "")})` : ""}</div>
                 <div className="text-2xl font-semibold font-mono">{Number(b.balance)}<span className="text-xs font-normal text-stone-400"> left</span></div>
-                <div className="text-[11px] text-stone-400">{Number(b.used)} used{Number(b.pending) > 0 ? ` · ${Number(b.pending)} pending` : ""} · {Number(b.entitled)} a year</div>
+                <div className="text-[11px] text-stone-400">{Number(b.used)} used{Number(b.pending) > 0 ? ` · ${Number(b.pending)} pending` : ""} · {Number(b.entitled)} a {b.period === "quarter" ? "quarter" : "year"}</div>
               </Card>
             ))}
           </div>
-          <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days.</p>
+          <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days. Earned leave is 4 days each quarter and does not carry over. If you have no absent or leave day in a whole quarter, 4 days' salary is added to your pay in the first month of the next quarter as an attendance bonus.</p>
         </div>
       )}
 
@@ -172,11 +172,17 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
   const bal = (balance || []).find((b) => b.leave_type === leaveType);
   const unpaid = leaveType === "Unpaid";
   const left = unpaid ? Infinity : bal ? Number(bal.balance) : 0;
+  // earned leave is a per-quarter balance: the dates must fall inside the current quarter
+  const qm = quarterMonths(todayStr());
+  const qStart = `${qm[0]}-01`;
+  const qEnd = `${qm[2]}-${String(new Date(Number(qm[2].slice(0, 4)), Number(qm[2].slice(5)), 0).getDate()).padStart(2, "0")}`;
+  const outsideQuarter = leaveType === "Earned" && (startDate < qStart || endDate > qEnd);
   const save = async (e) => {
     e.preventDefault();
     if (!leaveType) return alert("Choose the leave type.");
     if (endDate < startDate) return alert("The end date is before the start date.");
     if (days <= 0) return alert("These dates are only Sundays; no leave is needed.");
+    if (outsideQuarter) return alert(`Earned leave is given per quarter. Choose dates inside this quarter (${quarterLabel(todayStr())}).`);
     if (days > left) return alert(`You have only ${left} day(s) of ${typeLabel(leaveType)} left this year.`);
     setSaving(true);
     const { error } = await supabase.from("leave_requests").insert({
@@ -216,7 +222,7 @@ function RequestModal({ profile, balance, onClose, onSaved }) {
           </Field>
         </div>
         <p className={`text-xs mb-2 ${leaveType && days > left ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
-          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}
+          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${left} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}{outsideQuarter ? ` — earned leave only for dates in ${quarterLabel(todayStr())}` : ""}
         </p>
         <Field label="Reason (optional)">
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />

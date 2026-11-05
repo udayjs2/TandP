@@ -844,3 +844,11 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 - **Measurements** opens the same page as dispatches / payments, with a tab listing the order's students (class, section, roll no) and each garment's size and measurements; the customer can search by name and filter by class. Read-only.
 - In Orders, the agreement and feedback icons still open the status/answers, but the link they share is now the single tracking link (the old `?agree=` / `?feedback=` links keep working).
 - Run `supabase/migration_59.sql` (after 58).
+
+## v69 — Fix: blank Order agreement page
+- The agreement page used a "Back to order tracking" link variable that was never defined, so it crashed (blank screen) as soon as the order loaded. Fixed; the feedback page also got the same back link. No database change.
+
+## v70 — Earned leave per quarter + attendance bonus
+- **Earned leave is 4 days a quarter** (Jan–Mar, Apr–Jun, Jul–Sep, Oct–Dec), no carry-over. Only the current quarter's balance is shown ("Earned leave (Oct–Dec)"). Each new quarter starts again at 4. A request must fall inside one quarter. Casual (7) and Sick (10) stay yearly.
+- **Attendance bonus:** if an employee has no absent, leave (any kind), half-day or unmarked day in all three months of a quarter (and was employed from its first day), their 4 unused earned-leave days are paid as **4 × monthly salary ÷ 30** with the first month's salary of the next quarter (Jan, Apr, Jul, Oct). It shows under the employee's name in Payroll, in their own Payroll tab, on the payslip, and is included in net pay. It is worked out from attendance each time, so it is paid once with that month.
+- Run `supabase/migration_60.sql` (after 59). The yearly Earned requests already in the system are not counted in the new quarterly balance.

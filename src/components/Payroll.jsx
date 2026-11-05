@@ -3,7 +3,7 @@ import { Receipt, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
 import AttendanceCalendar from "./AttendanceCalendar";
-import { daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryAfterDeductions, perDaySalary, workingDaysInMonth } from "../lib/helpers";
+import { attendanceBonusFor, bonusQuarterFor, todayStr, daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryAfterDeductions, perDaySalary, workingDaysInMonth } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
 
 export default function Payroll({ profile }) {
@@ -20,6 +20,7 @@ function AdminPayroll() {
   const [profiles, setProfiles] = useState([]);
   const [settings, setSettings] = useState({});
   const [payslip, setPayslip] = useState(null);
+  const [attBonus, setAttBonus] = useState({}); // { empId: { amount, label } } — attendance bonus paid in the first month of a quarter
   const [calFor, setCalFor] = useState(null); // { employee } shown in the attendance calendar
   const [rawAtt, setRawAtt] = useState({}); // { empId: [{date,status}] }
   const [investors, setInvestors] = useState([]);
@@ -51,6 +52,18 @@ function AdminPayroll() {
       byEmp[e.id] = paidDaysFromAttendance(grouped[e.id] || [], mk, { joined: e.join_date || "" });
     });
     setRawAtt(grouped);
+    // attendance bonus: first month of a quarter pays last quarter's 4 earned-leave days to anyone with a perfect quarter
+    const qMonths = bonusQuarterFor(mk);
+    const bonuses = {};
+    if (qMonths) {
+      const qStart = `${qMonths[0]}-01`;
+      const qEnd = `${qMonths[2]}-${String(daysInMonth(qMonths[2])).padStart(2, "0")}`;
+      const { data: qAtt } = await supabase.from("attendance").select("employee_id, date, status").gte("date", qStart).lte("date", qEnd);
+      const byQ = {};
+      (qAtt || []).forEach((r) => (byQ[r.employee_id] = byQ[r.employee_id] || []).push(r));
+      (emp || []).forEach((e) => { const b = attendanceBonusFor(e.base_salary, byQ[e.id] || [], qMonths, e.join_date || "", todayStr()); if (b) bonuses[e.id] = b; });
+    }
+    setAttBonus(bonuses);
     setAttByEmp(byEmp);
     const rows = {};
     (pay || []).forEach((r) => (rows[r.employee_id] = r));
@@ -77,7 +90,7 @@ function AdminPayroll() {
     // (category "Salary") with the exact figure shown here. Re-saved on any bonus/deduction edit.
     const emp = employees.find((x) => x.id === empId);
     const att = attByEmp[empId] || { deductDays: 0 };
-    next.net_pay = Math.max(0, Math.round((salaryAfterDeductions(emp?.base_salary, att.deductDays) + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
+    next.net_pay = Math.max(0, Math.round((salaryAfterDeductions(emp?.base_salary, att.deductDays) + (attBonus[empId]?.amount || 0) + Number(next.bonus || 0) - Number(next.deductions || 0)) * 100) / 100);
     delete next.paid_at;
     if (next.status === "Paid" && !next.investor_id && defaultInvestor) next.investor_id = defaultInvestor;
     if (!next.investor_id) next.investor_id = null;
@@ -104,7 +117,7 @@ function AdminPayroll() {
   const rows = employees.map((e) => {
     const att = attByEmp[e.id] || { present: 0, leave: 0, absent: 0, paid: 30, deductDays: 0 };
     const entry = payrollRows[e.id] || { bonus: 0, deductions: 0, status: "Pending" };
-    const net = salaryAfterDeductions(e.base_salary, att.deductDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+    const net = salaryAfterDeductions(e.base_salary, att.deductDays) + (attBonus[e.id]?.amount || 0) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
     const linkedProfile = profiles.find((p) => p.employee_id === e.id);
     return { emp: e, att, entry, net, linkedProfile };
   });
@@ -142,7 +155,7 @@ function AdminPayroll() {
           <tbody className="divide-y divide-stone-100">
             {rows.map(({ emp, att, entry, net, linkedProfile }) => (
               <tr key={emp.id} className="hover:bg-stone-50">
-                <td className="px-4 py-2.5 font-medium">{emp.name}</td>
+                <td className="px-4 py-2.5 font-medium">{emp.name}{attBonus[emp.id] && <div className="text-[11px] font-normal text-emerald-700" data-testid={`attbonus-${emp.id}`}>+ {fmtMoney(attBonus[emp.id].amount)} attendance bonus ({attBonus[emp.id].label})</div>}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{att.present}/{workingDays}</td>
                 <td className="px-4 py-2.5 text-right font-mono">
                   <button onClick={() => setCalFor(emp)} className={`inline-flex items-center gap-1 hover:underline ${att.off ? "text-amber-700 font-semibold" : ""}`} title="View attendance calendar" data-testid={`leaves-${emp.id}`}>
@@ -242,8 +255,9 @@ function AdminPayroll() {
           perDay={perDaySalary(payslip.employee.base_salary)}
           totalDays={workingDays}
           entry={payrollRows[payslip.employee.id] || { bonus: 0, deductions: 0 }}
+          attBonus={attBonus[payslip.employee.id]}
           net={
-            salaryAfterDeductions(payslip.employee.base_salary, payslip.att.deductDays) +
+            salaryAfterDeductions(payslip.employee.base_salary, payslip.att.deductDays) + (attBonus[payslip.employee.id]?.amount || 0) +
             Number((payrollRows[payslip.employee.id] || {}).bonus || 0) -
             Number((payrollRows[payslip.employee.id] || {}).deductions || 0)
           }
@@ -261,6 +275,7 @@ function MyPayroll({ profile }) {
   const [employee, setEmployee] = useState(null);
   const [att, setAtt] = useState({ present: 0, leave: 0, absent: 0, paid: 0 });
   const [myRows, setMyRows] = useState([]);
+  const [myBonus, setMyBonus] = useState(null);
   const [entry, setEntry] = useState({ bonus: 0, deductions: 0, status: "Pending" });
   const [settings, setSettings] = useState({});
   const [showPayslip, setShowPayslip] = useState(false);
@@ -284,6 +299,11 @@ function MyPayroll({ profile }) {
     const counts = paidDaysFromAttendance(attRows || [], mk, { joined: emp?.join_date || "" });
     setAtt(counts);
     setMyRows(attRows || []);
+    const qMonths = bonusQuarterFor(mk);
+    if (qMonths && emp) {
+      const { data: qAtt } = await supabase.from("attendance").select("date, status").eq("employee_id", profile.employee_id).gte("date", `${qMonths[0]}-01`).lte("date", `${qMonths[2]}-${String(daysInMonth(qMonths[2])).padStart(2, "0")}`);
+      setMyBonus(attendanceBonusFor(emp.base_salary, qAtt || [], qMonths, emp.join_date || "", todayStr()));
+    } else setMyBonus(null);
     setEntry(pay || { bonus: 0, deductions: 0, status: "Pending" });
     setSettings(set || {});
     setLoading(false);
@@ -306,7 +326,7 @@ function MyPayroll({ profile }) {
   }
 
   const workingDays = workingDaysInMonth(mk);
-  const net = salaryAfterDeductions(employee?.base_salary, att.deductDays) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
+  const net = salaryAfterDeductions(employee?.base_salary, att.deductDays) + (myBonus?.amount || 0) + Number(entry.bonus || 0) - Number(entry.deductions || 0);
 
   return (
     <div className="space-y-4">
@@ -322,6 +342,8 @@ function MyPayroll({ profile }) {
           <span className="text-right font-mono">{att.present} / {workingDays}</span>
           <span className="text-stone-500">Leave / absent days</span>
           <span className="text-right font-mono">{att.off}</span>
+          {myBonus && <><span className="text-stone-500">Attendance bonus ({myBonus.label})</span>
+          <span className="text-right font-mono text-emerald-700" data-testid="my-att-bonus">+{fmtMoney(myBonus.amount)}</span></>}
           <span className="text-stone-500">Bonus</span>
           <span className="text-right font-mono">{fmtMoney(entry.bonus)}</span>
           <span className="text-stone-500">Deductions</span>
@@ -349,6 +371,7 @@ function MyPayroll({ profile }) {
           totalDays={workingDays}
           entry={entry}
           net={net}
+          attBonus={myBonus}
           settings={settings}
           onClose={() => setShowPayslip(false)}
         />

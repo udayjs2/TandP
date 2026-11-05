@@ -2,7 +2,7 @@ import { X, Receipt } from "lucide-react";
 import { Btn } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
-export default function PrintPayslip({ employee, month, present, leaves, absent, paid, deductDays, perDay, totalDays, entry, net, settings, onClose }) {
+export default function PrintPayslip({ employee, month, present, leaves, absent, paid, deductDays, perDay, attBonus, totalDays, entry, net, settings, onClose }) {
   return (
     <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
       <style>{`
@@ -94,6 +94,12 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
               <tr className="border-b border-stone-200">
                 <td className="py-2">Unpaid days: {deductDays} × {fmtMoney(perDay)} (monthly ÷ 30)</td>
                 <td className="text-right py-2">−{fmtMoney(perDay * deductDays)}</td>
+              </tr>
+            )}
+            {attBonus && (
+              <tr className="border-b border-stone-200">
+                <td className="py-2">Attendance bonus — no leave or absence in {attBonus.label} (4 days)</td>
+                <td className="text-right py-2">+{fmtMoney(attBonus.amount)}</td>
               </tr>
             )}
             <tr className="border-b border-stone-200">

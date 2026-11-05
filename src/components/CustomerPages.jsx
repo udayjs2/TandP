@@ -34,6 +34,7 @@ export function AgreementPage() {
   const params = new URLSearchParams(window.location.search);
   const order = params.get("order") || "";
   const code = params.get("code") || "";
+  const trackUrl = `/?track=1&order=${encodeURIComponent(order)}&code=${encodeURIComponent(code)}`;
   const [data, setData] = useState(undefined); // undefined = loading, null = not found
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
@@ -147,6 +148,7 @@ export function FeedbackPage() {
   const params = new URLSearchParams(window.location.search);
   const order = params.get("order") || "";
   const code = params.get("code") || "";
+  const trackUrl = `/?track=1&order=${encodeURIComponent(order)}&code=${encodeURIComponent(code)}`;
   const [info, setInfo] = useState(undefined);
   const [ratings, setRatings] = useState({});
   const [timing, setTiming] = useState("");
@@ -217,6 +219,7 @@ export function FeedbackPage() {
           <Btn type="submit" className="w-full justify-center" disabled={busy}>{busy ? "Sending…" : "Submit feedback"}</Btn>
         </Card>
       </form>
+      <a href={trackUrl} className="flex items-center justify-center gap-1.5 text-sm font-medium text-indigo-800 mt-5"><ArrowLeft size={15} /> Back to order tracking</a>
     </Shell>
   );
 }

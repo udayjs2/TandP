@@ -79,6 +79,33 @@ export const paidDaysFromAttendance = (rows, mk, opts = {}) => {
   return { present, leave, lop, absent, unmarked, off, deductDays, paid: PAY_DAYS - deductDays, workingDays: workingDaysInMonth(mk), sundays: sundaysInMonth(mk), workedDays: present };
 };
 
+// ---- earned leave / attendance bonus (v70) ----
+// Earned leave is 4 days a quarter. A quarter with no absent / leave / half-day / unmarked day pays those 4 days
+// (4 × monthly ÷ 30) as an attendance bonus with the first month's salary of the next quarter.
+export const EARNED_QUARTER_DAYS = 4;
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const quarterMonths = (mk) => { // the 3 month keys of the quarter that contains month mk
+  const [y, m] = mk.split("-").map(Number);
+  const q0 = Math.floor((m - 1) / 3) * 3;
+  return [0, 1, 2].map((i) => `${y}-${String(q0 + i + 1).padStart(2, "0")}`);
+};
+export const quarterLabel = (mk) => { const ms = quarterMonths(mk); const n = (k) => MONTH_NAMES[Number(k.split("-")[1]) - 1]; return `${n(ms[0])}–${n(ms[2])} ${ms[0].slice(0, 4)}`; };
+// payroll month -> the previous quarter's month keys when it is the first month of a quarter (Jan, Apr, Jul, Oct), else null
+export const bonusQuarterFor = (mk) => {
+  const [y, m] = mk.split("-").map(Number);
+  if ((m - 1) % 3 !== 0) return null;
+  const py = m === 1 ? y - 1 : y, pm = m === 1 ? 10 : m - 3;
+  return quarterMonths(`${py}-${String(pm).padStart(2, "0")}`);
+};
+// rows: the employee's attendance rows for the whole previous quarter
+export const attendanceBonusFor = (base, rows, months, joined, today) => {
+  if (!months) return null;
+  const perMonth = months.map((mk) => monthCalendar((rows || []).filter((r) => r.date.startsWith(mk)), mk, today, joined));
+  const clean = perMonth.every((cal) => cal.every((c) => c.state === "present" || c.state === "sunday"));
+  if (!clean) return null;
+  return { amount: Math.round(EARNED_QUARTER_DAYS * perDaySalary(base) * 100) / 100, label: quarterLabel(months[0]) };
+};
+
 // net salary = monthly salary − (monthly ÷ 30) × days not paid
 export const perDaySalary = (base) => (Number(base) || 0) / PAY_DAYS;
 export const salaryAfterDeductions = (base, deductDays) => Math.round(((Number(base) || 0) - perDaySalary(base) * (Number(deductDays) || 0)) * 100) / 100;
