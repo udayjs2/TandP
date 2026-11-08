@@ -13,6 +13,7 @@ const STATUS_STYLE = {
   Leave: "bg-sky-100 text-sky-800",
   Absent: "bg-rose-100 text-rose-800",
   Unmarked: "bg-stone-100 text-stone-500",
+  Holiday: "bg-violet-100 text-violet-800",
 };
 
 export default function DailyReport() {

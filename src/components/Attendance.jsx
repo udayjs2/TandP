@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Upload, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
+import { Upload, CalendarDays, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn, Modal } from "./ui";
+import { holidayOn, allHolidays, loadHolidays } from "../lib/holidays";
 import { daysInMonth, workingDaysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
 
 const ATT_STATUSES = ["Present", "Absent", "Half Day", "Leave", "Unpaid Leave"];
@@ -13,6 +14,42 @@ const ATT_COLORS = {
   "Unpaid Leave": "bg-rose-50 text-rose-700 border-rose-300",
 };
 
+function HolidaysModal({ canEdit, onClose }) {
+  const [rows, setRows] = useState(allHolidays());
+  const [f, setF] = useState({ date: "", name: "", kind: "public" });
+  const reload = async () => { await loadHolidays(supabase); setRows(allHolidays()); };
+  const add = async (e) => {
+    e.preventDefault();
+    if (!f.date || !f.name.trim()) return;
+    const { error } = await supabase.from("holidays").upsert({ date: f.date, name: f.name.trim(), kind: f.kind }, { onConflict: "date" });
+    if (error) return alert("Couldn't save: " + error.message + "\n(Run migration_62.sql if the holidays table is missing.)");
+    setF({ date: "", name: "", kind: "public" });
+    reload();
+  };
+  const del = async (d) => { if (!confirm("Remove this holiday?")) return; await supabase.from("holidays").delete().eq("date", d); reload(); };
+  return (
+    <Modal title="Holidays" onClose={onClose}>
+      <p className="text-xs text-stone-500 mb-2">Public holidays are paid days off: no attendance is needed, nothing is deducted, and they are not counted as leave. Optional holidays only show on the calendar.</p>
+      <div className="max-h-72 overflow-auto divide-y divide-stone-100 mb-3" data-testid="holiday-list">
+        {rows.map((h) => (
+          <div key={h.date} className="flex items-center justify-between py-1.5 text-sm">
+            <span><span className="font-mono text-xs text-stone-500">{h.date}</span> · {new Date(`${h.date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short" })} · {h.name}{h.kind === "optional" ? <span className="text-violet-600"> (optional)</span> : ""}</span>
+            {canEdit && <button onClick={() => del(h.date)} className="text-stone-400 hover:text-rose-600" aria-label="Remove holiday"><Trash2 size={14} /></button>}
+          </div>
+        ))}
+      </div>
+      {canEdit && (
+        <form onSubmit={add} className="flex gap-2 flex-wrap">
+          <input type="date" className={inputCls + " w-auto"} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} aria-label="Holiday date" />
+          <input className={inputCls + " flex-1 min-w-[8rem]"} placeholder="Holiday name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} aria-label="Holiday name" />
+          <select className={inputCls + " w-auto"} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} aria-label="Holiday type"><option value="public">Public</option><option value="optional">Optional</option></select>
+          <Btn type="submit">Add</Btn>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
 export default function Attendance({ profile }) {
   const [employees, setEmployees] = useState([]);
   const [date, setDate] = useState(todayStr());
@@ -21,6 +58,7 @@ export default function Attendance({ profile }) {
   const [importOpen, setImportOpen] = useState(false);
   const [deviceSyncOpen, setDeviceSyncOpen] = useState(false);
   const [geofenceOpen, setGeofenceOpen] = useState(false);
+  const [holidaysOpen, setHolidaysOpen] = useState(false);
 
   const mk = date.slice(0, 7);
   const totalDays = daysInMonth(mk);
@@ -115,6 +153,9 @@ export default function Attendance({ profile }) {
           <Btn variant="ghost" onClick={() => setImportOpen(true)}>
             <Upload size={14} /> Import from device
           </Btn>
+          <Btn variant="ghost" onClick={() => setHolidaysOpen(true)}>
+            <CalendarDays size={14} /> Holidays
+          </Btn>
           {profile?.role === "admin" && (
             <Btn variant="ghost" onClick={() => setDeviceSyncOpen(true)}>
               <KeyRound size={14} /> Live device sync setup
@@ -126,6 +167,12 @@ export default function Attendance({ profile }) {
             </Btn>
           )}
         </div>
+      {holidayOn(date) && (
+        <div className={`rounded-lg border px-4 py-2 text-sm ${holidayOn(date).kind === "optional" ? "bg-violet-50 border-violet-200 text-violet-800" : "bg-violet-100 border-violet-300 text-violet-900"}`} data-testid="holiday-banner">
+          <b>{holidayOn(date).kind === "optional" ? "Optional holiday" : "Public holiday"}: {holidayOn(date).name}.</b>{" "}
+          {holidayOn(date).kind === "optional" ? "Normal working day unless the employee takes the optional holiday." : "No attendance is needed; anyone not marked is paid for the day and not counted absent. Mark Present only for those who worked."}
+        </div>
+      )}
       </div>
 
       <Card className="overflow-x-auto">
@@ -247,6 +294,7 @@ export default function Attendance({ profile }) {
       {importOpen && <ImportModal employees={employees} onClose={() => setImportOpen(false)} onDone={() => { loadDay(); loadMonth(); }} />}
       {deviceSyncOpen && <DeviceSyncModal onClose={() => setDeviceSyncOpen(false)} />}
       {geofenceOpen && <GeofenceModal onClose={() => setGeofenceOpen(false)} />}
+      {holidaysOpen && <HolidaysModal canEdit={["admin", "hr", "gm"].includes(profile?.role)} onClose={() => setHolidaysOpen(false)} />}
     </div>
   );
 }
@@ -329,9 +377,9 @@ function ImportModal({ employees, onClose, onDone }) {
       <div className="bg-stone-50 border border-stone-200 rounded-lg p-2 mb-3 text-[11px] font-mono text-stone-500">
         employee_number,date,check_in,check_out
         <br />
-        EMP-001,2026-09-03,09:05,18:20
+        TP001,2026-09-03,09:05,18:20
         <br />
-        EMP-002,2026-09-03,09:40,17:50
+        TP002,2026-09-03,09:40,17:50
       </div>
       <textarea
         rows={6}

@@ -1,11 +1,29 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, FileText } from "lucide-react";
+import { Plus, Pencil, Trash2, FileText, Eye, EyeOff } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { fmtMoney, todayStr } from "../lib/helpers";
+import { fmtMoney, todayStr, nextEmployeeNumber } from "../lib/helpers";
 import { OfferLetterModal } from "./OfferLetter";
 
 import { EMP_ROLES, EMP_DEPARTMENTS, DEFAULT_DEPT } from "../lib/orgRoles";
+
+// Salaries are hidden until someone clicks the eye; they hide again after 30 seconds.
+function SalaryCell({ value }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!shown) return undefined;
+    const t = setTimeout(() => setShown(false), 30000);
+    return () => clearTimeout(t);
+  }, [shown]);
+  return (
+    <span className="inline-flex items-center justify-end gap-1.5" data-testid="salary-cell">
+      <span className="font-mono">{shown ? fmtMoney(value) : "₹ ••••••"}</span>
+      <button type="button" onClick={() => setShown(!shown)} className="text-stone-400 hover:text-indigo-700 p-0.5" title={shown ? "Hide salary" : "Show salary"} aria-label={shown ? "Hide salary" : "Show salary"}>
+        {shown ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </span>
+  );
+}
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -107,7 +125,7 @@ export default function Employees() {
                 <td className="px-4 py-2.5 text-stone-500">{e.department || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{e.phone || "—"}</td>
                 <td className="px-4 py-2.5 text-stone-500">{e.join_date || "—"}</td>
-                <td className="px-4 py-2.5 text-right font-mono">{fmtMoney(e.base_salary)}</td>
+                <td className="px-4 py-2.5 text-right"><SalaryCell value={e.base_salary} /></td>
                 {view === "inactive" && <td className="px-4 py-2.5 text-xs text-stone-500">{e.inactive_since || "—"}<div className="text-stone-400">{e.inactive_reason}</div></td>}
                 <td className="px-4 py-2.5">
                   {view === "inactive" ? (
@@ -150,7 +168,7 @@ export default function Employees() {
 function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
   const [f, setF] = useState({
     id: emp.id || null,
-    employee_number: emp.employee_number || `EMP-${String(count + 1).padStart(3, "0")}`,
+    employee_number: emp.employee_number || nextEmployeeNumber(allEmployees),
     name: emp.name || "",
     role: emp.role || "Operator",
     department: emp.department || (emp.id ? "" : DEFAULT_DEPT.Operator),
@@ -159,6 +177,7 @@ function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
     base_salary: emp.base_salary || "",
     reporting_manager_id: emp.reporting_manager_id || "",
   });
+  const [showSalary, setShowSalary] = useState(false);
   const possibleManagers = (allEmployees || []).filter((e) => e.id !== emp.id);
   return (
     <Modal title={emp.id ? "Edit employee" : "Add employee"} onClose={onClose}>
@@ -202,7 +221,14 @@ function EmployeeModal({ emp, onClose, onSave, count, allEmployees }) {
           <input type="date" className={inputCls} value={f.join_date} onChange={(e) => setF({ ...f, join_date: e.target.value })} />
         </Field>
         <Field label="Monthly base salary (₹)">
-          <input type="number" min="0" className={inputCls} value={f.base_salary} onChange={(e) => setF({ ...f, base_salary: e.target.value })} />
+          {emp.id && !showSalary ? (
+            <div className="flex items-center gap-2">
+              <input readOnly className={inputCls + " bg-stone-50 font-mono"} value="₹ ••••••" aria-label="Monthly base salary (hidden)" />
+              <Btn type="button" variant="ghost" onClick={() => setShowSalary(true)}><Eye size={14} /> Show</Btn>
+            </div>
+          ) : (
+            <input type="number" min="0" className={inputCls} value={f.base_salary} onChange={(e) => setF({ ...f, base_salary: e.target.value })} aria-label="Monthly base salary" />
+          )}
         </Field>
         <Field label="Reporting manager (optional)">
           <select className={inputCls} value={f.reporting_manager_id} onChange={(e) => setF({ ...f, reporting_manager_id: e.target.value })}>

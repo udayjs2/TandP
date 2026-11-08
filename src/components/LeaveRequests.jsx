@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Plus, Check, X, Clock } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { publicHolidayOn } from "../lib/holidays";
 import { todayStr, quarterLabel, quarterMonths } from "../lib/helpers";
 
 const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"], ["Unpaid", "Leave without pay"]];
 const fmtDays = (n) => String(Math.round(Number(n || 0) * 100) / 100);
 const typeLabel = (t) => (LEAVE_TYPES.find(([v]) => v === t) || [t, t || "Leave"])[1];
 // days between two dates, Sundays excluded
-const workDays = (a, b) => { let n = 0; for (let d = new Date(`${a}T00:00:00`); d <= new Date(`${b}T00:00:00`); d.setDate(d.getDate() + 1)) if (d.getDay() !== 0) n += 1; return n; };
+const workDays = (a, b) => { let n = 0; for (let d = new Date(`${a}T00:00:00`); d <= new Date(`${b}T00:00:00`); d.setDate(d.getDate() + 1)) { const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; if (d.getDay() !== 0 && !publicHolidayOn(iso)) n += 1; } return n; };
 
 const STATUS_COLORS = {
   Pending: "bg-amber-100 text-amber-800",
@@ -233,7 +234,7 @@ function RequestModal({ profile, balance, requests, onClose, onSaved }) {
           </Field>
         </div>
         <p className={`text-xs mb-2 ${leaveType && (days > left || sickOver || sickCross) ? "text-rose-600" : "text-stone-500"}`} data-testid="leave-days">
-          {days} leave day{days === 1 ? "" : "s"} (Sundays not counted){leaveType && !unpaid ? ` · ${fmtDays(left)} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}{sickCross ? " — sick leave: one request per month" : sickOver ? ` — sick leave is limited to 2 days a month (${sickTaken} already this month)` : ""}
+          {days} leave day{days === 1 ? "" : "s"} (Sundays and public holidays not counted){leaveType && !unpaid ? ` · ${fmtDays(left)} ${typeLabel(leaveType).toLowerCase()} left` : ""}{unpaid ? " · one day's salary (monthly ÷ 30) is deducted for each day" : ""}{leaveType && days > left ? " — not enough balance" : ""}{sickCross ? " — sick leave: one request per month" : sickOver ? ` — sick leave is limited to 2 days a month (${sickTaken} already this month)` : ""}
         </p>
         <Field label="Reason (optional)">
           <textarea rows={2} className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />

@@ -1,4 +1,5 @@
 import { monthCalendar } from "../lib/helpers";
+import { holidaysInMonth } from "../lib/holidays";
 
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CELL = {
@@ -9,10 +10,11 @@ const CELL = {
   lop: "bg-amber-300 text-amber-950",
   unmarked: "bg-amber-100 text-amber-900 border border-amber-300 border-dashed",
   sunday: "bg-stone-100 text-stone-400",
+  holiday: "bg-violet-200 text-violet-900",
   future: "bg-white text-stone-300 border border-stone-100",
   before: "bg-white text-stone-200",
 };
-const TITLE = { lop: "Leave without pay (salary deducted)", present: "Present", half: "Half day", leave: "Leave", absent: "Absent", unmarked: "Not marked (counted absent)", sunday: "Sunday", future: "", before: "Before joining" };
+const TITLE = { holiday: "Public holiday", lop: "Leave without pay (salary deducted)", present: "Present", half: "Half day", leave: "Leave", absent: "Absent", unmarked: "Not marked (counted absent)", sunday: "Sunday", future: "", before: "Before joining" };
 
 // Month calendar: green = present, yellow = leave / absent / not marked
 export default function AttendanceCalendar({ rows, mk, joined, today }) {
@@ -26,7 +28,7 @@ export default function AttendanceCalendar({ rows, mk, joined, today }) {
       <div className="grid grid-cols-7 gap-1">
         {Array.from({ length: lead }).map((_, i) => <div key={"b" + i} />)}
         {days.map((d) => (
-          <div key={d.date} data-date={d.date} data-state={d.state} title={`${d.date} — ${TITLE[d.state]}`} className={`h-9 rounded flex items-center justify-center text-sm font-medium ${CELL[d.state]}`}>{d.day}</div>
+          <div key={d.date} data-date={d.date} data-state={d.state} title={`${d.date} — ${d.holiday ? d.holiday + (d.holidayKind === "optional" ? " (optional holiday)" : "") : TITLE[d.state]}`} className={`h-9 rounded flex items-center justify-center text-sm font-medium ${CELL[d.state]} ${d.holidayKind === "optional" ? "ring-2 ring-violet-300" : ""}`}>{d.day}</div>
         ))}
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-stone-600 mt-3">
@@ -35,7 +37,14 @@ export default function AttendanceCalendar({ rows, mk, joined, today }) {
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded bg-amber-300 inline-block" /> Leave / Absent</span>
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded bg-amber-100 border border-dashed border-amber-300 inline-block" /> Not marked</span>
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded bg-stone-100 inline-block" /> Sunday</span>
+        <span className="flex items-center gap-1"><i className="w-3 h-3 rounded bg-violet-200 inline-block" /> Public holiday</span>
+        <span className="flex items-center gap-1"><i className="w-3 h-3 rounded border-2 border-violet-300 inline-block" /> Optional holiday</span>
       </div>
+      {holidaysInMonth(mk).length > 0 && (
+        <div className="text-sm mt-3" data-testid="att-holidays">
+          <span className="font-medium">Holidays:</span> {holidaysInMonth(mk).map((h) => `${Number(h.date.slice(8))} ${h.name}${h.kind === "optional" ? " (optional)" : ""}`).join(", ")}
+        </div>
+      )}
       <div className="text-sm mt-3" data-testid="att-off-dates">
         <span className="font-medium">Away on ({off.length}):</span>{" "}
         {off.length ? off.map((d) => `${fmt(d)}${d.state === "leave" ? " (leave)" : d.state === "lop" ? " (no pay)" : d.state === "absent" ? " (absent)" : " (not marked)"}`).join(", ") : <span className="text-stone-500">no leave or absent days</span>}

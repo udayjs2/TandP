@@ -1,3 +1,4 @@
+import { holidayOn, publicHolidayOn } from "./holidays";
 export const fmtMoney = (n) => {
   const v = Number(n) || 0;
   return `${v < 0 ? "-" : ""}₹${Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
@@ -53,16 +54,18 @@ export const monthCalendar = (rows, mk, today = todayStr(), joined = "") => {
     const dow = new Date(y, m - 1, d).getDay();
     const st = byDate[date];
     let state;
+    const hol = holidayOn(date);
     if (joined && date < joined) state = "before";
     else if (dow === 0) state = "sunday";
     else if (st === "Present") state = "present";
     else if (st === "Half Day") state = "half";
+    else if (publicHolidayOn(date)) state = "holiday";   // paid day off, nothing to mark
     else if (st === "Leave") state = "leave";
     else if (st === UNPAID_LEAVE) state = "lop";
     else if (st === "Absent") state = "absent";
     else if (date >= today) state = "future";
     else state = "unmarked";
-    days.push({ date, day: d, dow, state, status: st || null });
+    days.push({ date, day: d, dow, state, status: st || null, holiday: hol ? hol.name : null, holidayKind: hol ? hol.kind : null });
   }
   return days;
 };
@@ -101,7 +104,7 @@ export const bonusQuarterFor = (mk) => {
 export const attendanceBonusFor = (base, rows, months, joined, today) => {
   if (!months) return null;
   const perMonth = months.map((mk) => monthCalendar((rows || []).filter((r) => r.date.startsWith(mk)), mk, today, joined));
-  const clean = perMonth.every((cal) => cal.every((c) => c.state === "present" || c.state === "sunday"));
+  const clean = perMonth.every((cal) => cal.every((c) => c.state === "present" || c.state === "sunday" || c.state === "holiday"));
   if (!clean) return null;
   return { amount: Math.round(EARNED_QUARTER_DAYS * perDaySalary(base) * 100) / 100, label: quarterLabel(months[0]) };
 };
@@ -465,3 +468,9 @@ export function findDuplicateExpenditures(rows = []) {
   }
   return out;
 }
+
+// next employee number: TP001, TP002 … (one after the highest TP number already used, so deleting someone never repeats a number)
+export const nextEmployeeNumber = (employees) => {
+  const max = (employees || []).reduce((m, e) => { const x = /^TP(\d+)$/i.exec(String(e.employee_number || "").trim()); return x ? Math.max(m, Number(x[1])) : m; }, 0);
+  return `TP${String(max + 1).padStart(3, "0")}`;
+};

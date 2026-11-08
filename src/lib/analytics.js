@@ -1,3 +1,4 @@
+import { publicHolidayOn } from "./holidays";
 // Rule-based "why did output change?" analysis. Everything here is pure
 // functions over rows loaded from Supabase, so it is easy to read and test.
 import { todayStr, HOUR_SLOTS } from "./helpers";
@@ -350,10 +351,10 @@ export function dailySummary({ date, employees, attendance, progress, orders, op
   const empById = Object.fromEntries((employees || []).map((e) => [e.id, e]));
   const attBy = {};
   (attendance || []).forEach((a) => (attBy[a.employee_id] = a));
-  const counts = { Present: 0, "Half Day": 0, Leave: 0, Absent: 0, Unmarked: 0 };
+  const counts = { Present: 0, "Half Day": 0, Leave: 0, Absent: 0, Unmarked: 0, Holiday: 0 };
   const people = (employees || []).map((e) => {
     const a = attBy[e.id];
-    const status = a?.status || "Unmarked";
+    const status = a?.status || (publicHolidayOn(date) ? "Holiday" : "Unmarked");
     counts[status] = (counts[status] || 0) + 1;
     return { id: e.id, name: e.name, role: e.role, status, checkIn: a?.check_in ? a.check_in.slice(0, 5) : "", checkOut: a?.check_out ? a.check_out.slice(0, 5) : "" };
   });

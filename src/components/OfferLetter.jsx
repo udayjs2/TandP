@@ -118,7 +118,7 @@ export function OfferLetterModal({ employee, onClose }) {
             <Field label="Attendance allowance (₹)">
               <input type="number" min="0" className={inputCls} value={f.attendance_allowance} onChange={(e) => setF({ ...f, attendance_allowance: e.target.value })} />
             </Field>
-            <Field label="PF / ESI deductions (₹)">
+            <Field label="Other deductions (₹) — PF / ESI start next year">
               <input type="number" min="0" className={inputCls} value={f.other_deductions} onChange={(e) => setF({ ...f, other_deductions: e.target.value })} />
             </Field>
           </div>
@@ -148,7 +148,7 @@ export function OfferLetterModal({ employee, onClose }) {
   );
 }
 
-function PrintOfferLetter({ letter, employeeName, onClose }) {
+export function PrintOfferLetter({ letter, employeeName, onClose }) {
   const gross = Number(letter.basic_salary) + Number(letter.da_allowance) + Number(letter.attendance_allowance);
   const net = gross - Number(letter.other_deductions);
   const empTypeTelugu = { Regular: "రెగ్యులర్", Probation: "ప్రొబేషన్", Contract: "కాంట్రాక్ట్" }[letter.employment_type] || letter.employment_type;
@@ -166,11 +166,11 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
           <Row label="DA / ఇతర Allowance" value={fmtMoney(letter.da_allowance)} />
           <Row label="హాజరు / ఇతర Allowance" value={fmtMoney(letter.attendance_allowance)} />
           <Row label="మొత్తం Gross Salary" value={fmtMoney(gross)} bold />
-          <Row label="PF / ESI / ఇతర చట్టబద్ధమైన మినహాయింపులు" value={fmtMoney(letter.other_deductions)} />
+          <Row label="ఇతర మినహాయింపులు (PF / ESI ప్రారంభమయ్యే వరకు వర్తించవు)" value={fmtMoney(letter.other_deductions)} />
           <Row label="చేతికి వచ్చే జీతం (Net Salary)" value={fmtMoney(net)} bold />
         </tbody>
       </table>
-      <p>జీతం సంస్థ యొక్క పేరోల్ విధానం ప్రకారం ప్రతి నెల చెల్లించబడుతుంది. వర్తించే PF, ESI, Professional Tax, TDS మరియు ఇతర చట్టబద్ధమైన మినహాయింపులు వర్తించవచ్చు.</p>
+      <p>జీతం సంస్థ యొక్క పేరోల్ విధానం ప్రకారం ప్రతి నెల చెల్లించబడుతుంది. PF మరియు ESI వచ్చే సంవత్సరం నుండి ప్రారంభమవుతాయి (తేదీ ఖరారైన తర్వాత తెలియజేయబడుతుంది). వర్తిస్తే Professional Tax, TDS మరియు ఇతర చట్టబద్ధమైన మినహాయింపులు వర్తించవచ్చు.</p>
     </>
   );
 
@@ -179,7 +179,7 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
   const noticeP = (
     <>
       <p>ఉద్యోగి రాజీనామా చేయాలనుకుంటే సాధారణంగా {letter.notice_period_days} రోజుల ముందస్తు లిఖితపూర్వక నోటీసు ఇవ్వాలి, లేదా సంస్థ policy / వర్తించే చట్టం ప్రకారం వర్తించే notice లేదా wages in lieu వర్తిస్తుంది.</p>
-      <p>ఉద్యోగి నోటీసు కాలం పూర్తి చేయకుండా ఉద్యోగాన్ని మానివేసినా / విడిచిపెట్టినా, ఆ చివరి నెల జీతం మరియు ఆ నెలకు సంబంధించిన ఇతర ప్రయోజనాలు (benefits) ప్రాసెస్ చేయబడవు.</p>
+      <p>ఉద్యోగి నోటీసు కాలం పూర్తి చేయకుండా ఉద్యోగాన్ని మానివేసినా / విడిచిపెట్టినా, తుది జీతం (final settlement) — సంస్థకు చెల్లించాల్సిన ఏవైనా బకాయిలు (ఉదా: advance / loan, తిరిగి ఇవ్వని కంపెనీ ఆస్తులు, పూర్తి చేయని నోటీసు కాలానికి wages in lieu) వర్తించే చట్టం అనుమతించిన మేరకు మినహాయించిన తర్వాత నిర్ణయించి, చెల్లించబడుతుంది.</p>
     </>
   );
 
@@ -205,7 +205,7 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
       <p>Buttons, zips, labels, elastic, thread, tags, packing materials మరియు ఇతర production accessories సంస్థకు చెందినవి. ఉద్యోగి అవసరమైన పరిమాణంలో మాత్రమే material తీసుకోవాలి, వృథా కాకుండా జాగ్రత్తగా ఉపయోగించాలి, మిగిలిన material‌ను తిరిగి ఇవ్వాలి.</p>
       <p>Material‌ను ఇంటికి తీసుకెళ్లడం లేదా వ్యక్తిగతంగా ఉపయోగించడం నిషేధం. ఉద్దేశపూర్వకంగా దుర్వినియోగం జరిగితే సంస్థ disciplinary procedure ప్రకారం చర్య తీసుకోవచ్చు.</p></>) },
     { title: "Company Property", body: companyProperty() },
-    { title: "Safety Rules", body: (<p>Factoryలో safety rules తప్పనిసరిగా పాటించాలి — Machine safety, electrical safety, fire safety, needle safety మరియు ఇతర procedures. అందించిన PPE సరైన విధంగా ఉపయోగించాలి. ఉద్దేశపూర్వకంగా ఉల్లంఘించడం disciplinary actionకు కారణం కావచ్చు.</p>) },
+    { title: "Safety Rules", body: (<p>Factoryలో safety rules తప్పనిసరిగా పాటించాలి — Machine safety, electrical safety, fire safety, needle safety మరియు ఇతర procedures. అందించిన PPE సరైన విధంగా ఉపయోగించాలి. వివరణాత్మక Safety Rules ఈ లేఖకు జతచేసిన <b>Annexure B – Safety Rules</b> పేజీలో ఉన్నాయి; ఉద్యోగి ఆ పేజీని చదివి సంతకం చేయాలి. ఉద్దేశపూర్వకంగా ఉల్లంఘించడం disciplinary actionకు కారణం కావచ్చు.</p>) },
     { title: "నాణ్యత (Quality)", body: (<p>ప్రతి garment సంస్థ నిర్దేశించిన quality standards ప్రకారం తయారు చేయాలి. Needle damage, open seam, loose thread, wrong measurement, wrong label, wrong size, stain, printing defect లేదా ఇతర defects కనిపిస్తే వెంటనే Supervisor / Quality Departmentకు తెలియజేయాలి. నాణ్యతను దాచిపెట్టి defective garments‌ను తదుపరి processకు పంపకూడదు.</p>) },
     { title: "Confidentiality", body: confidentiality(true) },
     { title: "ప్రవర్తన మరియు క్రమశిక్షణ", body: (<p>ఉద్యోగి ఇతర ఉద్యోగులు, supervisors, managers మరియు customersతో గౌరవంగా ప్రవర్తించాలి. గొడవలు, దుర్భాషలు, బెదిరింపులు, మద్యం ప్రభావంలో పని, ఉద్దేశపూర్వక production నిలిపివేత, company property damage వంటివి తీవ్రమైన misconductగా పరిగణించబడతాయి.</p>) },
@@ -320,21 +320,53 @@ function PrintOfferLetter({ letter, employeeName, onClose }) {
         </div>
 
         <div className="mt-8 pt-4 border-t-2 border-stone-800 text-sm">
-          <h3 className="font-bold text-center mb-3">Annexure – Employee Salary Details</h3>
+          <h3 className="font-bold text-center mb-3">Annexure A – Employee Salary Details</h3>
           <p>Employee Name: {employeeName}</p>
           <p>Designation: {letter.designation}</p>
           <p>Joining Date: {letter.joining_date}</p>
           <p>Monthly Gross Salary: {fmtMoney(gross)}</p>
           <p>Annual Gross Salary: {fmtMoney(gross * 12)}</p>
-          <p>PF: {Number(letter.other_deductions) > 0 ? "Applicable" : "Not Applicable"} &nbsp; ESI: {Number(letter.other_deductions) > 0 ? "Applicable" : "Not Applicable"}</p>
+          <p>PF: Not applicable at present &nbsp; ESI: Not applicable at present — both start from next year (date to be communicated once finalised)</p>
           <p>Working Shift: 9:00 AM – 6:00 PM &nbsp; Weekly Off: {letter.weekly_off}</p>
           <p>Probation Period: {letter.probation_months} Months &nbsp; Notice Period: {letter.notice_period_days} Days</p>
           <p>Increment: Performance based, once a year</p>
+        </div>
+
+        <div className="mt-10 pt-4 text-sm" style={{ breakBefore: "page", pageBreakBefore: "always" }} data-testid="safety-annexure">
+          <h3 className="font-bold text-center text-base mb-1">Annexure B – Safety Rules (భద్రతా నియమాలు)</h3>
+          <p className="text-center text-stone-600 mb-4">T&amp;P TEXTILES — ఉద్యోగి: {employeeName}</p>
+          <ol className="list-decimal pl-6 space-y-2">
+            {SAFETY_RULES.map((r, i) => <li key={i}><b>{r.h}:</b> {r.t}</li>)}
+          </ol>
+          <p className="mt-4">పై Safety Rules అన్నీ నేను చదివాను, అర్థం చేసుకున్నాను మరియు తప్పనిసరిగా పాటిస్తానని అంగీకరిస్తున్నాను. ఉద్దేశపూర్వక ఉల్లంఘన disciplinary actionకు కారణం కావచ్చని నాకు తెలుసు.</p>
+          <div className="grid grid-cols-2 gap-8 mt-10">
+            <div>
+              <p className="mb-8">ఉద్యోగి పేరు: {employeeName}</p>
+              <p className="border-t border-stone-400 pt-1">ఉద్యోగి సంతకం / తేదీ</p>
+            </div>
+            <div>
+              <p className="mb-8">సంస్థ తరఫున — T&amp;P TEXTILES</p>
+              <p className="border-t border-stone-400 pt-1">అధికారిక సంతకం / తేదీ</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
+const SAFETY_RULES = [
+  { h: "Machine safety", t: "Threading, needle మార్చడం, శుభ్రం చేయడం, మరమ్మతు వంటి పనులు machine పూర్తిగా ఆగిన తర్వాత (switch off) మాత్రమే చేయాలి. Needle guard, belt cover, eye guard వంటి safety guardsను తొలగించకూడదు. Machineలో abnormal sound / problem ఉంటే వెంటనే Supervisor / Mechanicకు తెలియజేయాలి." },
+  { h: "Electrical safety", t: "తడి చేతులతో switch, plug, machine ముట్టుకోకూడదు. తెగిన wires, damaged sockets కనిపిస్తే వెంటనే తెలియజేయాలి. అధికారం లేకుండా electrical మరమ్మతులు చేయకూడదు. పని ముగిశాక machines, iron, lights switch off చేయాలి." },
+  { h: "Fire safety", t: "Factory లోపల smoking మరియు open flame నిషేధం. Fire exits, extinguishers, electrical panels దగ్గర ఎటువంటి అడ్డంకులు పెట్టకూడదు. Iron / heaters గమనించకుండా వదిలివేయకూడదు. అగ్ని / పొగ గమనిస్తే వెంటనే అందరికీ తెలియజేసి, ఇచ్చిన సూచనల ప్రకారం సురక్షితంగా బయటకు వెళ్లాలి." },
+  { h: "Needle safety", t: "విరిగిన needle ముక్కలన్నీ సేకరించి Supervisorకు అప్పగించాలి; పాత / విరిగిన needle ఇచ్చి మాత్రమే కొత్త needle తీసుకోవాలి. Needleను garment లో, fabric లో లేదా నేలపై వదిలివేయకూడదు." },
+  { h: "Cutting tools", t: "Scissors, cutting machine, blades జాగ్రత్తగా ఉపయోగించాలి; పని ముగిశాక నిర్ణీత స్థలంలో ఉంచాలి. Cutting machine guard తొలగించకూడదు; అవసరమైన gloves ధరించాలి." },
+  { h: "PPE (వ్యక్తిగత రక్షణ పరికరాలు)", t: "సంస్థ అందించిన mask, gloves, apron, ear protection వంటి PPEని సరైన విధంగా ధరించి ఉపయోగించాలి. వాటిని ఇతరులకు ఇవ్వకూడదు; పాడైతే వెంటనే తెలియజేసి మార్చుకోవాలి." },
+  { h: "Housekeeping", t: "నడిచే మార్గాలు, exits ఎల్లప్పుడూ ఖాళీగా ఉంచాలి. నేలపై thread, fabric waste, నూనె లేదా నీరు ఉంచకూడదు. Chemicals / printing materialను నిర్ణీత స్థలంలో, label తో భద్రంగా ఉంచాలి." },
+  { h: "ప్రమాదాలు / గాయాలు", t: "ఏ చిన్న గాయం, ప్రమాదం లేదా near-miss జరిగినా వెంటనే Supervisorకు తెలియజేయాలి. First aid తీసుకోవాలి; ప్రమాదాన్ని దాచిపెట్టకూడదు." },
+  { h: "ఆరోగ్యం మరియు జాగ్రత్త", t: "మద్యం / మత్తు ప్రభావంలో లేదా ఆరోగ్యం బాగాలేనప్పుడు machine ఆపరేట్ చేయకూడదు. పని సమయంలో అజాగ్రత్తగా పరుగెత్తడం, ఆటలు ఆడటం నిషేధం." },
+  { h: "ఉల్లంఘన", t: "Safety rules ఉద్దేశపూర్వకంగా ఉల్లంఘించడం సంస్థ disciplinary policy ప్రకారం చర్యకు కారణం కావచ్చు." },
+];
 
 // ---- shared Telugu paragraphs ----
 function shiftBody() {
@@ -351,7 +383,9 @@ function attendanceBody(letter) {
   return (
     <>
       <p>ఉద్యోగి ప్రతిరోజూ సమయానికి హాజరు కావాలి. సెలవు అవసరమైతే సాధ్యమైనంత ముందుగా Supervisor / Manager నుండి అనుమతి తీసుకోవాలి.</p>
-      <p>అనుమతి లేకుండా వరుసగా గైర్హాజరు కావడం క్రమశిక్షణా చర్యకు కారణం కావచ్చు.</p>
+      <p><b>వరుస గైర్హాజరు (Continuous absence):</b> అనుమతి లేకుండా లేదా సమాచారం ఇవ్వకుండా వరుసగా 3 పని దినాలు (వారపు సెలవు మరియు ప్రభుత్వ సెలవులు మినహా) గైర్హాజరు కావడాన్ని "వరుస గైర్హాజరు"గా పరిగణిస్తారు.</p>
+      <p><b>నోటీసు విధానం:</b> అటువంటి సందర్భంలో సంస్థ ఉద్యోగి ఇచ్చిన ఫోన్ నంబర్ / WhatsApp / చిరునామాకు లిఖితపూర్వక నోటీసు పంపుతుంది. ఆ నోటీసు పంపిన తేదీ నుండి 7 రోజులలోపు ఉద్యోగి విధులకు హాజరై, గైర్హాజరుకు కారణాన్ని లిఖితపూర్వకంగా తెలియజేయాలి.</p>
+      <p>ఈ గడువులోపు విధులకు హాజరు కాకపోయినా, లేదా సరైన కారణం (ఉదా: వైద్య ధృవీకరణ పత్రంతో అనారోగ్యం) చూపకపోయినా, ఉద్యోగి ఉద్యోగాన్ని వదిలివేసినట్లు (abandonment) సంస్థ పరిగణించవచ్చు; వర్తించే చట్టం మరియు సంస్థ విధానం ప్రకారం తగిన చర్య (ఉద్యోగం ముగింపుతో సహా) తీసుకోవచ్చు. అనారోగ్యం / అత్యవసర పరిస్థితుల్లో ఉద్యోగి సాధ్యమైనంత త్వరగా (ఫోన్ / మెసేజ్ ద్వారా) Supervisorకు తెలియజేయాలి.</p>
       <p>వారపు సెలవులు, earned leave, casual leave, sick leave మరియు చట్టబద్ధమైన సెలవులు సంస్థ Leave Policy మరియు వర్తించే చట్టాల ప్రకారం ఉంటాయి. వారపు సెలవు: {letter.weekly_off}.</p>
     </>
   );
@@ -361,17 +395,25 @@ function companyProperty() {
 }
 function confidentiality(staff) {
   return staff
-    ? <p>Company orders, customer details, school details, prices, supplier information, production data, salary information, designs, patterns, measurements మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం.</p>
-    : <p>Company orders, customer details, school details, prices, supplier information, production data, ఆర్థిక వివరాలు, salary information, designs మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం. ఈ నిబంధన ఉద్యోగం ముగిసిన తర్వాత కూడా వర్తిస్తుంది.</p>;
+    ? <>
+        <p>Company orders, customer details, school details, prices, supplier information, production data, designs, patterns, measurements మరియు business information confidentialగా ఉంచాలి. ఇతర ఉద్యోగుల జీతం మరియు వారి వ్యక్తిగత వివరాలను బయటివారికి లేదా ఇతర ఉద్యోగులకు తెలియజేయకూడదు. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం.</p>
+        <p>ఉద్యోగి తన స్వంత జీతం మరియు ఉద్యోగ వివరాలను labour inspector లేదా ఇతర చట్టబద్ధ అధికారులకు తెలియజేయడానికి ఈ నిబంధన ఎటువంటి అడ్డంకి కాదు.</p>
+      </>
+    : <>
+        <p>Company orders, customer details, school details, prices, supplier information, production data, ఆర్థిక వివరాలు, ఇతర ఉద్యోగుల జీతం మరియు వ్యక్తిగత వివరాలు, designs మరియు business information confidentialగా ఉంచాలి. సంస్థ అనుమతి లేకుండా బయటివారికి ఇవ్వడం లేదా social mediaలో ప్రచురించడం నిషేధం. ఈ నిబంధన ఉద్యోగం ముగిసిన తర్వాత కూడా వర్తిస్తుంది.</p>
+        <p>ఉద్యోగి తన స్వంత జీతం మరియు ఉద్యోగ వివరాలను labour inspector లేదా ఇతర చట్టబద్ధ అధికారులకు తెలియజేయడానికి ఈ నిబంధన ఎటువంటి అడ్డంకి కాదు.</p>
+      </>;
 }
 function falseInfo() {
   return <p>ఉద్యోగి విద్య, అనుభవం, గుర్తింపు, వయస్సు, చిరునామా లేదా ఇతర ముఖ్యమైన వివరాల విషయంలో తప్పుడు సమాచారం అందించినట్లు నిర్ధారణ అయితే సంస్థ తగిన disciplinary action తీసుకోవచ్చు.</p>;
 }
 function statutory() {
-  return <p>ఉద్యోగికి వర్తించే PF, ESI, gratuity, bonus మరియు ఇతర statutory benefits సంబంధిత చట్టాలు మరియు eligibility ప్రకారం అందించబడతాయి.</p>;
+  return <>
+    <p>PF మరియు ESI వచ్చే సంవత్సరం నుండి అమలులోకి వస్తాయి. ప్రారంభ తేదీ ఖరారు అయిన తర్వాత ఉద్యోగులకు తెలియజేయబడుతుంది; అప్పటివరకు ఈ మినహాయింపులు వర్తించవు.</p>
+    <p>Gratuity, bonus మరియు ఇతర statutory benefits సంబంధిత చట్టాలు మరియు eligibility ప్రకారం అందించబడతాయి.</p></>;
 }
 function acceptance() {
-  return <p>ఈ Offer-cum-Appointment Letterలోని నిబంధనలు నేను చదివి, అర్థం చేసుకుని, అంగీకరిస్తున్నాను. సంస్థ యొక్క పని, safety, attendance, quality, discipline మరియు asset-use policiesను పాటిస్తానని అంగీకరిస్తున్నాను.</p>;
+  return <p>ఈ Offer-cum-Appointment Letterలోని నిబంధనలు నేను చదివి, అర్థం చేసుకుని, అంగీకరిస్తున్నాను. సంస్థ యొక్క పని, safety, attendance, quality, discipline మరియు asset-use policiesను పాటిస్తానని అంగీకరిస్తున్నాను. జతచేసిన <b>Annexure A (జీతం వివరాలు)</b> మరియు <b>Annexure B (Safety Rules)</b>లను చదివి, అర్థం చేసుకుని, పాటిస్తానని అంగీకరిస్తున్నాను.</p>;
 }
 
 function Section({ n, title, children }) {

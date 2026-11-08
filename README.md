@@ -858,3 +858,22 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 - **Earned leave can no longer be applied for.** It is gone from the request form (the database also refuses it). The card only explains that it is paid as the attendance bonus (v70) when a quarter has no leave or absence.
 - **Sick leave:** at most 2 days in a month (counting approved + pending), one request per month, plus the yearly 10.
 - Run `supabase/migration_61.sql` (after 60).
+
+## v72 — Offer letter clauses + public holidays
+**Offer letter (Telugu)**
+- Clause 5: "continuous absence" is now defined — 3 consecutive working days without permission / information (Sundays and public holidays excluded). Notice procedure: written notice to the employee's phone / WhatsApp / address; the employee must report and give the reason in writing within 7 days; otherwise the company may treat it as abandonment and act under the law and company policy (illness / emergency with proof is a valid reason).
+- Clause 10: Safety Rules now refers to a separate page, **Annexure B – Safety Rules** (10 rules + employee and company signature), printed on its own page. Clause 21 (acceptance) refers to Annexure A (salary) and Annexure B (safety). The salary annexure is now "Annexure A".
+- Clause 12: the employee's own salary may be shared with labour inspectors / authorities; the restriction is on **other employees'** salary and personal details.
+- Clause 16: no more "wages will not be processed" — the final settlement is determined after deducting any dues (advance / loan, unreturned company property, wages in lieu of unserved notice) as the law allows.
+- PF / ESI: clause 20, the salary table note and the annexure now all say PF and ESI start from next year (date to be communicated); the annexure no longer shows "Applicable/Not applicable" based on the deduction amount.
+
+**Public holidays**
+- 25 Dec 2026 and the 2027 list are built in and stored in a new `holidays` table (`supabase/migration_62.sql`, run after 61). Public holidays show violet in the attendance calendar (Payroll), in the Attendance day banner, are not deducted, are not counted as leave days, and don't break the quarterly attendance bonus. Optional holidays (Bhogi, Ugadi, Varalakshmi Vratham) show with a violet outline only and are normal working days.
+- Attendance → **Holidays** lists them; admin / HR / GM can add or remove dates.
+
+## v73 — Salary hidden in the Employees module
+- The Base salary column shows "₹ ••••••" for everyone. Click the eye next to a person to see that one salary (click again to hide; it hides itself after 30 seconds). The Edit form also hides the salary until you click Show; saving without showing keeps the existing value.
+- Front-end only; no database change.
+
+## v74 — Employee numbers TP001, TP002 …
+- New employees get the next number in the form TP001, TP002 … (one after the highest TP number already used, so deleted numbers are never repeated). Existing EMP-xxx numbers are left as they are; edit them by hand if you want them changed. No database change.

@@ -1,3 +1,4 @@
+import { loadHolidays } from "./lib/holidays";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, CalendarCheck, Wallet, Landmark, ShieldCheck, ClipboardCheck, CalendarClock,
@@ -91,7 +92,7 @@ export default function App() {
   }, [session]);
 
   // garment names make cutting counts like KURTI-XL readable everywhere
-  useEffect(() => { if (profile?.id) loadGarmentNames(); }, [profile?.id]);
+  useEffect(() => { if (profile?.id) { loadGarmentNames(); loadHolidays(supabase); } }, [profile?.id]);
   useEffect(() => {
     if (!profile?.id) {
       setGrants([]);
