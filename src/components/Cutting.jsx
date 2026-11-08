@@ -66,6 +66,7 @@ export default function Cutting({ profile }) {
   const [q, setQ] = useState("");
   const [resendEntry, setResendEntry] = useState(null);
   const [fabrics, setFabrics] = useState([]);
+  const [usage, setUsage] = useState([]); // fabric lines per cutting entry
   const [view, setView] = useState("pending"); // pending | approved | rejected | damage | master
   const [damage, setDamage] = useState([]);
   const [damageModal, setDamageModal] = useState(false);
@@ -74,13 +75,15 @@ export default function Cutting({ profile }) {
   const canLogDamage = ["admin", "hr", "gm", "pm", "tl", "cutting_master", "cutting"].includes(profile?.role);
 
   const load = async () => {
-    const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }, { data: dm }] = await Promise.all([
+    const [{ data: ord }, { data: ent }, { data: fab }, { data: lg }, { data: dm }, { data: us }] = await Promise.all([
       supabase.from("orders").select("id, order_number, customer_name, items").not("status", "in", '(Completed,Shipped,"Rejected by Customer")'),
       supabase.from("cutting_entries").select("*").order("cut_date", { ascending: false }),
       supabase.from("inventory_fabric").select("id, fabric_type, color, weight_gsm, stock_kg, stock_meters").order("fabric_type"),
       supabase.from("cutting_stitch_log").select("*").order("log_date", { ascending: false }).order("created_at", { ascending: false }),
       supabase.from("cutting_damage").select("*").order("damage_date", { ascending: false }).order("created_at", { ascending: false }),
+      supabase.from("fabric_usage").select("id, cutting_entry_id, fabric_id, kg_used, meters_used, part, restored").not("cutting_entry_id", "is", null),
     ]);
+    setUsage(us || []);
     setDamage(dm || []);
     setLogs(lg || []);
     setFabrics(fab || []);
@@ -96,6 +99,7 @@ export default function Cutting({ profile }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "inventory_fabric" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "cutting_stitch_log" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "cutting_damage" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "fabric_usage" }, load)
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -108,6 +112,21 @@ export default function Cutting({ profile }) {
   const fabricLabel = (id) => {
     const f = fabrics.find((x) => x.id === id);
     return f ? `${f.fabric_type}${f.color ? ` (${f.color})` : ""}` : "fabric";
+  };
+  // every fabric a cut used (a single garment can need 2–3 fabrics: body, sleeves, collar …)
+  const fabricLines = (entry) => {
+    const rows = usage.filter((u) => u.cutting_entry_id === entry.id && !u.restored);
+    if (rows.length) return rows.map((u) => ({ label: fabricLabel(u.fabric_id), part: u.part, kg: Number(u.kg_used) || 0, m: Number(u.meters_used) || 0 }));
+    if (Number(entry.fabric_kg_used) > 0 || Number(entry.fabric_meters_used) > 0) return [{ label: fabricLabel(entry.fabric_id), part: null, kg: Number(entry.fabric_kg_used) || 0, m: Number(entry.fabric_meters_used) || 0 }];
+    return [];
+  };
+  const canMerge = ["admin", "hr", "gm", "pm", "cutting_master", "cutting"].includes(profile?.role);
+  const mergeGroup = async (list) => {
+    const [keep, ...rest] = list;
+    if (!window.confirm(`Merge ${list.length} entries of ${keep.item_description} (${orderLabel(keep.order_id)}) into ONE cut?\n\nUse this when it is the same pieces cut from different fabrics. The piece counts are NOT added together (the larger number per size is kept); all fabrics stay recorded on the merged entry.`)) return;
+    const { data, error } = await supabase.rpc("merge_cutting_entries", { p_keep: keep.id, p_merge: rest.map((r) => r.id) });
+    if (error || data?.ok === false) return alert(`Couldn't merge:\n${error?.message || data?.error}`);
+    load();
   };
 
   const approve = async (entry) => {
@@ -143,6 +162,13 @@ export default function Cutting({ profile }) {
   const inView = view === "pending" ? pendingEntries : view === "approved" ? approvedEntries : rejectedEntries;
   const shownEntries = inView.filter((e) => matchQ(q, entryText(e)));
   const searchBar = <SearchBox value={q} onChange={setQ} placeholder="Search order, customer, item, date, cutting master, fabric…" className="max-w-xl" />;
+  // entries for the same order + item + date + status are most likely ONE cut made from different fabrics
+  const dupGroups = (() => {
+    if (!canMerge || (view !== "pending" && view !== "approved")) return [];
+    const g = {};
+    shownEntries.forEach((e) => { const k = [e.order_id, e.item_description, e.cut_date, e.status].join("|"); (g[k] = g[k] || []).push(e); });
+    return Object.values(g).filter((l) => l.length > 1);
+  })();
   const EMPTY = { pending: "Nothing waiting for review.", approved: "No approved cutting entries yet.", rejected: "No rejected cutting entries." };
 
   const tabBar = (
@@ -184,6 +210,12 @@ export default function Cutting({ profile }) {
         </div>
       </div>
 
+      {dupGroups.map((list) => (
+        <div key={list[0].id} className="flex items-center justify-between gap-2 flex-wrap rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-merge-banner>
+          <span><b>{list.length} entries</b> for {orderLabel(list[0].order_id)} · {list[0].item_description} · {list[0].cut_date}. If this is one cut made from different fabrics, merge them so the pieces are counted once.</span>
+          <Btn variant="ghost" onClick={() => mergeGroup(list)}>Merge into one entry</Btn>
+        </div>
+      ))}
       <div className="grid gap-3">
         {shownEntries.map((entry) => {
           const sizes = entry.sizes || {};
@@ -197,9 +229,11 @@ export default function Cutting({ profile }) {
                 <div>
                   <div className="font-semibold text-sm">{orderLabel(entry.order_id)}</div>
                   <div className="text-xs text-stone-500">{entry.item_description} · Cut on {entry.cut_date}{entry.submitted_by ? ` · by ${entry.submitted_by}` : ""}</div>
-                  {(Number(entry.fabric_kg_used) > 0 || Number(entry.fabric_meters_used) > 0) && (
+                  {fabricLines(entry).length > 0 && (
                     <div className="text-xs text-stone-400">
-                      Fabric used: {fabricLabel(entry.fabric_id)} — {Number(entry.fabric_kg_used) || 0} kg{Number(entry.fabric_meters_used) > 0 ? ` / ${entry.fabric_meters_used} m` : ""}
+                      Fabric used: {fabricLines(entry).map((l, i) => (
+                        <span key={i}>{i > 0 ? " + " : ""}{l.part ? `${l.part}: ` : ""}{l.label} — {l.kg} kg{l.m > 0 ? ` / ${l.m} m` : ""}</span>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -339,15 +373,15 @@ export default function Cutting({ profile }) {
       </div>
 
       {itemModal && <AddItemModal orders={orders} onClose={() => setItemModal(false)} onSaved={load} />}
-      {modal && <CuttingModal orders={orders} fabrics={fabrics} profile={profile} onClose={() => setModal(null)} onSaved={load} />}
-      {resendEntry && <CuttingModal orders={orders} fabrics={fabrics} profile={profile} entry={resendEntry} onClose={() => setResendEntry(null)} onSaved={() => { load(); setView("pending"); }} />}
+      {modal && <CuttingModal orders={orders} fabrics={fabrics} usage={usage} profile={profile} onClose={() => setModal(null)} onSaved={load} />}
+      {resendEntry && <CuttingModal orders={orders} fabrics={fabrics} usage={usage} profile={profile} entry={resendEntry} onClose={() => setResendEntry(null)} onSaved={() => { load(); setView("pending"); }} />}
       {rejectEntry && <RejectModal entry={rejectEntry} orderLabel={orderLabel(rejectEntry.order_id)} onClose={() => setRejectEntry(null)} onSaved={load} />}
       {completeEntry && <CompleteSizesModal entry={completeEntry} onClose={() => setCompleteEntry(null)} onSaved={load} />}
     </div>
   );
 }
 
-function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
+function CuttingModal({ orders, fabrics, usage = [], profile, entry, onClose, onSaved }) {
   const resend = !!entry; // editing a rejected entry to send it back for approval
   const [orderId, setOrderId] = useState(entry?.order_id || "");
   const [itemDesc, setItemDesc] = useState(entry?.item_description || "");
@@ -356,11 +390,15 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
   const [groupKey, setGroupKey] = useState("");
   const [garments, setGarments] = useState([]);
   const [showAll, setShowAll] = useState(false);
-  const [fabricId, setFabricId] = useState(entry?.fabric_id || "");
-  const [kg, setKg] = useState(entry?.fabric_kg_used ? String(entry.fabric_kg_used) : "");
-  const [meters, setMeters] = useState(entry?.fabric_meters_used ? String(entry.fabric_meters_used) : "");
+  const startLines = () => {
+    const u = entry ? usage.filter((x) => x.cutting_entry_id === entry.id) : [];
+    // a rejected entry's fabric was restored (restored = true): its lines are still the best starting point
+    if (u.length) return u.map((x) => ({ fabricId: x.fabric_id || "", kg: x.kg_used ? String(x.kg_used) : "", meters: x.meters_used ? String(x.meters_used) : "", part: x.part || "" }));
+    return [{ fabricId: entry?.fabric_id || "", kg: entry?.fabric_kg_used ? String(entry.fabric_kg_used) : "", meters: entry?.fabric_meters_used ? String(entry.fabric_meters_used) : "", part: "" }];
+  };
+  const [lines, setLines] = useState(startLines);
+  const setLine = (i, patch) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const [saving, setSaving] = useState(false);
-  const fabric = fabrics.find((f) => f.id === fabricId);
   const order = orders.find((o) => o.id === orderId);
   const items = order?.items || [];
 
@@ -415,34 +453,22 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
       setSaving(false);
       return alert("Enter the cut quantity for at least one size.");
     }
-    if (!fabricId) {
-      setSaving(false);
-      return alert("Select the fabric used from inventory first.");
+    for (const l of lines) {
+      if (!l.fabricId) { setSaving(false); return alert("Select the fabric for every fabric line."); }
+      if (!(Number(l.kg) > 0) && !(Number(l.meters) > 0)) { setSaving(false); return alert("Enter how much of each fabric was used (kg or meters)."); }
     }
-    if (!(Number(kg) > 0) && !(Number(meters) > 0)) {
-      setSaving(false);
-      return alert("Enter how much fabric was used (kg or meters).");
-    }
+    const fabricsPayload = lines.map((l) => ({ fabric_id: l.fabricId, kg: Number(l.kg) || 0, meters: Number(l.meters) || 0, part: l.part.trim() || null }));
     if (resend) {
-      const { data, error: rerr } = await supabase.rpc("resubmit_cutting", {
-        p_id: entry.id, p_cut_date: cutDate, p_sizes: cleanSizes, p_fabric_id: fabricId, p_kg: Number(kg) || 0, p_meters: Number(meters) || 0,
-      });
+      const { data, error: rerr } = await supabase.rpc("resubmit_cutting_multi", { p_id: entry.id, p_cut_date: cutDate, p_sizes: cleanSizes, p_fabrics: fabricsPayload });
       setSaving(false);
       if (rerr || data?.ok === false) return alert(`Couldn't resend:\n${rerr?.message || data?.error}`);
       onSaved();
       onClose();
       return;
     }
-    // Saves the cutting entry AND deducts the fabric from inventory in one step.
-    const { error } = await supabase.rpc("submit_cutting", {
-      p_order_id: orderId,
-      p_item: itemDesc,
-      p_cut_date: cutDate,
-      p_sizes: cleanSizes,
-      p_fabric_id: fabricId,
-      p_kg: Number(kg) || 0,
-      p_meters: Number(meters) || 0,
-      p_submitted_by: profile?.name || null,
+    // Saves ONE cutting entry AND deducts every fabric used from inventory in one step.
+    const { error } = await supabase.rpc("submit_cutting_multi", {
+      p_order_id: orderId, p_item: itemDesc, p_cut_date: cutDate, p_sizes: cleanSizes, p_fabrics: fabricsPayload, p_submitted_by: profile?.name || null,
     });
     setSaving(false);
     if (error) {
@@ -479,32 +505,42 @@ function CuttingModal({ orders, fabrics, profile, entry, onClose, onSaved }) {
         <Field label="Cutting date">
           <input type="date" className={inputCls} value={cutDate} onChange={(e) => setCutDate(e.target.value)} />
         </Field>
-        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 mb-3">
-          <span className="block text-xs font-semibold text-stone-700 mb-2">Fabric used (deducted from inventory)</span>
-          <Field label="Fabric">
-            <select required className={inputCls} value={fabricId} onChange={(e) => setFabricId(e.target.value)}>
-              <option value="">— select fabric from inventory —</option>
-              {fabrics.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.fabric_type}{f.color ? ` · ${f.color}` : ""}{f.weight_gsm ? ` · ${f.weight_gsm} GSM` : ""} — {f.stock_kg ?? 0} kg / {f.stock_meters ?? 0} m available
-                </option>
-              ))}
-            </select>
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Used (kg)">
-              <input type="number" min="0" step="any" className={inputCls} value={kg} onChange={(e) => setKg(e.target.value)} />
-            </Field>
-            <Field label="Used (meters)">
-              <input type="number" min="0" step="any" className={inputCls} value={meters} onChange={(e) => setMeters(e.target.value)} />
-            </Field>
-          </div>
-          {fabric && (
-            <p className="text-[11px] text-stone-500">
-              After this: {Math.max(0, (Number(fabric.stock_kg) || 0) - (Number(kg) || 0)).toFixed(2)} kg /{" "}
-              {Math.max(0, (Number(fabric.stock_meters) || 0) - (Number(meters) || 0)).toFixed(2)} m left
-            </p>
-          )}
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 mb-3" data-fabric-lines>
+          <span className="block text-xs font-semibold text-stone-700">Fabric used (deducted from inventory)</span>
+          <p className="text-[11px] text-stone-500 mb-2">One garment made from more than one fabric (body, sleeves, collar…)? Add each fabric as a line here — <b>do not log a second cutting entry</b>, or the pieces get counted twice.</p>
+          {lines.map((l, i) => {
+            const fab = fabrics.find((f) => f.id === l.fabricId);
+            const usedElsewhere = lines.filter((x, k) => k !== i && x.fabricId === l.fabricId).reduce((t, x) => t + (Number(x.kg) || 0), 0);
+            return (
+              <div key={i} className="rounded-md bg-white/70 border border-amber-100 p-2 mb-2" data-fabric-line>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-medium text-stone-600">Fabric {i + 1}</span>
+                  {lines.length > 1 && <button type="button" className="text-[11px] text-rose-600 hover:underline" onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))}>Remove</button>}
+                </div>
+                <select required aria-label={`Fabric ${i + 1}`} className={inputCls} value={l.fabricId} onChange={(e) => setLine(i, { fabricId: e.target.value })}>
+                  <option value="">— select fabric from inventory —</option>
+                  {fabrics.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.fabric_type}{f.color ? ` · ${f.color}` : ""}{f.weight_gsm ? ` · ${f.weight_gsm} GSM` : ""} — {f.stock_kg ?? 0} kg / {f.stock_meters ?? 0} m available
+                    </option>
+                  ))}
+                </select>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <input aria-label={`Part ${i + 1}`} className={inputCls} placeholder="Used for (Body, Sleeves…)" value={l.part} onChange={(e) => setLine(i, { part: e.target.value })} />
+                  <input aria-label={`Kg ${i + 1}`} type="number" min="0" step="any" className={inputCls} placeholder="kg" value={l.kg} onChange={(e) => setLine(i, { kg: e.target.value })} />
+                  <input aria-label={`Meters ${i + 1}`} type="number" min="0" step="any" className={inputCls} placeholder="meters" value={l.meters} onChange={(e) => setLine(i, { meters: e.target.value })} />
+                </div>
+                {fab && (
+                  <p className="text-[11px] text-stone-500 mt-1">
+                    After this: {Math.max(0, (Number(fab.stock_kg) || 0) - (Number(l.kg) || 0) - usedElsewhere).toFixed(2)} kg /{" "}
+                    {Math.max(0, (Number(fab.stock_meters) || 0) - (Number(l.meters) || 0)).toFixed(2)} m left
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          <button type="button" className="text-xs text-indigo-700 hover:underline" onClick={() => setLines((ls) => [...ls, { fabricId: "", kg: "", meters: "", part: "" }])}>+ Add another fabric for the same cut</button>
+          {lines.length > 1 && <p className="text-[11px] text-stone-500 mt-1">Total fabric: {lines.reduce((t, l) => t + (Number(l.kg) || 0), 0).toFixed(2)} kg</p>}
           {fabrics.length === 0 && <p className="text-[11px] text-rose-600">No fabric in inventory yet — add it under Inventory → Fabric first.</p>}
         </div>
 

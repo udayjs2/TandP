@@ -1,3 +1,11 @@
+## v84 — One cut, several fabrics
+
+Run `migration_68.sql` (after 67).
+
+- **Log cutting count** now has *fabric lines*: add as many fabrics as the garment needs (Body, Sleeves, Collar…), each with kg/meters. One cutting entry is saved, so the pieces are counted **once**; every fabric is deducted from its own stock. Rejected entries can be corrected with the same lines.
+- Cutting cards show every fabric used (`Body: … + Sleeves: …`); Inventory → Fabric used shows the part.
+- **Merge into one entry** — if two entries for the same order + item + date + status already exist (the old workaround), a banner offers the merge: fabrics move onto one entry, piece counts are not added (the larger number per size is kept), stitching logs move across. Allowed for Admin/GM/PM, and for a cutting master on their own un-approved entries.
+
 ## v83 — Search everywhere
 
 No database migration in this version (still run 63→67 if you haven't).

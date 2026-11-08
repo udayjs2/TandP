@@ -247,7 +247,7 @@ export default function Inventory({ profile }) {
                       <tr key={u.id} className={u.restored ? "text-stone-400 line-through" : ""}>
                         <td className="px-3 py-2">{new Date(u.created_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                         <td className="px-3 py-2">{orderNames[u.order_id] || "—"}</td>
-                        <td className="px-3 py-2">{fab ? `${fab.fabric_type}${fab.color ? ` · ${fab.color}` : ""}` : "—"}</td>
+                        <td className="px-3 py-2">{fab ? `${fab.fabric_type}${fab.color ? ` · ${fab.color}` : ""}` : "—"}{u.part ? <span className="text-xs text-stone-400"> · {u.part}</span> : null}</td>
                         <td className="px-3 py-2 text-right font-mono">{u.kg_used}</td>
                         <td className="px-3 py-2 text-right font-mono">{u.meters_used}</td>
                         <td className="px-3 py-2">{u.used_by || "—"}</td>
