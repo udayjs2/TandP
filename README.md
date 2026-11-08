@@ -1,3 +1,9 @@
+## v82 — Approvals now includes whole-order dispatch and Production Manager plans
+
+No migration. The Approvals module also lists:
+- **Order dispatch** (the "Dispatch: awaiting GM / PM" shown on an order after QC approval): PM at "Pending PM", GM at "Pending GM" (Admin both). Approve or reject with a reason.
+- **Order assignment**: work plans from the General Manager waiting for the Production Manager to accept (Accept keeps the GM's priority and date; use Order Assignment to change them).
+
 ## v81 — Holidays on the leave tab, Approvals module, fabric history log
 
 Run `migration_67.sql` (after 66).

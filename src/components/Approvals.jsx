@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X, CalendarDays, Scissors, ShoppingCart, Truck, CheckCircle2 } from "lucide-react";
+import { Check, X, CalendarDays, Scissors, ShoppingCart, Truck, CheckCircle2, ClipboardCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Btn } from "./ui";
 import { fmtMoney } from "../lib/helpers";
@@ -9,6 +9,7 @@ const TYPES = {
   cutting: { label: "Cutting", icon: Scissors, cls: "bg-amber-100 text-amber-800" },
   purchase: { label: "Purchase", icon: ShoppingCart, cls: "bg-emerald-100 text-emerald-800" },
   dispatch: { label: "Dispatch", icon: Truck, cls: "bg-indigo-100 text-indigo-800" },
+  assignment: { label: "Order assignment", icon: ClipboardCheck, cls: "bg-violet-100 text-violet-800" },
 };
 const dFmt = (v) => (v ? new Date(v).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" }) : "");
 const sizesTotal = (s) => Object.values(s || {}).reduce((t, v) => t + (Number(v) || 0), 0);
@@ -21,20 +22,21 @@ export default function Approvals({ profile }) {
   const [busy, setBusy] = useState(null);
 
   const load = async () => {
-    const [lv, emp, cut, ord, pr, lots] = await Promise.all([
+    const [lv, emp, cut, ord, pr, lots, asg] = await Promise.all([
       supabase.from("leave_requests").select("*").eq("status", "Pending").order("created_at", { ascending: true }),
       supabase.from("employees").select("id, name"),
       supabase.from("cutting_entries").select("*").eq("status", "Submitted").order("created_at", { ascending: true }),
-      supabase.from("orders").select("id, order_number, customer_name"),
+      supabase.from("orders").select("id, order_number, customer_name, status, items, quality_status, dispatch_status, dispatch_pm_by"),
       supabase.from("purchase_requests").select("*").eq("status", "Pending").order("created_at", { ascending: true }),
       supabase.from("dispatch_lots").select("*").in("status", ["Pending PM", "Pending GM"]).order("requested_at", { ascending: true }),
+      supabase.from("order_assignments").select("*").eq("pm_status", "Pending PM").order("work_date", { ascending: true }),
     ]);
-    setData({ leave: lv.data || [], emp: emp.data || [], cutting: cut.data || [], orders: ord.data || [], purchase: pr.data || [], lots: lots.data || [] });
+    setData({ leave: lv.data || [], emp: emp.data || [], cutting: cut.data || [], orders: ord.data || [], purchase: pr.data || [], lots: lots.data || [], assignments: asg.data || [] });
   };
   useEffect(() => {
     load();
     const ch = supabase.channel("approvals-changes");
-    ["leave_requests", "cutting_entries", "purchase_requests", "dispatch_lots"].forEach((t) => ch.on("postgres_changes", { event: "*", schema: "public", table: t }, load));
+    ["leave_requests", "cutting_entries", "purchase_requests", "dispatch_lots", "orders", "order_assignments"].forEach((t) => ch.on("postgres_changes", { event: "*", schema: "public", table: t }, load));
     ch.subscribe();
     return () => supabase.removeChannel(ch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,6 +69,24 @@ export default function Approvals({ profile }) {
         reject: async () => { const reason = window.prompt("Reason for rejecting (optional):"); if (reason === null) return { cancelled: true }; return supabase.rpc("reject_purchase_request", { p_id: r.id, p_reason: reason || null }); },
       });
     });
+    // whole-order dispatch (QC approved, then Production Manager, then General Manager)
+    data.orders.filter((o) => o.quality_status === "Approved" && !["Completed", "Shipped", "Rejected by Customer"].includes(o.status)).forEach((o) => {
+      const mine = (o.dispatch_status === "Pending PM" && ["pm", "admin"].includes(role)) || (o.dispatch_status === "Pending GM" && ["gm", "admin"].includes(role));
+      if (!mine) return;
+      const pcs = (o.items || []).reduce((t, i) => t + (Number(i.quantity) || 0), 0);
+      out.push({
+        key: "o" + o.id, type: "dispatch", when: null, title: `Order dispatch — ${o.order_number} — ${o.customer_name}`,
+        detail: `${pcs} pieces · QC approved · ${o.dispatch_status === "Pending PM" ? "awaiting Production Manager" : "awaiting General Manager"}`,
+        approve: () => supabase.rpc("approve_dispatch", { p_order_id: o.id, p_decision: "Approved", p_note: null }),
+        reject: async () => { const note = window.prompt("Reason for rejecting this dispatch:"); if (note === null) return { cancelled: true }; return supabase.rpc("approve_dispatch", { p_order_id: o.id, p_decision: "Rejected", p_note: note }); },
+      });
+    });
+    // work plans from the General Manager waiting for the Production Manager to accept
+    if (["pm", "admin"].includes(role)) data.assignments.forEach((a) => out.push({
+      key: "a" + a.id, type: "assignment", when: a.created_at, noReject: true, title: `Plan for ${ordLabel(a.order_id)}`,
+      detail: `${a.item_description || "Whole order"} · ${a.priority || "Normal"} priority · ${a.work_date}${a.target_qty ? ` · target ${a.target_qty}` : ""}${a.instructions ? ` · ${a.instructions}` : ""}`,
+      approve: () => supabase.rpc("pm_accept_assignment", { p_id: a.id, p_priority: a.priority, p_date: a.work_date, p_reason: null }),
+    }));
     data.lots.forEach((l) => {
       const mine = (l.status === "Pending PM" && ["pm", "admin"].includes(role)) || (l.status === "Pending GM" && ["gm", "admin"].includes(role));
       if (!mine) return;
@@ -118,8 +138,8 @@ export default function Approvals({ profile }) {
                 <div className="text-xs text-stone-500 mt-0.5">{it.detail}{it.when ? ` · ${dFmt(it.when)}` : ""}</div>
               </div>
               <div className="flex gap-2">
-                <Btn variant="ghost" disabled={busy === it.key + "reject"} onClick={() => run(it, "reject")}><X size={13} /> Reject</Btn>
-                <Btn disabled={busy === it.key + "approve"} onClick={() => run(it, "approve")}><Check size={13} /> Approve</Btn>
+                {!it.noReject && <Btn variant="ghost" disabled={busy === it.key + "reject"} onClick={() => run(it, "reject")}><X size={13} /> Reject</Btn>}
+                <Btn disabled={busy === it.key + "approve"} onClick={() => run(it, "approve")}><Check size={13} /> {it.type === "assignment" ? "Accept" : "Approve"}</Btn>
               </div>
             </Card></div>
           );

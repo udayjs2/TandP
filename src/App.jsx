@@ -186,7 +186,7 @@ export default function App() {
         {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Orders, cutting, measurements, daily output, quality inspection and the planner." tabs={pick("production", productionTabs)} />}
         {activeTab === "hr" && <ModuleShell title="HR & Workforce Management" subtitle="Employees, attendance, leave, payroll and staff advances." tabs={pick("hr", hrTabs)} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
-        {activeTab === "approvals" && <ModuleShell title="Approvals" subtitle="Leave, cutting, purchase and dispatch approvals waiting for you." tabs={[{ id: "approvals", label: "Approvals", icon: ClipboardCheck, render: () => <Approvals profile={profile} /> }]} />}
+        {activeTab === "approvals" && <ModuleShell title="Approvals" subtitle="Leave, cutting, purchase, dispatch and order-plan approvals waiting for you." tabs={[{ id: "approvals", label: "Approvals", icon: ClipboardCheck, render: () => <Approvals profile={profile} /> }]} />}
         {activeTab === "inventory" && <ModuleShell title="Inventory & Procurement" subtitle="Fabric, accessories, machines and spare parts, and purchase requests." tabs={pick("inventory", inventoryTabs)} />}
         {activeTab === "finance" && <Finance profile={profile} />}
         {activeTab === "reports" && <Reports profile={profile} />}
