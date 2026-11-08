@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, X, AlertTriangle, CheckCircle2, Scissors, Trash2, Send, History, Plus } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { todayStr } from "../lib/helpers";
 import GarmentMaster from "./GarmentMaster";
 import { itemSizes, itemSizeText, garmentNameForPrefix, registerGarmentNames, sizeKey, garmentOfItem, SIZE_MODES, LETTER_ORDER } from "../lib/garments";
@@ -63,6 +63,7 @@ export default function Cutting({ profile }) {
   const [logs, setLogs] = useState([]); // day-by-day stitching rows
   const [openHistory, setOpenHistory] = useState({});
   const [rejectEntry, setRejectEntry] = useState(null);
+  const [q, setQ] = useState("");
   const [resendEntry, setResendEntry] = useState(null);
   const [fabrics, setFabrics] = useState([]);
   const [view, setView] = useState("pending"); // pending | approved | rejected | damage | master
@@ -138,7 +139,10 @@ export default function Cutting({ profile }) {
   const pendingEntries = entries.filter((e) => e.status === "Submitted");
   const approvedEntries = entries.filter((e) => e.status === "Approved");
   const rejectedEntries = entries.filter((e) => e.status === "Rejected");
-  const shownEntries = view === "pending" ? pendingEntries : view === "approved" ? approvedEntries : rejectedEntries;
+  const entryText = (e) => [orderLabel(e.order_id), e.item_description, e.cut_date, e.submitted_by, e.reviewed_by, e.notes, e.reject_reason, e.status, e.fabric_id ? fabricLabel(e.fabric_id) : "", Object.keys(e.sizes || {})];
+  const inView = view === "pending" ? pendingEntries : view === "approved" ? approvedEntries : rejectedEntries;
+  const shownEntries = inView.filter((e) => matchQ(q, entryText(e)));
+  const searchBar = <SearchBox value={q} onChange={setQ} placeholder="Search order, customer, item, date, cutting master, fabric…" className="max-w-xl" />;
   const EMPTY = { pending: "Nothing waiting for review.", approved: "No approved cutting entries yet.", rejected: "No rejected cutting entries." };
 
   const tabBar = (
@@ -157,7 +161,8 @@ export default function Cutting({ profile }) {
   if (view === "damage") return (
     <div className="space-y-4">
       {tabBar}
-      <DamageView rows={damage} orderLabel={orderLabel} canLog={canLogDamage} canRemove={(r) => canApprove || r.logged_by === profile?.name} onAdd={() => setDamageModal(true)} onRemove={removeDamage} />
+      {searchBar}
+      <DamageView rows={damage.filter((r) => matchQ(q, orderLabel(r.order_id), r.item_description, r.stage, r.logged_by, r.reason, r.damage_date))} orderLabel={orderLabel} canLog={canLogDamage} canRemove={(r) => canApprove || r.logged_by === profile?.name} onAdd={() => setDamageModal(true)} onRemove={removeDamage} />
       {damageModal && <DamageModal orders={orders} entries={entries} onClose={() => setDamageModal(false)} onSaved={load} />}
     </div>
   );
@@ -166,6 +171,7 @@ export default function Cutting({ profile }) {
   return (
     <div className="space-y-4">
       {tabBar}
+      {searchBar}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{view === "pending" ? "Cutting — pending review" : view === "approved" ? "Approved cutting" : "Rejected cutting (sent back to the cutting master)"}</h2>
         <div className="flex gap-2 flex-wrap">

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { UserPlus, Trash2, Copy, Check, KeyRound, LayoutGrid } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { ROLE_LABELS, LOGIN_ROLES, MODULE_ROLES, GRANTABLE_MODULES } from "../lib/helpers";
 
 export default function UserManagement({ profile }) {
   const canManageRoles = profile?.role === "admin" || profile?.role === "hr";
   const [profiles, setProfiles] = useState([]);
+  const [q, setQ] = useState("");
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [inviteModal, setInviteModal] = useState(false);
@@ -142,7 +143,8 @@ export default function UserManagement({ profile }) {
 
       <div>
         <h3 className="font-semibold text-sm mb-2">Existing accounts</h3>
-        <Card className="overflow-x-auto">
+        <SearchBox value={q} onChange={setQ} placeholder="Search name, email, role…" className="max-w-xl mb-3" />
+      <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
               <tr>
@@ -152,7 +154,7 @@ export default function UserManagement({ profile }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {profiles.map((p) => (
+              {profiles.filter((p) => matchQ(q, p.full_name, p.name, p.email, p.role)).map((p) => (
                 <tr key={p.id} className="hover:bg-stone-50">
                   <td className="px-4 py-2.5 font-medium">
                     {p.name}

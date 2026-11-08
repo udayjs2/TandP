@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, X, CalendarDays, Scissors, ShoppingCart, Truck, CheckCircle2, ClipboardCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Btn } from "./ui";
+import { Card, Btn, SearchBox, matchQ } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
 const TYPES = {
@@ -20,6 +20,7 @@ export default function Approvals({ profile }) {
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all");
   const [busy, setBusy] = useState(null);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [lv, emp, cut, ord, pr, lots, asg] = await Promise.all([
@@ -113,7 +114,7 @@ export default function Approvals({ profile }) {
   if (!data) return <p className="text-sm text-stone-500">Loading…</p>;
   const counts = { all: items.length };
   Object.keys(TYPES).forEach((k) => { counts[k] = items.filter((i) => i.type === k).length; });
-  const shown = items.filter((i) => filter === "all" || i.type === filter);
+  const shown = items.filter((i) => (filter === "all" || i.type === filter) && matchQ(q, i));
   return (
     <div className="space-y-4">
       <div>
@@ -125,6 +126,7 @@ export default function Approvals({ profile }) {
           <button key={k} onClick={() => setFilter(k)} className={`px-3 py-1 rounded-full text-xs font-medium border ${filter === k ? "bg-indigo-900 text-white border-indigo-900" : "bg-white text-stone-600 border-stone-200"}`}>{label} ({counts[k] || 0})</button>
         ))}
       </div>
+      <SearchBox value={q} onChange={setQ} placeholder="Search requests by order, person, item, amount…" className="max-w-xl" />
       <div className="grid gap-2">
         {shown.map((it) => {
           const T = TYPES[it.type];

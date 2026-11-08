@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Settings2, Check, BadgeIndianRupee } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import ReportView from "./ReportView";
 import { fmtMoney, todayStr, COMMISSION_COLORS, PERIOD_LABELS, periodKeyLabel } from "../lib/helpers";
 import { isSalesPerson } from "../lib/orgRoles";
@@ -29,6 +29,7 @@ export default function Commission({ profile }) {
   const [statusF, setStatusF] = useState("All");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState("");
+  const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -89,7 +90,7 @@ export default function Commission({ profile }) {
     .filter((c) => spF === "All" || c.id === spF)
     .sort((a, b) => b.counted - a.counted);
 
-  const shownRows = rows.filter((r) => (r.period_key === activeKey || allPeriods) && (spF === "All" || r.salesperson_id === spF) && (statusF === "All" || r.status === statusF));
+  const shownRows = rows.filter((r) => (r.period_key === activeKey || allPeriods) && (spF === "All" || r.salesperson_id === spF) && (statusF === "All" || r.status === statusF) && matchQ(q, r, nameOf(r.salesperson_id), periodKeyLabel(r.period_key)));
   const groups = [...new Set(shownRows.map((r) => `${r.salesperson_id}|${r.period_key}`))].map((k) => {
     const list = shownRows.filter((r) => `${r.salesperson_id}|${r.period_key}` === k);
     return { key: k, salesperson_id: list[0].salesperson_id, period_key: list[0].period_key, list, total: list.reduce((s, r) => s + Number(r.amount), 0) };
@@ -183,6 +184,7 @@ export default function Commission({ profile }) {
       </div>
 
       <div>
+        <div className="mb-2"><SearchBox value={q} onChange={setQ} placeholder="Search salesperson, order, period, status…" className="max-w-xl" /></div>
         <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
           <h3 className="text-sm font-semibold">Commission records</h3>
           <div className="flex gap-1.5 flex-wrap">

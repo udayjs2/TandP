@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, CalendarPlus, History, Trash2, Pencil, Check, Play, Flag, X, Loader2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { todayStr } from "../lib/helpers";
 import { peopleOf } from "../lib/orgRoles";
 import { PRIORITIES, PRIORITY_STYLE, TL_STATUS_STYLE, fetchOutputs } from "../lib/assignments";
@@ -30,6 +30,7 @@ export default function OrderAssignment({ profile }) {
   const [openHistory, setOpenHistory] = useState(null);
   const [events, setEvents] = useState({});
   const [err, setErr] = useState("");
+  const [q, setQ] = useState("");
   const today = todayStr();
 
   const load = async () => {
@@ -90,6 +91,7 @@ export default function OrderAssignment({ profile }) {
   else if (filter === "all") shown = full;
   else if (filter === "mine") shown = mine.filter((r) => r.tl_status !== "Completed");
   else shown = mine.filter((r) => r.tl_status === "Completed");
+  shown = shown.filter((r) => matchQ(q, r.order_number, r.order?.customer_name, r.item_description, r.priority, r.instructions, r.work_date, r.tl_status, r.pm_status, tls.find((t) => t.id === r.tl_employee_id)?.name));
   shown = [...shown].sort((a, b) => (filter === "all" || filter === "done" ? b.work_date.localeCompare(a.work_date) : 0) || sortFn(a, b));
 
   const toggleHistory = async (id) => {
@@ -123,6 +125,7 @@ export default function OrderAssignment({ profile }) {
           <button key={id} onClick={() => setFilter(id)} className={`subtab ${filter === id ? "subtab-active" : ""}`}>{label} ({n})</button>
         ))}
       </div>
+      <SearchBox value={q} onChange={setQ} placeholder="Search order, customer, item, team lead, date…" className="max-w-xl" />
       {filter === "today" && (
         <div className="flex items-center gap-2 text-sm">
           <span className="text-stone-500">Day</span>

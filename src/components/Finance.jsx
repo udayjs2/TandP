@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ShieldCheck, Plus, Trash2, Pencil, Landmark, Wallet, TrendingUp, LayoutDashboard, Banknote, CreditCard, Receipt, ShoppingCart, Check, X, Truck, FileText, PackageCheck } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn, StatCard } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, StatCard, SearchBox, matchQ } from "./ui";
 import Invoices from "./Invoices";
 import ActualCostModal from "./ActualCost";
 import { fmtMoney, todayStr, monthKey, daysInMonth, EXPENDITURE_CATEGORIES, PAYMENT_MODES, computeLaborCost, findDuplicateExpenditures } from "../lib/helpers";
@@ -137,6 +137,7 @@ function Investors() {
   const [fundedExpByInvestor, setFundedExpByInvestor] = useState({});
   const [modal, setModal] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [{ data: inv }, { data: allInvestments }, { data: fundedExp }] = await Promise.all([
@@ -203,8 +204,9 @@ function Investors() {
           <Plus size={15} /> Add investor
         </Btn>
       </div>
+      <SearchBox value={q} onChange={setQ} placeholder="Search investor…" className="max-w-xl" />
       <div className="grid md:grid-cols-2 gap-3">
-        {investors.map((inv) => {
+        {investors.filter((inv) => matchQ(q, inv)).map((inv) => {
           const cashEntries = investmentsByInvestor[inv.id] || [];
           const fundedEntries = fundedExpByInvestor[inv.id] || [];
           const cash = cashEntries.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -348,6 +350,7 @@ function Expenditures() {
   const [investors, setInvestors] = useState([]);
   const [modal, setModal] = useState(null);
   const [onlyDup, setOnlyDup] = useState(false);
+  const [q, setQ] = useState("");
   const [pad, setPad] = useState([]); // entries just outside the month, used only for duplicate matching
 
   const load = async () => {
@@ -399,7 +402,7 @@ function Expenditures() {
 
   const dups = findDuplicateExpenditures([...items, ...pad]);
   const dupItems = items.filter((r) => dups[r.id]);
-  const shownItems = onlyDup ? dupItems : items;
+  const shownItems = (onlyDup ? dupItems : items).filter((r) => matchQ(q, r, orders.find((o) => o.id === r.linked_order_id)?.order_number, orders.find((o) => o.id === r.linked_order_id)?.customer_name, investors.find((i) => i.id === r.investor_id)?.name));
 
   // Finance / Admin: this entry is correct, so it (and the entries it was matched with) stop being flagged.
   const markNotDuplicate = async (r) => {
@@ -447,6 +450,7 @@ function Expenditures() {
         ))}
       </div>
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search item, vendor, category, order, date, amount…" className="max-w-xl mb-3" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -743,6 +747,7 @@ function Loans() {
   const [paymentsByLoan, setPaymentsByLoan] = useState({});
   const [modal, setModal] = useState(null);
   const [paymentLoan, setPaymentLoan] = useState(null);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [{ data: ln, error }, { data: payments }] = await Promise.all([
@@ -806,8 +811,9 @@ function Loans() {
           <Plus size={15} /> Add loan
         </Btn>
       </div>
+      <SearchBox value={q} onChange={setQ} placeholder="Search loan, lender…" className="max-w-xl" />
       <div className="grid gap-3">
-        {loans.map((l) => {
+        {loans.filter((l) => matchQ(q, l)).map((l) => {
           const payments = paymentsByLoan[l.id] || [];
           const paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
           const outstanding = Math.max(0, Number(l.loan_amount || 0) - paid);
@@ -962,6 +968,7 @@ function Payments({ profile }) {
   const [paymentsByOrder, setPaymentsByOrder] = useState({});
   const [invoicedByOrder, setInvoicedByOrder] = useState({});
   const [paymentOrder, setPaymentOrder] = useState(null);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [{ data: ord }, { data: pay }, { data: inv }] = await Promise.all([
@@ -997,6 +1004,7 @@ function Payments({ profile }) {
         Log advance and milestone payments received directly against an order here. This moved from the Orders tab since
         Orders is now also open to Production Manager, General Manager and Team Lead — payment amounts stay restricted to Finance.
       </p>
+      <SearchBox value={q} onChange={setQ} placeholder="Search order no., customer, status…" className="max-w-xl mb-3" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -1011,7 +1019,7 @@ function Payments({ profile }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {orders.map((o) => {
+            {orders.filter((o) => matchQ(q, o.order_number, o.customer_name, o.status, o.payment_status, o.payment_due_date)).map((o) => {
               const invoiced = invoicedByOrder[o.id] || 0;
               const received = paymentsByOrder[o.id] || 0;
               const balance = invoiced - received;
@@ -1169,6 +1177,7 @@ export function PurchaseRequests({ profile }) {
   const isGM = role === "gm";
   const isAdminish = ["admin", "hr"].includes(role);
   const isFinanceRole = role === "finance";
+  const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [orders, setOrders] = useState([]);
   const [investors, setInvestors] = useState([]);
@@ -1224,7 +1233,7 @@ export function PurchaseRequests({ profile }) {
 
   const inTransit = (r) => r.status === "Approved" && !r.received_at;
   const shown = rows.filter((r) =>
-    filter === "All" ? true : filter === "Awaiting delivery" ? inTransit(r) : filter === "Received" ? !!r.received_at : r.status === filter
+    (filter === "All" ? true : filter === "Awaiting delivery" ? inTransit(r) : filter === "Received" ? !!r.received_at : r.status === filter) && matchQ(q, r, orderLabel(r.order_id))
   );
   const countFor = (f) => (f === "Awaiting delivery" ? rows.filter(inTransit).length : f === "Received" ? rows.filter((r) => r.received_at).length : rows.filter((r) => r.status === f).length);
   const openInvoice = async (r) => {
@@ -1250,6 +1259,7 @@ export function PurchaseRequests({ profile }) {
         ))}
       </div>
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search item, vendor, order, requested by, status…" className="max-w-xl" />
       <div className="grid gap-3">
         {shown.map((r) => {
           // approval chain: General Manager -> Finance -> Admin

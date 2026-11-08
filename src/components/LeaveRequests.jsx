@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Check, X, Clock, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { publicHolidayOn, allHolidays } from "../lib/holidays";
 import { todayStr, quarterLabel, quarterMonths } from "../lib/helpers";
 
@@ -46,6 +46,7 @@ export default function LeaveRequests({ profile }) {
   const [employeeNames, setEmployeeNames] = useState({});
   const [reviewed, setReviewed] = useState([]);
   const [modal, setModal] = useState(false);
+  const [q, setQ] = useState("");
   const [balance, setBalance] = useState([]);
 
   const load = async () => {
@@ -126,13 +127,14 @@ export default function LeaveRequests({ profile }) {
 
       <HolidayList />
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search leave requests by employee, type, date, status…" className="max-w-xl" />
       {(toApprove.length > 0 || isAdmin) && (
         <div>
           <h3 className="font-semibold text-sm mb-2 flex items-center gap-1.5">
             <Clock size={14} /> Requests to review {toApprove.length > 0 && <span className="text-xs font-normal text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">{toApprove.length} pending</span>}
           </h3>
           <div className="grid gap-2">
-            {toApprove.map((r) => (
+            {toApprove.filter((r) => matchQ(q, employeeNames[r.employee_id], r.leave_type, r.start_date, r.end_date, r.reason, r.status)).map((r) => (
               <Card key={r.id} className="p-3.5 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <div className="font-medium text-sm">{employeeNames[r.employee_id] || "—"}</div>
@@ -153,7 +155,7 @@ export default function LeaveRequests({ profile }) {
         <div>
           <h3 className="font-semibold text-sm mb-2">Recently reviewed</h3>
           <div className="grid gap-2">
-            {reviewed.map((r) => (
+            {reviewed.filter((r) => matchQ(q, employeeNames[r.employee_id], r.leave_type, r.start_date, r.end_date, r.reason, r.status)).map((r) => (
               <Card key={r.id} className="p-3 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <div className="text-sm font-medium">{employeeNames[r.employee_id] || "—"}</div>
@@ -170,7 +172,7 @@ export default function LeaveRequests({ profile }) {
         <div>
           <h3 className="font-semibold text-sm mb-2">My requests</h3>
           <div className="grid gap-2">
-            {myRequests.map((r) => (
+            {myRequests.filter((r) => matchQ(q, r.leave_type, r.start_date, r.end_date, r.reason, r.status)).map((r) => (
               <Card key={r.id} className="p-3.5 flex items-center justify-between gap-2">
                 <div>
                   <div className="text-sm">{r.start_date} → {r.end_date} <span className="text-xs text-stone-500">· {typeLabel(r.leave_type)}{r.days != null ? ` · ${Number(r.days)} day${Number(r.days) === 1 ? "" : "s"}` : ""}</span></div>

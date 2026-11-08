@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card } from "./ui";
+import { Card, SearchBox, matchQ } from "./ui";
 import { sizeLabel } from "./Cutting";
 
 // Compares approved cutting (per order + item, by size) against stitched
@@ -9,6 +9,7 @@ import { sizeLabel } from "./Cutting";
 export default function Output() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [{ data: orders }, { data: cuts }, { data: prog }] = await Promise.all([
@@ -61,8 +62,9 @@ export default function Output() {
         </p>
       </div>
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search order no., customer, item…" className="max-w-xl" />
       <div className="grid gap-3">
-        {rows.map((r) => {
+        {rows.filter((r) => matchQ(q, r.order?.order_number, r.order?.customer_name, r.item_description, r.description)).map((r) => {
           const equal = r.cut === r.stitched;
           const diff = r.stitched - r.cut;
           return (

@@ -1,3 +1,11 @@
+## v83 — Search everywhere
+
+No database migration in this version (still run 63→67 if you haven't).
+
+A search box now sits at the top of the lists in: **Cutting** (Pending / Approved / Rejected / Damage — by order, customer, item, date, cutting master, fabric, notes), Quality (incl. partial dispatches), Operation Log, Output, Order Assignment, Approvals, Leave Requests, Advances, Payroll, Attendance, Commission, User Management, Inventory (machines, items, issued, fabric-used), and Finance (Investors, Expenditures, Loans, Payments, Purchase Requests). Orders, Leads, Employees, Invoices, Vendors, Sales Orders, Measurements, Customers, Fabric History and Finished Goods already had search.
+
+Typing several words matches rows containing all of them, in any order (e.g. `mary shirt`). Shared helpers: `SearchBox` and `matchQ` in `src/components/ui.jsx`.
+
 ## v82 — Approvals now includes whole-order dispatch and Production Manager plans
 
 No migration. The Approvals module also lists:

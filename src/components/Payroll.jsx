@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Receipt, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, inputCls, Btn, Modal } from "./ui";
+import { Card, inputCls, Btn, Modal, SearchBox, matchQ } from "./ui";
 import AttendanceCalendar from "./AttendanceCalendar";
 import { attendanceBonusFor, bonusQuarterFor, todayStr, daysInMonth, fmtMoney, monthKey, paidDaysFromAttendance, salaryAfterDeductions, perDaySalary, workingDaysInMonth } from "../lib/helpers";
 import PrintPayslip from "./PrintPayslip";
@@ -14,6 +14,7 @@ export default function Payroll({ profile }) {
 // ---------- Admin: full team payroll ----------
 function AdminPayroll() {
   const [mk, setMk] = useState(monthKey());
+  const [q, setQ] = useState("");
   const [employees, setEmployees] = useState([]);
   const [attByEmp, setAttByEmp] = useState({}); // { empId: { present, leave, absent } }
   const [payrollRows, setPayrollRows] = useState({});
@@ -136,6 +137,7 @@ function AdminPayroll() {
           <span className="text-sm text-stone-500 font-mono">Total: {fmtMoney(totalPayout)}</span>
         </div>
       </div>
+      <SearchBox value={q} onChange={setQ} placeholder="Search employee, role, status…" className="max-w-xl mb-3" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -153,7 +155,7 @@ function AdminPayroll() {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {rows.map(({ emp, att, entry, net, linkedProfile }) => (
+            {rows.filter(({ emp, entry, linkedProfile }) => matchQ(q, emp.name, emp.role, emp.designation, entry.status, linkedProfile?.full_name, linkedProfile?.email)).map(({ emp, att, entry, net, linkedProfile }) => (
               <tr key={emp.id} className="hover:bg-stone-50">
                 <td className="px-4 py-2.5 font-medium">{emp.name}{attBonus[emp.id] && <div className="text-[11px] font-normal text-emerald-700" data-testid={`attbonus-${emp.id}`}>+ {fmtMoney(attBonus[emp.id].amount)} attendance bonus ({attBonus[emp.id].label})</div>}</td>
                 <td className="px-4 py-2.5 text-right font-mono">{att.present}/{workingDays}</td>

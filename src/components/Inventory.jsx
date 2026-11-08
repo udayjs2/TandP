@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Wrench, ArrowRightLeft, Undo2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
 const MODELS = ["JUKI", "ZOJE", "JIN", "JACK", "KANSAI", "OTHER"];
@@ -31,6 +31,7 @@ export default function Inventory({ profile }) {
   const [rows, setRows] = useState({ machines: [], fabric: [], items: [] });
   const [ff, setFf] = useState({ q: "", color: "", supplier: "", inStock: true }); // fabric filters
   const [usage, setUsage] = useState([]);
+  const [iq, setIq] = useState("");
   const [parts, setParts] = useState([]);
   const [partsFor, setPartsFor] = useState(null);
   const [orderNames, setOrderNames] = useState({});
@@ -129,6 +130,7 @@ export default function Inventory({ profile }) {
       {sub === "machines" && (
         <>
           <p className="text-xs text-stone-500">{totalMachines} machines across {rows.machines.length} entries</p>
+          <SearchBox value={iq} onChange={setIq} placeholder="Search machine, brand, condition…" className="max-w-xl mb-3" />
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -143,7 +145,7 @@ export default function Inventory({ profile }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {rows.machines.map((m) => (
+                {rows.machines.filter((m) => matchQ(iq, m)).map((m) => (
                   <tr key={m.id} className="hover:bg-stone-50">
                     <td className="px-3 py-2 font-medium">{m.model === "OTHER" ? m.model_other || "Other" : m.model}</td>
                     <td className="px-3 py-2">{m.machine_type}</td>
@@ -239,7 +241,7 @@ export default function Inventory({ profile }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {usage.map((u) => {
+                  {usage.filter((u) => matchQ(ff.q, u, orderNames[u.order_id], rows.fabric.find((x) => x.id === u.fabric_id))).map((u) => {
                     const fab = rows.fabric.find((x) => x.id === u.fabric_id);
                     return (
                       <tr key={u.id} className={u.restored ? "text-stone-400 line-through" : ""}>
@@ -262,6 +264,7 @@ export default function Inventory({ profile }) {
       )}
 
       {sub === "items" && (<>
+        <SearchBox value={iq} onChange={setIq} placeholder="Search items, issued entries, order…" className="max-w-xl" />
         <p className="text-xs text-stone-500">Issue thread, elastic, buttons and other trims to an order as they are used. Stock reduces automatically and the cost is charged to that order (Actual cost).</p>
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -277,7 +280,7 @@ export default function Inventory({ profile }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {rows.items.map((i) => (
+              {rows.items.filter((i) => matchQ(iq, i)).map((i) => (
                 <tr key={i.id} className="hover:bg-stone-50">
                   <td className="px-3 py-2">{i.category}</td>
                   <td className="px-3 py-2 font-medium">{i.name}</td>
@@ -306,7 +309,7 @@ export default function Inventory({ profile }) {
                 <tr><th className="text-left px-3 py-2.5">Date</th><th className="text-left px-3 py-2.5">Order</th><th className="text-left px-3 py-2.5">Item</th><th className="text-right px-3 py-2.5">Qty</th><th className="text-left px-3 py-2.5">By</th>{canIssue && <th />}</tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {issued.map((u) => (
+                {issued.filter((u) => matchQ(iq, u, orderNames[u.order_id])).map((u) => (
                   <tr key={u.id} className={u.returned ? "text-stone-400 line-through" : ""}>
                     <td className="px-3 py-2">{u.used_on}</td>
                     <td className="px-3 py-2">{orderNames[u.order_id] || "—"}</td>

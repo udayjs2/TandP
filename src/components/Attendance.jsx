@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Upload, CalendarDays, AlertTriangle, Clock, KeyRound, Copy, Check, Trash2, MapPin } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, inputCls, Btn, Modal } from "./ui";
+import { Card, inputCls, Btn, Modal, SearchBox, matchQ } from "./ui";
 import { holidayOn, allHolidays, loadHolidays } from "../lib/holidays";
 import { daysInMonth, workingDaysInMonth, todayStr, computeShiftStats, suggestStatusFromHours, googleMapsLink } from "../lib/helpers";
 
@@ -53,6 +53,7 @@ function HolidaysModal({ canEdit, onClose }) {
 export default function Attendance({ profile }) {
   const [employees, setEmployees] = useState([]);
   const [date, setDate] = useState(todayStr());
+  const [q, setQ] = useState("");
   const [dayRecord, setDayRecord] = useState({});
   const [monthCounts, setMonthCounts] = useState({});
   const [importOpen, setImportOpen] = useState(false);
@@ -175,6 +176,7 @@ export default function Attendance({ profile }) {
       )}
       </div>
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search employee, role, status…" className="max-w-xl mb-3" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -189,7 +191,7 @@ export default function Attendance({ profile }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {employees.map((e) => {
+            {employees.filter((e) => matchQ(q, e.name, e.role, e.designation, dayRecord[e.id]?.status)).map((e) => {
               const rec = dayRecord[e.id] || {};
               const { hoursWorked, isLate, overtimeHours } = computeShiftStats(rec.check_in, rec.check_out);
               return (

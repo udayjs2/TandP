@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, AlertTriangle, ShieldCheck, ClipboardCheck, Camera, Truck, X } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { LotCard } from "./DispatchLots";
 
 // The checklist the Quality Manager answers for every order.
@@ -33,6 +33,7 @@ export default function Quality({ profile }) {
   const [counts, setCounts] = useState({});
   const [inspections, setInspections] = useState([]);
   const [filter, setFilter] = useState("Needs inspection");
+  const [q, setQ] = useState("");
   const [inspect, setInspect] = useState(null);
   const [historyFor, setHistoryFor] = useState(null);
   const [rejectDispatch, setRejectDispatch] = useState(null);
@@ -86,7 +87,7 @@ export default function Quality({ profile }) {
   };
   const LOTS = "Partial dispatches";
   const openLots = lots.filter((l) => ["Pending QC", "Pending PM", "Pending GM"].includes(l.status));
-  const shown = filter === LOTS ? [] : orders.filter(FILTERS[filter]);
+  const shown = filter === LOTS ? [] : orders.filter(FILTERS[filter]).filter((o) => matchQ(q, o.order_number, o.customer_name, o.status, o.quality_status, o.dispatch_status, (o.items || []).map((i) => i.description)));
   const countFor = (f) => (f === LOTS ? openLots.length : orders.filter(FILTERS[f]).length);
   const orderLabel = (id) => { const o = orders.find((x) => x.id === id); return o ? `${o.order_number} — ${o.customer_name}` : "Order"; };
 
@@ -113,10 +114,11 @@ export default function Quality({ profile }) {
         ))}
       </div>
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search order no., customer, item, status…" className="max-w-xl" />
       {filter === LOTS && (
         <div className="space-y-3">
           <p className="text-xs text-stone-500">Part of an order can be dispatched before the whole order is finished. Each partial dispatch is checked by QC, then approved by the Production Manager and the General Manager. Showing lots still in approval first, then the rest.</p>
-          {[...openLots, ...lots.filter((l) => !openLots.includes(l))].map((l) => (
+          {[...openLots, ...lots.filter((l) => !openLots.includes(l))].filter((l) => matchQ(q, orderLabel(l.order_id), l.status, (l.items || []).map((i) => i.description))).map((l) => (
             <LotCard key={l.id} lot={l} orderLabel={orderLabel(l.order_id)} deliveries={lotDeliveries} profile={profile} onChanged={load} />
           ))}
           {lots.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm">No partial dispatches yet. Request one from Orders → Deliveries on an order.</Card>}

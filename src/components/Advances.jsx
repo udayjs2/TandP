@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Banknote } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Modal, Field, inputCls, Btn } from "./ui";
+import { Card, Modal, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { fmtMoney, todayStr, PAYMENT_MODES } from "../lib/helpers";
 
 export const ADVANCE_PURPOSES = ["Travel", "Marketing", "Purchase", "Other"];
@@ -21,6 +21,7 @@ export default function Advances() {
   const [modal, setModal] = useState(false);
   const [settle, setSettle] = useState(null);
   const [error, setError] = useState("");
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [e, a, c, o] = await Promise.all([
@@ -85,7 +86,7 @@ export default function Advances() {
 
       {people.length > 0 && (
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-          {people.map(({ emp, inHand, owed }) => (
+          {people.filter(({ emp }) => matchQ(q, emp.name)).map(({ emp, inHand, owed }) => (
             <Card key={emp.id} className="p-3.5">
               <div className="font-medium text-sm">{emp.name}</div>
               <div className="text-xs text-stone-500 mt-1">Advance still in hand: <b className="font-mono text-stone-800">{fmtMoney(inHand)}</b></div>
@@ -95,6 +96,7 @@ export default function Advances() {
         </div>
       )}
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search employee, purpose, order, date, status…" className="max-w-xl" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -105,7 +107,7 @@ export default function Advances() {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {advances.map((a) => {
+            {advances.filter((a) => matchQ(q, name(a.employee_id), a.purpose, a.given_date, a.payment_mode, a.notes, a.status, orders.find((o) => o.id === a.linked_order_id)?.order_number)).map((a) => {
               const b = advanceBalance(a, claims);
               return (
                 <tr key={a.id}>

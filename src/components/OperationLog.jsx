@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import { Card, Field, inputCls, Btn } from "./ui";
+import { Card, Field, inputCls, Btn, SearchBox, matchQ } from "./ui";
 import { todayStr } from "../lib/helpers";
 
 export const OPERATIONS = [
@@ -19,6 +19,7 @@ export default function OperationLog({ profile }) {
   const [rows, setRows] = useState([]);
   const [f, setF] = useState({ order_id: "", item: "", operation: OPERATIONS[0], otherOp: "", employee_id: "", quantity: "" });
   const [saving, setSaving] = useState(false);
+  const [q, setQ] = useState("");
 
   const load = async () => {
     const [{ data: ord }, { data: emp }, { data: ops }] = await Promise.all([
@@ -116,13 +117,14 @@ export default function OperationLog({ profile }) {
         </div>
       )}
 
+      <SearchBox value={q} onChange={setQ} placeholder="Search order, item, operation, employee…" className="max-w-xl" />
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
             <tr><th className="text-left px-3 py-2.5">Order</th><th className="text-left px-3 py-2.5">Item</th><th className="text-left px-3 py-2.5">Operation</th><th className="text-left px-3 py-2.5">Person</th><th className="text-right px-3 py-2.5">Pieces</th><th /></tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {rows.map((r) => (
+            {rows.filter((r) => matchQ(q, orderNo(r.order_id), r.item_description, r.operation, empName(r.employee_id))).map((r) => (
               <tr key={r.id}>
                 <td className="px-3 py-2">{orderNo(r.order_id)}</td>
                 <td className="px-3 py-2">{r.item_description || "—"}</td>

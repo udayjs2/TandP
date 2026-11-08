@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, Search } from "lucide-react";
 
 export function Card({ children, className = "" }) {
   return (
@@ -73,5 +73,30 @@ export function Btn({ children, onClick, variant = "primary", type = "button", c
     >
       {children}
     </button>
+  );
+}
+
+// ---------- search (shared by every list) ----------
+// every word typed must appear somewhere in the row's text (any order, case-insensitive)
+export const matchQ = (q, ...vals) => {
+  const words = String(q || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = vals.flat(2).map((v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v))).join(" ").toLowerCase();
+  return words.every((w) => hay.includes(w));
+};
+
+export function SearchBox({ value, onChange, placeholder = "Search…", className = "" }) {
+  return (
+    <div className={`relative ${className}`} data-search-box>
+      <Search size={14} className="absolute left-2.5 top-2.5 text-stone-400 pointer-events-none" />
+      <input
+        type="search"
+        aria-label={placeholder}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full border border-stone-300 rounded-lg pl-8 pr-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200"
+      />
+    </div>
   );
 }
