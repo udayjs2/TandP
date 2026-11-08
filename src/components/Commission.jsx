@@ -22,6 +22,7 @@ export default function Commission({ profile }) {
   const [settings, setSettings] = useState(null);
   const [progress, setProgress] = useState([]);
   const [rows, setRows] = useState([]);
+  const [sales, setSales] = useState([]);
   const [people, setPeople] = useState([]);
   const [periodKey, setPeriodKey] = useState("");
   const [spF, setSpF] = useState("All");
@@ -31,14 +32,16 @@ export default function Commission({ profile }) {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const [{ data: st, error: e1 }, { data: pr }, { data: cm }, { data: emps }] = await Promise.all([
+    const [{ data: st, error: e1 }, { data: pr }, { data: cm }, { data: emps }, { data: trk }] = await Promise.all([
       supabase.from("commission_settings").select("*").eq("id", 1).maybeSingle(),
       supabase.rpc("commission_progress"),
       supabase.from("sales_commissions").select("*").order("created_at", { ascending: false }),
       supabase.from("employees").select("id, name, role, status"),
+      supabase.rpc("sales_order_tracking"),
     ]);
+    setSales(Array.isArray(trk) ? trk : []);
     if (e1) setError(e1.message + " (run migration_40.sql)");
-    setSettings(st || { threshold: 500000, rate_pct: 1, period: "month", basis: "completed" });
+    setSettings(st || { threshold: 500000, rate_pct: 1, period: "year", basis: "completed" });
     setProgress(Array.isArray(pr) ? pr : []);
     setRows(cm || []);
     setPeople(emps || []);
@@ -78,6 +81,7 @@ export default function Commission({ profile }) {
       const counted = Number(p?.counted_value || 0);
       return {
         id, name: nameOf(id), orders: Number(p?.orders || 0), confirmed: Number(p?.confirmed_value || 0), executed: Number(p?.executed_value || 0),
+        sales: sales.filter((o) => o.salesperson_id === id && periodKeyFor(o.order_date || todayStr(), settings.period) === activeKey),
         counted, qualified: counted > threshold, remaining: Math.max(0, threshold - counted),
         earned: counted > threshold ? counted * rate / 100 : 0,
       };
@@ -159,6 +163,18 @@ export default function Commission({ profile }) {
                   {c.qualified ? <>Commission earned: <b className="font-mono">{fmtMoney(c.earned)}</b></> : <>{c.remaining > 0 ? `${fmtMoney(c.remaining)} more needed — the combined total must go above ${fmtMoney(threshold)}` : `Exactly at the threshold — the next order takes it above ${fmtMoney(threshold)}`}</>}
                 </div>
                 <div className="text-[11px] text-stone-400 mt-1">{c.orders} order{c.orders === 1 ? "" : "s"} · confirmed {fmtMoney(c.confirmed)} · executed {fmtMoney(c.executed)}</div>
+                <details className="mt-2">
+                  <summary className="text-xs font-medium text-indigo-700 cursor-pointer">Sales made ({c.sales.length}) · {fmtMoney(c.sales.reduce((t, o) => t + Number(o.order_value || 0), 0))}</summary>
+                  <div className="divide-y divide-stone-100 mt-1">
+                    {c.sales.map((o) => (
+                      <div key={o.order_id} className="flex justify-between gap-2 py-1 text-xs">
+                        <span>{o.order_number} <span className="text-stone-400">{o.customer_name} · {o.order_date || "—"} · {o.status}</span></span>
+                        <span className="font-mono">{fmtMoney(o.order_value)}</span>
+                      </div>
+                    ))}
+                    {c.sales.length === 0 && <p className="text-xs text-stone-400 py-1">No sales in this period.</p>}
+                  </div>
+                </details>
               </Card>
             );
           })}

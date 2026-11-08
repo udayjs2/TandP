@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Check, X, Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { fmtMoney, todayStr, itemsTotal } from "../lib/helpers";
+import { fmtMoney, todayStr, itemsTotal, gstBreakup, invoiceTotal } from "../lib/helpers";
 import PrintInvoice from "./PrintInvoice";
 
 export default function Invoices({ isAdmin }) {
@@ -18,7 +18,7 @@ export default function Invoices({ isAdmin }) {
   const today = todayStr();
 
   // Payments logged against an order are applied to that order's invoices, oldest first.
-  const amountOf = (i) => (i.items?.length ? itemsTotal(i.items) : Number(i.amount) || 0);
+  const amountOf = (i) => (i.items?.length ? invoiceTotal(i) : Number(i.amount) || 0);
   const paidById = (() => {
     const pool = {};
     payments.forEach((p) => (pool[p.order_id] = (pool[p.order_id] || 0) + Number(p.amount || 0)));
@@ -204,7 +204,7 @@ export default function Invoices({ isAdmin }) {
         </table>
       </Card>
       <p className="text-xs text-stone-400">Paid = payments logged for the order in Finance → Payments, applied to its invoices oldest first. When an invoice is fully covered its status changes to Paid automatically.</p>
-      {modal && <InvoiceModal invoices={invoices} inv={modal} orders={orders} onClose={() => setModal(null)} onSave={save} count={invoices.length} />}
+      {modal && <InvoiceModal settings={settings} invoices={invoices} inv={modal} orders={orders} onClose={() => setModal(null)} onSave={save} count={invoices.length} />}
       {settingsOpen && <BusinessSettingsModal settings={settings} onClose={() => setSettingsOpen(false)} onSave={saveSettings} />}
       {printInvoice && <PrintInvoice invoice={printInvoice} settings={settings} onClose={() => setPrintInvoice(null)} />}
     </div>
@@ -286,7 +286,7 @@ function BusinessSettingsModal({ settings, onClose, onSave }) {
   );
 }
 
-function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
+function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSave, count }) {
   const initialItems =
     inv.items && inv.items.length
       ? inv.items
@@ -303,8 +303,22 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
     due_date: inv.due_date || "",
     status: inv.status || "Unpaid",
     advance_received: inv.advance_received || "",
+    gst_type: inv.gst_type || "",
+    customer_gstin: inv.customer_gstin || "",
+    place_of_supply: inv.place_of_supply || "",
   });
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState(initialItems.map((it) => ({ hsn_code: "", gst_rate: "", ...it })));
+  // pick up the customer's GSTIN from the CRM when it is not filled in
+  useEffect(() => {
+    const n = (f.customer_name || "").trim();
+    if (!n || f.customer_gstin) return;
+    let live = true;
+    supabase.from("sales_customers").select("gstin").ilike("name", n).maybeSingle().then(({ data }) => {
+      if (live && data?.gstin) setF((p) => (p.customer_gstin ? p : { ...p, customer_gstin: data.gstin }));
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.customer_name]);
   const [loadingAdvance, setLoadingAdvance] = useState(false);
   const [deliveries, setDeliveries] = useState([]);
   const [pays, setPays] = useState([]);
@@ -324,7 +338,7 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
 
   // payments already counted against the order's other invoices are not counted again
   const otherInvoicesTotal = (orderId) =>
-    invoices.filter((x) => x.linked_order_id === orderId && x.id !== f.id).reduce((t, x) => t + (x.items?.length ? itemsTotal(x.items) : Number(x.amount) || 0), 0);
+    invoices.filter((x) => x.linked_order_id === orderId && x.id !== f.id).reduce((t, x) => t + (x.items?.length ? invoiceTotal(x) : Number(x.amount) || 0), 0);
 
   const useSelectedDeliveries = () => {
     const chosen = deliveries.filter((d) => pick[d.id]);
@@ -332,14 +346,14 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
     const byItem = {};
     chosen.forEach((d) => { byItem[d.item_description] = (byItem[d.item_description] || 0) + Number(d.quantity || 0); });
     const priceOf = (desc) => items.find((it) => it.description === desc)?.price || "";
-    setItems(Object.entries(byItem).map(([description, quantity]) => ({ description, quantity, price: priceOf(description) })));
+    setItems(Object.entries(byItem).map(([description, quantity]) => ({ description, quantity, price: priceOf(description), hsn_code: items.find((it) => it.description === description)?.hsn_code || "", gst_rate: items.find((it) => it.description === description)?.gst_rate || "" })));
   };
 
   const applyOrder = async (orderId) => {
     const o = orders.find((x) => x.id === orderId);
     setF((prev) => ({ ...prev, linked_order_id: orderId || null, customer_name: o ? o.customer_name : prev.customer_name }));
     if (o && o.items?.length) {
-      setItems(o.items.map((it) => ({ description: it.description, quantity: it.quantity || 1, price: "" })));
+      setItems(o.items.map((it) => ({ description: it.description, quantity: it.quantity || 1, price: "", hsn_code: "", gst_rate: "" })));
     }
     if (orderId) {
       setLoadingAdvance(true);
@@ -351,11 +365,12 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
     } else loadOrderInfo(null);
   };
 
-  const addItem = () => setItems([...items, { description: "", quantity: 1, price: "" }]);
+  const addItem = () => setItems([...items, { description: "", quantity: 1, price: "", hsn_code: items[items.length - 1]?.hsn_code || "", gst_rate: items[items.length - 1]?.gst_rate || "" }]);
   const removeItem = (idx) => setItems(items.length > 1 ? items.filter((_, i) => i !== idx) : items);
   const updateItem = (idx, patch) => setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
 
-  const total = itemsTotal(items);
+  const gb = gstBreakup(items, f.gst_type);
+  const total = gb.total;
   const advance = Number(f.advance_received) || 0;
   const balanceDue = total - advance;
 
@@ -367,8 +382,13 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
           if (!f.customer_name) return;
           const cleanItems = items
             .filter((it) => it.description || it.quantity || it.price)
-            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, price: Number(it.price) || 0 }));
-          onSave({ ...f, items: cleanItems, amount: itemsTotal(cleanItems), advance_received: Number(f.advance_received) || 0 });
+            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, price: Number(it.price) || 0, hsn_code: (it.hsn_code || "").trim(), gst_rate: Number(it.gst_rate) || 0 }));
+          const b = gstBreakup(cleanItems, f.gst_type);
+          onSave({
+            ...f, items: cleanItems, amount: b.total, taxable_value: b.taxable, gst_amount: b.gst,
+            gst_type: f.gst_type || null, customer_gstin: f.customer_gstin ? f.customer_gstin.toUpperCase().trim() : null,
+            place_of_supply: f.place_of_supply || null, advance_received: Number(f.advance_received) || 0,
+          });
         }}
       >
         <Field label="Invoice number">
@@ -387,6 +407,22 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
         <Field label="Customer">
           <input required className={inputCls} value={f.customer_name} onChange={(e) => setF({ ...f, customer_name: e.target.value })} />
         </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="GST">
+            <select className={inputCls} value={f.gst_type} onChange={(e) => setF({ ...f, gst_type: e.target.value })}>
+              <option value="">No GST (prices final)</option>
+              <option value="intra">CGST + SGST (same state)</option>
+              <option value="inter">IGST (other state)</option>
+            </select>
+          </Field>
+          <Field label="Customer GSTIN"><input className={inputCls} maxLength={15} value={f.customer_gstin} onChange={(e) => setF({ ...f, customer_gstin: e.target.value })} /></Field>
+        </div>
+        {f.gst_type && (
+          <p className="text-xs text-stone-500 -mt-2 mb-3">
+            Enter prices <b>before GST</b>; set the GST % on each line. {f.customer_gstin && settings.gstin ? (f.customer_gstin.slice(0, 2) === settings.gstin.slice(0, 2) ? "Customer is in your state — CGST+SGST fits." : "Customer is in another state — IGST fits.") : ""}
+          </p>
+        )}
 
         {f.linked_order_id && (deliveries.length > 0 || pays.length > 0) && (
           <div className="border border-stone-200 rounded-lg p-3 mb-3 bg-stone-50 text-xs">
@@ -414,19 +450,36 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
 
         <span className="block text-xs font-medium text-stone-600 mb-1">Items</span>
         <div className="border border-stone-200 rounded-lg overflow-hidden mb-2">
-          <div className="grid grid-cols-[1fr_60px_80px_28px] gap-1 bg-stone-50 px-2 py-1.5 text-[11px] font-medium text-stone-500 uppercase">
+          <div className="grid grid-cols-[1fr_72px_46px_58px_74px_26px] gap-1 bg-stone-50 px-2 py-1.5 text-[11px] font-medium text-stone-500 uppercase">
             <span>Description</span>
+            <span>HSN</span>
+            <span className="text-right">GST%</span>
             <span className="text-right">Qty</span>
             <span className="text-right">Price ₹</span>
             <span></span>
           </div>
           {items.map((it, idx) => (
-            <div key={idx} className="grid grid-cols-[1fr_60px_80px_28px] gap-1 px-2 py-1.5 border-t border-stone-100 items-center">
+            <div key={idx} className="grid grid-cols-[1fr_72px_46px_58px_74px_26px] gap-1 px-2 py-1.5 border-t border-stone-100 items-center">
               <input
                 className="border border-stone-300 rounded px-2 py-1 text-sm"
                 placeholder="e.g. Cotton kurta"
                 value={it.description}
                 onChange={(e) => updateItem(idx, { description: e.target.value })}
+              />
+              <input
+                className="border border-stone-300 rounded px-1.5 py-1 text-sm"
+                placeholder="HSN"
+                value={it.hsn_code || ""}
+                onChange={(e) => updateItem(idx, { hsn_code: e.target.value })}
+              />
+              <input
+                type="number"
+                min="0"
+                max="100"
+                className="border border-stone-300 rounded px-1 py-1 text-sm text-right"
+                value={it.gst_rate ?? ""}
+                disabled={!f.gst_type}
+                onChange={(e) => updateItem(idx, { gst_rate: e.target.value })}
               />
               <input
                 type="number"
@@ -453,8 +506,16 @@ function InvoiceModal({ inv, invoices = [], orders, onClose, onSave, count }) {
         </button>
 
         <div className="text-right text-sm mb-1">
-          Subtotal: <span className="font-mono">{fmtMoney(total)}</span>
+          {f.gst_type ? "Taxable value" : "Subtotal"}: <span className="font-mono">{fmtMoney(gb.taxable)}</span>
         </div>
+        {f.gst_type && gb.byRate.map((x) => (
+          f.gst_type === "intra" ? (
+            <div key={x.rate} className="text-right text-xs text-stone-600">CGST {x.rate / 2}%: <span className="font-mono">{fmtMoney(x.gst / 2)}</span> · SGST {x.rate / 2}%: <span className="font-mono">{fmtMoney(x.gst / 2)}</span></div>
+          ) : (
+            <div key={x.rate} className="text-right text-xs text-stone-600">IGST {x.rate}%: <span className="font-mono">{fmtMoney(x.gst)}</span></div>
+          )
+        ))}
+        {f.gst_type && <div className="text-right text-sm mb-1 font-semibold">Invoice total: <span className="font-mono">{fmtMoney(total)}</span></div>}
 
         <Field label="Advance already received (₹)">
           <input

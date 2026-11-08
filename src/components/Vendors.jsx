@@ -74,7 +74,7 @@ export default function Vendors({ profile }) {
           <Card key={v.id} className="p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="font-semibold">{v.name}</div>
+                <div className="font-semibold">{v.name}{v.source === "purchase_request" && <span className="ml-2 text-[10px] font-medium bg-sky-100 text-sky-800 rounded-full px-1.5 py-0.5 align-middle">from purchase request</span>}</div>
                 <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-800">{v.supplier_type}</span>
               </div>
               <div className="flex gap-1">

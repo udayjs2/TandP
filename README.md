@@ -1,3 +1,14 @@
+## v76 — Customers pane with GSTIN, GST invoices, yearly commission, vendors from purchase requests
+
+### Migration
+Run `migration_63.sql` (after 62). Safe to re-run.
+
+- **Customers (CRM → Customers):** left list of customers with the amount to receive, right pane with Phone, Email, Address, **GSTIN**, Contact person, Credit limit and a Transactions table (sale orders, invoices, payments). Customers are created automatically from the customer name on every order (no duplicates). Extra contacts (name, designation, phone, email, notes) can be added per customer. Visits & reminders are kept.
+- **ORD-0025 mismatch:** the sales-order value is now the larger of the agreed value and what is invoiced (before GST), so a 24,950 invoice no longer shows as 12,400. If the agreed value is lower, it is shown under the amount.
+- **Commission:** each salesperson card has a "Sales made" list for the period, and the 5,00,000 threshold now defaults to the **financial year** (migration switches an existing monthly setting to yearly; Admin can change it under Rules).
+- **Vendors:** every vendor typed on a purchase request is added to Vendors automatically (tagged "from purchase request"); existing requests are back-filled.
+- **Invoices:** per-line HSN code and GST %, CGST+SGST or IGST, customer GSTIN (pulled from the CRM), taxable value / GST / total on the form and on the printed Tax Invoice. Old invoices without GST print as before. Commission uses the value before GST.
+
 ## v23 — Payments moved to Finance, reimbursed sales expenses auto-sync to Expenditures
 
 ### Migration

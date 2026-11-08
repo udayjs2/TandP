@@ -83,6 +83,9 @@ export default function SalesOrders({ profile }) {
                 </div>
                 <div className="text-right">
                   <div className="font-mono font-semibold">{fmtMoney(r.order_value)}</div>
+                  {Number(r.agreed_value) > 0 && Math.round(r.agreed_value) !== Math.round(r.order_value) && (
+                    <div className="text-[10px] text-amber-700">agreed {fmtMoney(r.agreed_value)} · invoice is higher</div>
+                  )}
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ORDER_STATUS_COLORS[r.status] || "bg-stone-100 text-stone-700"}`}>{r.status}</span>
                 </div>
               </div>

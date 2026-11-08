@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { X, Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Btn } from "./ui";
-import { fmtMoney, itemsTotal } from "../lib/helpers";
+import { fmtMoney, gstBreakup } from "../lib/helpers";
 
 export default function PrintInvoice({ invoice, settings, onClose }) {
   const items = invoice.items?.length ? invoice.items : [{ description: "Invoice amount", quantity: 1, price: invoice.amount }];
-  const total = itemsTotal(items);
+  const gstType = invoice.gst_type || "";
+  const gb = gstBreakup(items, gstType);
+  const total = gb.total;
+  const hasGst = !!gstType;
   const advanceReceived = Number(invoice.advance_received) || 0;
   const balanceDue = total - advanceReceived;
   const [deliveries, setDeliveries] = useState([]);
@@ -49,7 +52,7 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
           </p>
         </div>
 
-        <h2 className="text-center text-lg font-bold uppercase tracking-wide mb-4">Pro Forma Invoice</h2>
+        <h2 className="text-center text-lg font-bold uppercase tracking-wide mb-4">{hasGst ? "Tax Invoice" : "Pro Forma Invoice"}</h2>
 
         {/* Invoice No / Date box */}
         <table className="w-full text-sm border border-stone-800 border-collapse mb-4">
@@ -70,6 +73,8 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
               <td className="border border-stone-800 px-3 py-2 font-semibold bg-stone-50 w-1/5 align-top">Bill To</td>
               <td className="border border-stone-800 px-3 py-2">
                 <div className="font-bold">{invoice.customer_name}</div>
+                {invoice.customer_gstin && <div className="text-xs mt-0.5">GSTIN: {invoice.customer_gstin}</div>}
+                {invoice.place_of_supply && <div className="text-xs">Place of supply: {invoice.place_of_supply}</div>}
               </td>
             </tr>
           </tbody>
@@ -85,8 +90,10 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
           <thead>
             <tr className="bg-sky-100">
               <th className="border border-stone-800 text-left py-2 px-2">Description</th>
+              {hasGst && <th className="border border-stone-800 text-left py-2 px-2">HSN</th>}
               <th className="border border-stone-800 text-right py-2 px-2">Qty</th>
               <th className="border border-stone-800 text-right py-2 px-2">Price (₹)</th>
+              {hasGst && <th className="border border-stone-800 text-right py-2 px-2">GST %</th>}
               <th className="border border-stone-800 text-right py-2 px-2">Amount (₹)</th>
             </tr>
           </thead>
@@ -94,28 +101,42 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
             {items.map((it, idx) => (
               <tr key={idx}>
                 <td className="border border-stone-800 py-2 px-2">{it.description}</td>
+                {hasGst && <td className="border border-stone-800 py-2 px-2">{it.hsn_code || ""}</td>}
                 <td className="border border-stone-800 text-right py-2 px-2">{it.quantity}</td>
                 <td className="border border-stone-800 text-right py-2 px-2">{fmtMoney(it.price)}</td>
+                {hasGst && <td className="border border-stone-800 text-right py-2 px-2">{Number(it.gst_rate) || 0}%</td>}
                 <td className="border border-stone-800 text-right py-2 px-2">{fmtMoney((Number(it.quantity) || 0) * (Number(it.price) || 0))}</td>
               </tr>
             ))}
             <tr>
-              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-semibold">Subtotal</td>
-              <td className="border border-stone-800 text-right py-2 px-2 font-semibold">{fmtMoney(total)}</td>
+              <td colSpan={hasGst ? 5 : 3} className="border border-stone-800 text-right py-2 px-2 font-semibold">{hasGst ? "Taxable value" : "Subtotal"}</td>
+              <td className="border border-stone-800 text-right py-2 px-2 font-semibold">{fmtMoney(hasGst ? gb.taxable : total)}</td>
             </tr>
+            {hasGst && gb.byRate.map((x) => (gstType === "intra" ? [
+              <tr key={x.rate + "c"}><td colSpan={5} className="border border-stone-800 text-right py-1.5 px-2">CGST @ {x.rate / 2}%</td><td className="border border-stone-800 text-right py-1.5 px-2">{fmtMoney(x.gst / 2)}</td></tr>,
+              <tr key={x.rate + "s"}><td colSpan={5} className="border border-stone-800 text-right py-1.5 px-2">SGST @ {x.rate / 2}%</td><td className="border border-stone-800 text-right py-1.5 px-2">{fmtMoney(x.gst / 2)}</td></tr>,
+            ] : (
+              <tr key={x.rate}><td colSpan={5} className="border border-stone-800 text-right py-1.5 px-2">IGST @ {x.rate}%</td><td className="border border-stone-800 text-right py-1.5 px-2">{fmtMoney(x.gst)}</td></tr>
+            )))}
+            {hasGst && (
+              <tr>
+                <td colSpan={5} className="border border-stone-800 text-right py-2 px-2 font-semibold">Invoice total (incl. GST)</td>
+                <td className="border border-stone-800 text-right py-2 px-2 font-semibold">{fmtMoney(total)}</td>
+              </tr>
+            )}
             {advanceReceived > 0 && (
               <tr>
-                <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-semibold">Advance Received</td>
+                <td colSpan={hasGst ? 5 : 3} className="border border-stone-800 text-right py-2 px-2 font-semibold">Advance Received</td>
                 <td className="border border-stone-800 text-right py-2 px-2 font-semibold">−{fmtMoney(advanceReceived)}</td>
               </tr>
             )}
             <tr>
-              <td colSpan={3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{balanceDue < 0 ? "Excess Received (credit)" : "Balance Due"}</td>
+              <td colSpan={hasGst ? 5 : 3} className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{balanceDue < 0 ? "Excess Received (credit)" : "Balance Due"}</td>
               <td className="border border-stone-800 text-right py-2 px-2 font-bold bg-stone-50">{fmtMoney(balanceDue)}</td>
             </tr>
           </tbody>
         </table>
-        <p className="text-xs text-stone-500 mb-5">Note: Prices include GST as applicable.</p>
+        <p className="text-xs text-stone-500 mb-5">{hasGst ? "Prices are before GST; GST is shown separately above." : "Note: Prices include GST as applicable."}</p>
 
         {deliveries.length > 0 && (
           <div className="mb-5">

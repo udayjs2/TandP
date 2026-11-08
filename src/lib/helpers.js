@@ -120,6 +120,24 @@ export const salaryForPaidDays = (base, paid, workingDays) =>
 export const itemsTotal = (items = []) =>
   items.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.price) || 0), 0);
 
+// GST split of an invoice. gstType: "" (no GST) | "intra" (CGST + SGST) | "inter" (IGST). Prices are before GST.
+export const gstBreakup = (items = [], gstType = "") => {
+  const taxable = itemsTotal(items);
+  if (gstType !== "intra" && gstType !== "inter") return { taxable, gst: 0, total: taxable, byRate: [] };
+  const rates = {};
+  items.forEach((it) => {
+    const r = Number(it.gst_rate) || 0;
+    const base = (Number(it.quantity) || 0) * (Number(it.price) || 0);
+    rates[r] = rates[r] || { rate: r, taxable: 0, gst: 0 };
+    rates[r].taxable += base;
+    rates[r].gst += (base * r) / 100;
+  });
+  const byRate = Object.values(rates).filter((x) => x.rate > 0).sort((a, b) => a.rate - b.rate);
+  const gst = byRate.reduce((s, x) => s + x.gst, 0);
+  return { taxable, gst, total: taxable + gst, byRate };
+};
+export const invoiceTotal = (inv) => (inv?.items?.length ? gstBreakup(inv.items, inv.gst_type || "").total : Number(inv?.amount) || 0);
+
 export const HOUR_SLOTS = [
   { key: "09-10", label: "9–10 AM" },
   { key: "10-11", label: "10–11 AM" },
