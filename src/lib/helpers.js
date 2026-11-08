@@ -323,7 +323,7 @@ export const MODULE_ROLES = {
   production: ["admin", "gm", "pm", "tl", "cutting_master", "cutting", "quality_manager", "qc", "sales_manager", "sales"], // sales roles get Production Management for its Measurements tab only
   hr: EVERYONE,
   sales: ["admin", "sales", "sales_manager"],
-  inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance"],
+  inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance", "tl"],
   finance: ["admin", "finance"],
   reports: ["admin", "quality_manager", "sales", "sales_manager", "finance"],
   users: ["admin"],

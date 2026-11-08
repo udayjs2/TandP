@@ -25,6 +25,8 @@ import Cutting from "./components/Cutting";
 import LeaveRequests from "./components/LeaveRequests";
 import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
+import FinishedGoods from "./components/FinishedGoods";
+import OwnProducts from "./components/OwnProducts";
 import Output from "./components/Output";
 import ProgressHistory from "./components/ProgressHistory";
 import OrderAssignment from "./components/OrderAssignment";
@@ -151,6 +153,8 @@ export default function App() {
   ];
   const inventoryTabs = [
     { id: "inventory", label: "Inventory", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master"], render: () => <Inventory profile={profile} /> },
+    { id: "finished-goods", label: "Finished Goods", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master", "tl", "finance"], render: () => <FinishedGoods /> },
+    { id: "own-products", label: "Own Products", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "finance"], render: () => <OwnProducts /> },
     { id: "purchase", label: "Purchase Requests", icon: ShoppingCart, roles: ["admin", "hr", "gm", "pm", "finance"], render: () => <PurchaseRequests profile={profile} /> },
   ];
   const hrTabs = [

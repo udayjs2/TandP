@@ -1,3 +1,14 @@
+## v77 — Barcodes, finished-goods stock per order, own products with scan-to-bill
+
+### Migration
+Run `migration_64.sql` (after 63). Safe to re-run.
+
+- **Inventory & Procurement → Finished Goods:** for every order item shows Ordered · Stitched (from production) · Made (in store) · Dispatched · **Balance**. "Take production count" copies the stitched count into the store; "+" / "−" add or remove a quantity by hand. Dispatched is the larger of recorded dispatches and scanned/manual "out", so nothing is counted twice.
+- **Order-item barcodes:** "Print barcodes" creates one Code 128 barcode per order item (e.g. `OORD0025-1`) and prints labels (choose how many per item). **Scan IN** adds one made dress per scan, **Scan OUT** removes one per scan (blocked when the balance would go below zero). Works with a USB/Bluetooth scanner (types the code + Enter) or the phone camera where the browser supports it.
+- **Own Products:** kids wear, women's wear, doctors' dresses and others, with size, colour, price, GST %, HSN, opening stock, low-stock alert, automatic barcode (`P000001`…), label printing, stock-in/adjust and scan lookup.
+- **Scan to bill:** in a new/edited invoice, scan a product label to add the line (price, HSN, GST filled; GST type defaults to CGST+SGST). Saving the invoice reduces product stock; editing the invoice re-applies it and deleting the invoice puts the stock back. Billing is blocked past available stock.
+- Team Leads now see the Inventory module with the Finished Goods tab only.
+
 ## v76 — Customers pane with GSTIN, GST invoices, yearly commission, vendors from purchase requests
 
 ### Migration
