@@ -1,3 +1,10 @@
+## v81 — Holidays on the leave tab, Approvals module, fabric history log
+
+Run `migration_67.sql` (after 66).
+- **Leave Requests tab:** a "Public holidays" list (upcoming, paid vs optional) for every employee.
+- **Approvals module** (General Manager, Production Manager, Admin): one list of everything waiting for you — leave requests, cutting entries (approve / reject & send back), purchase requests at your approval stage (GM; Admin after Finance), and partial dispatch lots (PM at "Pending PM", GM at "Pending GM"). Filter by type; Approve / Reject inline.
+- **Inventory → History Logs:** when a fabric's stock reaches zero it leaves the Fabric list and appears here with when it was purchased, the vendor, kg/m and amount (recorded when a purchase request is received), and the orders that used it. If stock returns or more is bought it goes back to Inventory. Fabrics received before this version are matched to their purchase on vendor + fabric name where possible.
+
 ## v80 — Stitched = made automatically, label size picker with test label
 
 Run `migration_66.sql` (after 65).

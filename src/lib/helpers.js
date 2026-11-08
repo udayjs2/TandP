@@ -324,6 +324,7 @@ export const MODULE_ROLES = {
   hr: EVERYONE,
   sales: ["admin", "sales", "sales_manager"],
   inventory: ["admin", "hr", "gm", "pm", "cutting_master", "finance", "tl"],
+  approvals: ["admin", "gm", "pm"],
   finance: ["admin", "finance"],
   reports: ["admin", "quality_manager", "sales", "sales_manager", "finance"],
   users: ["admin"],
@@ -337,6 +338,7 @@ export const GRANTABLE_MODULES = [
   { id: "inventory", label: "Inventory & Procurement" },
   { id: "finance", label: "Finance & Accounts" },
   { id: "reports", label: "Reports & Analytics" },
+  { id: "approvals", label: "Approvals" },
 ];
 
 // Given order_labor rows (order_id, employee_id, work_date) and a lookup of

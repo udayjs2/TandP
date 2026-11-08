@@ -26,6 +26,8 @@ import LeaveRequests from "./components/LeaveRequests";
 import ResetPassword from "./components/ResetPassword";
 import Inventory from "./components/Inventory";
 import FinishedGoods from "./components/FinishedGoods";
+import FabricHistory from "./components/FabricHistory";
+import Approvals from "./components/Approvals";
 import Output from "./components/Output";
 import ProgressHistory from "./components/ProgressHistory";
 import OrderAssignment from "./components/OrderAssignment";
@@ -51,6 +53,7 @@ const TABS = [
   { id: "sales", label: "CRM & Sales", icon: Handshake, roles: MODULE_ROLES.sales },
   { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: MODULE_ROLES.inventory },
   { id: "finance", label: "Finance & Accounts", icon: Landmark, roles: MODULE_ROLES.finance },
+  { id: "approvals", label: "Approvals", icon: ClipboardCheck, roles: MODULE_ROLES.approvals },
   { id: "reports", label: "Reports & Analytics", icon: LineChart, roles: MODULE_ROLES.reports },
   // AI Factory Manager menu hidden for now. To re-enable, uncomment the next line:
   // { id: "ai", label: "AI Factory Manager", icon: Bot, roles: ["admin", "gm", "pm"] },
@@ -153,6 +156,7 @@ export default function App() {
   const inventoryTabs = [
     { id: "inventory", label: "Inventory", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master"], render: () => <Inventory profile={profile} /> },
     { id: "finished-goods", label: "Finished Goods", icon: Boxes, roles: ["admin", "hr", "gm", "pm", "cutting_master", "tl", "finance"], render: () => <FinishedGoods /> },
+    { id: "history-logs", label: "History Logs", icon: History, roles: ["admin", "hr", "gm", "pm"], render: () => <FabricHistory /> },
     { id: "purchase", label: "Purchase Requests", icon: ShoppingCart, roles: ["admin", "hr", "gm", "pm", "finance"], render: () => <PurchaseRequests profile={profile} /> },
   ];
   const hrTabs = [
@@ -182,6 +186,7 @@ export default function App() {
         {activeTab === "production" && <ModuleShell title="Production Management" subtitle="Orders, cutting, measurements, daily output, quality inspection and the planner." tabs={pick("production", productionTabs)} />}
         {activeTab === "hr" && <ModuleShell title="HR & Workforce Management" subtitle="Employees, attendance, leave, payroll and staff advances." tabs={pick("hr", hrTabs)} />}
         {activeTab === "sales" && <SalesTeam profile={profile} />}
+        {activeTab === "approvals" && <ModuleShell title="Approvals" subtitle="Leave, cutting, purchase and dispatch approvals waiting for you." tabs={[{ id: "approvals", label: "Approvals", icon: ClipboardCheck, render: () => <Approvals profile={profile} /> }]} />}
         {activeTab === "inventory" && <ModuleShell title="Inventory & Procurement" subtitle="Fabric, accessories, machines and spare parts, and purchase requests." tabs={pick("inventory", inventoryTabs)} />}
         {activeTab === "finance" && <Finance profile={profile} />}
         {activeTab === "reports" && <Reports profile={profile} />}

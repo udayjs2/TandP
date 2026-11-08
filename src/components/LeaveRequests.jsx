@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Plus, Check, X, Clock } from "lucide-react";
+import { Plus, Check, X, Clock, CalendarDays } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Card, Modal, Field, inputCls, Btn } from "./ui";
-import { publicHolidayOn } from "../lib/holidays";
+import { publicHolidayOn, allHolidays } from "../lib/holidays";
 import { todayStr, quarterLabel, quarterMonths } from "../lib/helpers";
 
 const LEAVE_TYPES = [["Casual", "Casual leave"], ["Earned", "Earned leave"], ["Sick", "Sick leave"], ["Unpaid", "Leave without pay"]];
@@ -16,6 +16,28 @@ const STATUS_COLORS = {
   Approved: "bg-emerald-100 text-emerald-800",
   Rejected: "bg-rose-100 text-rose-800",
 };
+
+// Public holidays for everyone (upcoming first). Public = paid day off, nothing to apply for; optional = shown for information.
+function HolidayList() {
+  const today = todayStr();
+  const list = allHolidays().filter((h) => h.date >= today);
+  const wd = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
+  return (
+    <div data-testid="holiday-list">
+      <h3 className="font-semibold text-sm mb-2 flex items-center gap-1.5"><CalendarDays size={14} /> Public holidays</h3>
+      <Card className="divide-y divide-stone-100">
+        {list.map((h) => (
+          <div key={h.date} className="flex items-center justify-between gap-2 px-3.5 py-2 text-sm">
+            <div><span className="font-medium">{h.name}</span> <span className="text-xs text-stone-400">{wd(h.date)}</span></div>
+            <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${h.kind === "optional" ? "bg-stone-100 text-stone-600" : "bg-emerald-100 text-emerald-800"}`}>{h.kind === "optional" ? "Optional holiday" : "Paid holiday"}</span>
+          </div>
+        ))}
+        {list.length === 0 && <div className="px-3.5 py-4 text-sm text-stone-400 text-center">No upcoming holidays in the list.</div>}
+      </Card>
+      <p className="text-[11px] text-stone-400 mt-1">Paid holidays are not counted as leave — you don't need to apply, and nothing is deducted.</p>
+    </div>
+  );
+}
 
 export default function LeaveRequests({ profile }) {
   const isAdmin = ["admin", "hr", "gm", "pm", "tl"].includes(profile?.role); // anyone who reviews requests
@@ -101,6 +123,8 @@ export default function LeaveRequests({ profile }) {
           <p className="text-[11px] text-stone-400 mt-1">Sundays are not counted as leave days. Casual leave is earned month by month (7 days over 12 months, counted from your joining month). Earned leave cannot be applied for: if you have no absent or leave day in a whole quarter, 4 days' salary is added to your pay in the first month of the next quarter as an attendance bonus.</p>
         </div>
       )}
+
+      <HolidayList />
 
       {(toApprove.length > 0 || isAdmin) && (
         <div>
