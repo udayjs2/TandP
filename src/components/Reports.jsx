@@ -8,6 +8,7 @@ import ProductionReport from "./reports/ProductionReport";
 import QualityReport from "./reports/QualityReport";
 import HrReport from "./reports/HrReport";
 import InventoryReport from "./reports/InventoryReport";
+import FabricYield from "./reports/FabricYield";
 import FinanceReport from "./reports/FinanceReport";
 import DeliveryReport from "./reports/DeliveryReport";
 import KpiDashboard from "./reports/KpiDashboard";
@@ -28,6 +29,7 @@ export default function Reports({ profile }) {
     { id: "quality", label: "Quality", icon: ClipboardCheck, roles: [...FULL, "gm", "pm", "tl", "quality_manager"], render: () => <QualityReport profile={profile} /> },
     { id: "hr", label: "HR, Attendance & Payroll", icon: Users, roles: FULL, render: () => <HrReport /> },
     { id: "inventory", label: "Inventory & Procurement", icon: Boxes, roles: [...FULL, "gm", "pm"], render: () => <InventoryReport /> },
+    { id: "fabric-yield", label: "Fabric Yield & Forecast", icon: Boxes, roles: [...FULL, "gm", "pm"], render: () => <FabricYield /> },
     { id: "finance", label: "Finance & Profitability", icon: Landmark, roles: ["admin", "finance"], render: () => <FinanceReport /> },
     { id: "delivery", label: "Delivery & Fulfilment", icon: Truck, roles: [...FULL, "gm", "pm", "tl"], render: () => <DeliveryReport /> },
     { id: "periods", label: "Quarterly, Half-yearly & Yearly", icon: CalendarRange, roles: ["admin", "finance"], render: () => <QuarterlyReport /> },

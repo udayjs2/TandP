@@ -877,3 +877,7 @@ Run `supabase/migration_55.sql` and `supabase/migration_56.sql` after 54 (order 
 
 ## v74 — Employee numbers TP001, TP002 …
 - New employees get the next number in the form TP001, TP002 … (one after the highest TP number already used, so deleted numbers are never repeated). Existing EMP-xxx numbers are left as they are; edit them by hand if you want them changed. No database change.
+
+## v75 — Fabric filters + Fabric Yield & Forecast report
+- Inventory → Fabric: search box, colour, supplier and "Only available (in stock)" (on by default; untick to see finished fabric). It shows "Showing x of y fabrics" with the kg / m available in the list.
+- Reports → **Fabric Yield & Forecast**: for each fabric, kg / m left, kg used, pieces cut, dresses made (stitched), fabric per dress and **how many more dresses the leftover fabric can make** (left ÷ average fabric one dress used so far). A second table does the same per fabric × garment. Filter by fabric or "only fabric in stock"; exports to PDF / PowerPoint / Excel. Rejected cutting entries are ignored (their fabric is returned). No database change.

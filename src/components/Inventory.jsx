@@ -29,6 +29,7 @@ export default function Inventory({ profile }) {
   const canEdit = ["admin", "hr"].includes(profile?.role); // GM / PM / TL view only
   const [sub, setSub] = useState("machines");
   const [rows, setRows] = useState({ machines: [], fabric: [], items: [] });
+  const [ff, setFf] = useState({ q: "", color: "", supplier: "", inStock: true }); // fabric filters
   const [usage, setUsage] = useState([]);
   const [parts, setParts] = useState([]);
   const [partsFor, setPartsFor] = useState(null);
@@ -84,6 +85,12 @@ export default function Inventory({ profile }) {
   };
 
   const totalMachines = rows.machines.reduce((s, m) => s + (Number(m.quantity) || 0), 0);
+  const fq = ff.q.trim().toLowerCase();
+  const fabricShown = rows.fabric.filter((f) =>
+    (!ff.inStock || Number(f.stock_kg) > 0 || Number(f.stock_meters) > 0) &&
+    (!ff.color || (f.color || "").trim() === ff.color) &&
+    (!ff.supplier || (f.supplier || "").trim() === ff.supplier) &&
+    (!fq || `${f.fabric_type} ${f.color || ""} ${f.supplier || ""} ${f.weight_gsm || ""}`.toLowerCase().includes(fq)));
   const totalKg = rows.fabric.reduce((s, f) => s + (Number(f.stock_kg) || 0), 0);
   const totalM = rows.fabric.reduce((s, f) => s + (Number(f.stock_meters) || 0), 0);
 
@@ -162,7 +169,28 @@ export default function Inventory({ profile }) {
 
       {sub === "fabric" && (
         <>
-          <p className="text-xs text-stone-500">Total available: {totalKg.toFixed(1)} kg · {totalM.toFixed(1)} m</p>
+          {(() => {
+            const colors = [...new Set(rows.fabric.map((f) => (f.color || "").trim()).filter(Boolean))].sort();
+            const suppliers = [...new Set(rows.fabric.map((f) => (f.supplier || "").trim()).filter(Boolean))].sort();
+            return (
+              <div className="flex flex-wrap items-center gap-2" data-testid="fabric-filters">
+                <input className={inputCls + " w-auto min-w-[12rem]"} placeholder="Search fabric, colour, supplier…" value={ff.q} onChange={(e) => setFf({ ...ff, q: e.target.value })} aria-label="Search fabric" />
+                <select className={inputCls + " w-auto"} value={ff.color} onChange={(e) => setFf({ ...ff, color: e.target.value })} aria-label="Colour">
+                  <option value="">All colours</option>
+                  {colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select className={inputCls + " w-auto"} value={ff.supplier} onChange={(e) => setFf({ ...ff, supplier: e.target.value })} aria-label="Supplier">
+                  <option value="">All suppliers</option>
+                  {suppliers.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <label className="flex items-center gap-1.5 text-sm text-stone-600">
+                  <input type="checkbox" checked={ff.inStock} onChange={(e) => setFf({ ...ff, inStock: e.target.checked })} aria-label="Only available fabric" /> Only available (in stock)
+                </label>
+                {(ff.q || ff.color || ff.supplier || !ff.inStock) && <button className="text-xs text-indigo-700 hover:underline" onClick={() => setFf({ q: "", color: "", supplier: "", inStock: true })}>Reset</button>}
+              </div>
+            );
+          })()}
+          <p className="text-xs text-stone-500" data-testid="fabric-count">Showing {fabricShown.length} of {rows.fabric.length} fabrics · available in the list: {fabricShown.reduce((t, f) => t + (Number(f.stock_kg) || 0), 0).toFixed(1)} kg · {fabricShown.reduce((t, f) => t + (Number(f.stock_meters) || 0), 0).toFixed(1)} m <span className="text-stone-400">(all stock: {totalKg.toFixed(1)} kg · {totalM.toFixed(1)} m)</span></p>
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
@@ -179,7 +207,7 @@ export default function Inventory({ profile }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {rows.fabric.map((f) => (
+                {fabricShown.map((f) => (
                   <tr key={f.id} className="hover:bg-stone-50">
                     <td className="px-3 py-2 font-medium">{f.fabric_type}</td>
                     <td className="px-3 py-2">{f.color || "—"}</td>
@@ -192,7 +220,7 @@ export default function Inventory({ profile }) {
                     {actions("fabric", f)}
                   </tr>
                 ))}
-                {rows.fabric.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-400">No fabric added yet.</td></tr>}
+                {fabricShown.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-stone-400">{rows.fabric.length === 0 ? "No fabric added yet." : "No fabric matches these filters."}</td></tr>}
               </tbody>
             </table>
           </Card>
