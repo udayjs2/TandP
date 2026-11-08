@@ -80,11 +80,11 @@ export default function Invoices({ isAdmin }) {
       if (error) { alert(`Couldn't save this invoice:\n${error.message}`); return; }
       invId = data?.id;
     }
-    // own-product lines (added by scanning) reduce the product stock
-    const lines = (rest.items || []).filter((it) => it.product_id).map((it) => ({ product_id: it.product_id, qty: it.quantity }));
+    // dresses added by scanning count as sold (reduce finished stock)
+    const lines = (rest.items || []).filter((it) => it.fg_order_id).map((it) => ({ order_id: it.fg_order_id, item: it.fg_item, qty: it.quantity }));
     if (invId && (lines.length || id)) {
-      const { error } = await supabase.rpc("record_product_sale", { p_invoice: invId, p_lines: lines });
-      if (error) alert(`Invoice saved, but stock was not reduced:\n${error.message}`);
+      const { error } = await supabase.rpc("fg_invoice_sync", { p_invoice: invId, p_lines: lines });
+      if (error) alert(`Invoice saved, but finished stock was not updated:\n${error.message}`);
     }
     setModal(null);
     load();
@@ -374,21 +374,22 @@ function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSa
   };
 
   const [scanMsg, setScanMsg] = useState(null);
-  const onScanProduct = async (code) => {
+  // scanning an order-item barcode adds that dress to the bill (one per scan) and, on save, counts it as sold
+  const onScanItem = async (code) => {
     const { data } = await supabase.rpc("scan_code", { p_code: code });
-    if (data?.kind !== "product") return setScanMsg({ bad: true, text: data?.kind === "order_item" ? "That is an order-item barcode, not a product." : `No product with barcode ${code}.` });
-    const p = data.product;
-    const have = items.filter((it) => it.product_id === p.id).reduce((t, it) => t + (Number(it.quantity) || 0), 0);
-    if (have + 1 > Number(p.stock_qty)) return setScanMsg({ bad: true, text: `Only ${Math.round(p.stock_qty)} of ${p.name} in stock.` });
+    if (data?.kind !== "order_item") return setScanMsg({ bad: true, text: `Barcode ${code} is not an order-item barcode.` });
+    const it = data.item;
+    if (f.linked_order_id && f.linked_order_id !== it.order_id) return setScanMsg({ bad: true, text: `That item is on ${it.order_number}, not the order linked to this invoice.` });
+    const left = Number(it.balance) || 0;
     setItems((prev) => {
-      const i = prev.findIndex((it) => it.product_id === p.id);
-      if (i >= 0) return prev.map((it, k) => (k === i ? { ...it, quantity: (Number(it.quantity) || 0) + 1 } : it));
+      const i = prev.findIndex((x) => x.fg_order_id === it.order_id && x.fg_item === it.item_description);
+      if (i >= 0) return prev.map((x, k) => (k === i ? { ...x, quantity: (Number(x.quantity) || 0) + 1 } : x));
       const blank = prev.length === 1 && !prev[0].description && !prev[0].price;
-      const line = { description: p.name + (p.size ? ` (${p.size})` : ""), quantity: 1, price: p.price, hsn_code: p.hsn_code || "", gst_rate: p.gst_rate || "", product_id: p.id };
+      const line = { description: it.item_description, quantity: 1, price: it.unit_price || "", hsn_code: "", gst_rate: "", fg_order_id: it.order_id, fg_item: it.item_description };
       return blank ? [line] : [...prev, line];
     });
-    if (Number(p.gst_rate) > 0) setF((prev) => (prev.gst_type ? prev : { ...prev, gst_type: "intra" }));
-    setScanMsg({ bad: false, text: `Added ${p.name} — ${Math.round(p.stock_qty) - have - 1} left after this sale` });
+    setF((prev) => ({ ...prev, linked_order_id: prev.linked_order_id || it.order_id, customer_name: prev.customer_name || it.customer_name || "" }));
+    setScanMsg({ bad: false, text: `Added ${it.item_description} (${it.order_number}) — ${Math.max(0, left - 1)} left in store after this` });
   };
   const addItem = () => setItems([...items, { description: "", quantity: 1, price: "", hsn_code: items[items.length - 1]?.hsn_code || "", gst_rate: items[items.length - 1]?.gst_rate || "" }]);
   const removeItem = (idx) => setItems(items.length > 1 ? items.filter((_, i) => i !== idx) : items);
@@ -407,7 +408,7 @@ function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSa
           if (!f.customer_name) return;
           const cleanItems = items
             .filter((it) => it.description || it.quantity || it.price)
-            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, price: Number(it.price) || 0, hsn_code: (it.hsn_code || "").trim(), gst_rate: Number(it.gst_rate) || 0, ...(it.product_id ? { product_id: it.product_id } : {}) }));
+            .map((it) => ({ description: it.description, quantity: Number(it.quantity) || 0, price: Number(it.price) || 0, hsn_code: (it.hsn_code || "").trim(), gst_rate: Number(it.gst_rate) || 0, ...(it.fg_order_id ? { fg_order_id: it.fg_order_id, fg_item: it.fg_item } : {}) }));
           const b = gstBreakup(cleanItems, f.gst_type);
           onSave({
             ...f, items: cleanItems, amount: b.total, taxable_value: b.taxable, gst_amount: b.gst,
@@ -474,8 +475,8 @@ function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSa
         )}
 
         <div className="border border-dashed border-stone-300 rounded-lg p-2.5 mb-3 bg-stone-50">
-          <div className="text-xs font-medium text-stone-600 mb-1">Scan own-product barcode to add it to the bill</div>
-          <ScanBox onScan={onScanProduct} autoFocus={false} placeholder="Scan product label…" />
+          <div className="text-xs font-medium text-stone-600 mb-1">Scan a dress barcode to add it to the bill</div>
+          <ScanBox onScan={onScanItem} placeholder="Scan the barcode label…" />
           {scanMsg && <p className={`text-xs mt-1 ${scanMsg.bad ? "text-rose-700" : "text-emerald-700"}`} role="status">{scanMsg.text}</p>}
         </div>
         <span className="block text-xs font-medium text-stone-600 mb-1">Items</span>

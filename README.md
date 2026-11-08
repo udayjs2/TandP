@@ -1,3 +1,27 @@
+## v80 — Stitched = made automatically, label size picker with test label
+
+Run `migration_66.sql` (after 65).
+- **Made** = dresses stitched in production + any extra added/scanned IN, and never less than what was dispatched. No "take production count" step. Balance = Made − Dispatched.
+- **Print barcodes:** choose any size from the list or "Other size…" (width/height in mm), and print a **Test label** — the size where all four borders print inside the label is the right one.
+
+## v79 — Barcode labels for the iDPRT SP410
+
+No migration. In **Inventory → Finished Goods → Print barcodes** a dialog opens:
+- Pick the label size loaded in the SP410 (50×25, 50×30, 60×40, 75×50, 100×50, 100×100, 100×150 mm; remembered), set copies per item.
+- **Print:** one label per page, page size = label size, no margins; bars are drawn in whole printer dots (203 dpi, ≥ 0.25 mm per bar where it fits) so they scan reliably. In the print window choose iDPRT SP410, margins None, scale 100%.
+- **Download TSPL (.prn):** the SP410's native TSPL command file (SIZE/GAP/BARCODE 128/PRINT), for raw printing.
+
+## v78 — Working scan button, balance fix, dress inventory report (Own Products removed)
+
+### Migration
+Run `migration_65.sql` (after 64). Safe to re-run.
+
+- **Scan button:** "Scan with camera" opens the live camera (built-in detector where available, otherwise the ZXing decoder loaded from the jsDelivr CDN — the device needs internet for that); **Photo** reads a picture of the barcode (works in any mobile browser); a USB/Bluetooth scanner or typing + Enter still works. Used in Finished Goods and in Invoices. Camera needs https (Vercel is) and camera permission.
+- **Invoices:** scanning an order-item barcode adds that dress (qty +1 per scan, price from the order's earlier invoices), links the order, and on save counts the dresses as sold (finished stock reduces). Editing/deleting the invoice updates the stock.
+- **Balance fix:** Made is never less than what has gone out, so Balance is never negative (all dispatched = 0).
+- **Reports → Dress Inventory:** dresses made, sold, remaining in store and remaining inventory cost (at invoice price), by order and by item, with Excel/PDF export.
+- **Own Products** tab removed (its tables from migration 64 are left in the database, unused).
+
 ## v77 — Barcodes, finished-goods stock per order, own products with scan-to-bill
 
 ### Migration

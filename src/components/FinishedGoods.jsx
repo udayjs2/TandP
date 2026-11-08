@@ -4,7 +4,7 @@ import { supabase } from "../supabaseClient";
 import { Card, inputCls, Btn } from "./ui";
 import BarcodeView from "./BarcodeView";
 import ScanBox from "./ScanBox";
-import { printLabels } from "../lib/barcode";
+import LabelPrintModal from "./LabelPrintModal";
 
 const n0 = (v) => Math.round(Number(v) || 0);
 
@@ -17,6 +17,7 @@ export default function FinishedGoods() {
   const [log, setLog] = useState([]);
   const [msg, setMsg] = useState(null);
   const [onlyOpen, setOnlyOpen] = useState(true);
+  const [labelLines, setLabelLines] = useState(null);
 
   const load = async () => {
     const { data, error: err } = await supabase.rpc("fg_items", { p_order: null });
@@ -49,7 +50,7 @@ export default function FinishedGoods() {
   const handleScan = async (code) => {
     const { data, error: err } = await supabase.rpc("scan_code", { p_code: code });
     if (err) return setMsg({ bad: true, text: err.message });
-    if (data?.kind !== "order_item") return setMsg({ bad: true, text: data?.kind === "product" ? `${code} is an own-product barcode — use Own Products or billing.` : `Unknown barcode ${code}.` });
+    if (data?.kind !== "order_item") return setMsg({ bad: true, text: `Unknown barcode ${code}. Print the barcode from this page first.` });
     const it = data.item;
     const { data: r, error: e2 } = await supabase.rpc("fg_add", { p_order: it.order_id, p_item: it.item_description, p_kind: mode, p_qty: 1, p_note: null, p_source: "scan" });
     if (e2 || !r?.ok) return setMsg({ bad: true, text: e2?.message || r?.error });
@@ -66,17 +67,11 @@ export default function FinishedGoods() {
     if (err || !data?.ok) return alert(err?.message || data?.error);
     load();
   };
-  const takeProduction = async (o) => {
-    const { data, error: err } = await supabase.rpc("fg_take_production", { p_order: o.id });
-    if (err || !data?.ok) return alert(err?.message || data?.error);
-    load();
-  };
   const makeLabels = async (o) => {
     const { data } = await supabase.rpc("ensure_order_barcodes", { p_order: o.id });
     const list = Array.isArray(data) ? data : [];
-    const copies = prompt("Labels per item (e.g. one per dress packet):", String(Math.max(1, Math.round(o.items[0]?.ordered || 1))));
-    if (copies === null) return;
-    printLabels(list.map((b) => ({ code: b.code, title: `${o.number} · ${b.item_description}`, sub: o.customer, copies: Number(copies) || 1 })));
+    const qtyOf = (b) => Math.max(1, Math.round(o.items.find((i) => i.item_description === b.item_description)?.ordered || 1));
+    setLabelLines(list.map((b) => ({ code: b.code, title: `${o.number} · ${b.item_description}`, sub: o.customer, copies: qtyOf(b) })));
     load();
   };
   const showCode = async (o) => { await supabase.rpc("ensure_order_barcodes", { p_order: o.id }); load(); };
@@ -86,16 +81,16 @@ export default function FinishedGoods() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Finished goods by order</h2>
-        <p className="text-xs text-stone-500">Dresses made for each order, dispatched, and the balance in store. Each barcode scan counts one dress.</p>
+        <p className="text-xs text-stone-500">Dresses stitched count as made automatically. Dispatched dresses come off the balance; each barcode scan counts one dress (IN = extra made, OUT = dispatched).</p>
       </div>
       {error && <p className="text-sm text-rose-600">{error}</p>}
       <Card className="p-3.5">
         <div className="flex gap-2 mb-2 flex-wrap items-center">
-          {[["in", "Scan IN — dress made"], ["out", "Scan OUT — dispatch"]].map(([k, label]) => (
+          {[["in", "Scan IN — extra dress made"], ["out", "Scan OUT — dispatch"]].map(([k, label]) => (
             <button key={k} onClick={() => setMode(k)} className={`text-sm px-3 py-1.5 rounded-lg border ${mode === k ? (k === "in" ? "bg-emerald-700 text-white border-emerald-700" : "bg-amber-600 text-white border-amber-600") : "bg-white text-stone-600 border-stone-200"}`}>{label}</button>
           ))}
         </div>
-        <ScanBox onScan={handleScan} autoFocus={false} />
+        <ScanBox onScan={handleScan} />
         {msg && <p className={`text-sm mt-2 ${msg.bad ? "text-rose-700" : "text-emerald-700"}`} role="status">{msg.text}</p>}
         {log.length > 0 && <div className="mt-2 text-[11px] text-stone-400 space-y-0.5">{log.map((l, i) => <div key={i}>{l.t} · {l.mode === "in" ? "IN" : "OUT"} · {l.code} · {l.text}</div>)}</div>}
       </Card>
@@ -112,14 +107,13 @@ export default function FinishedGoods() {
                 <div className="text-xs text-stone-500">{o.status} · ordered {n0(o.ordered)} · made {n0(o.made)} · dispatched {n0(o.dispatched)} · <b className="text-stone-800">balance in store {n0(o.balance)}</b></div>
               </div>
               <div className="flex gap-1.5 flex-wrap">
-                {o.stitched > o.made && <Btn variant="ghost" onClick={() => takeProduction(o)}><Download size={13} /> Take production count ({n0(o.stitched)})</Btn>}
-                <Btn variant="ghost" onClick={() => makeLabels(o)}><Printer size={13} /> Print barcodes</Btn>
+                                <Btn variant="ghost" onClick={() => makeLabels(o)}><Printer size={13} /> Print barcodes</Btn>
                 {o.items.some((i) => !i.barcode) && <Btn variant="ghost" onClick={() => showCode(o)}>Generate barcodes</Btn>}
               </div>
             </div>
             <div className="overflow-x-auto mt-2">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-[11px] uppercase text-stone-500 border-b border-stone-200"><th className="py-1">Item</th><th className="text-right">Ordered</th><th className="text-right">Stitched</th><th className="text-right">Made (store)</th><th className="text-right">Dispatched</th><th className="text-right">Balance</th><th className="pl-3">Barcode</th><th></th></tr></thead>
+                <thead><tr className="text-left text-[11px] uppercase text-stone-500 border-b border-stone-200"><th className="py-1">Item</th><th className="text-right">Ordered</th><th className="text-right">Stitched</th><th className="text-right">Made</th><th className="text-right">Dispatched</th><th className="text-right">Balance</th><th className="pl-3">Barcode</th><th></th></tr></thead>
                 <tbody>
                   {o.items.map((i) => (
                     <tr key={i.item_index} className="border-b border-stone-100">
@@ -141,6 +135,7 @@ export default function FinishedGoods() {
         ))}
         {shown.length === 0 && <Card className="p-8 text-center text-stone-400 text-sm"><PackageCheck className="mx-auto mb-1" size={20} />No orders to show.</Card>}
       </div>
+      {labelLines && <LabelPrintModal lines={labelLines} onClose={() => setLabelLines(null)} />}
     </div>
   );
 }
