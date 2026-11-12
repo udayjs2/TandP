@@ -1,3 +1,13 @@
+## v85 — Invoice each part delivery
+
+Run `migration_69.sql` (after 68).
+
+- Creating an invoice for an order no longer drops in the whole order. It lists the order's **dispatches (part deliveries)**; every batch not billed yet is ticked and becomes the invoice lines (quantities = what was dispatched, prices carried from the order / earlier invoices). Untick a batch to leave it for the next invoice.
+- A batch can be billed **once**: batches already on an invoice show "billed in INV-xxxx" and are locked. Deleting an invoice frees its batches again. A table shows per item: ordered / dispatched / billed before / this invoice / still to bill.
+- An order can have many invoices (shown as "ORD-0025 · part 2 of 3"). **Invoices → By order** groups all invoices of an order, shows ordered / dispatched / invoiced / received / balance, a button *Invoice pending dispatches*, and the badge **Fully delivered & invoiced** once everything is dispatched and billed.
+- A printed part invoice lists only the dispatches it bills. Advance/payments already used by earlier invoices of the order are not counted again; Finance → Payments already totals every invoice of the order.
+- Invoices made before this version aren't linked to dispatches: open one, tick the batches it covered and save, and they stop showing as "not billed".
+
 ## v84 — One cut, several fabrics
 
 Run `migration_68.sql` (after 67).

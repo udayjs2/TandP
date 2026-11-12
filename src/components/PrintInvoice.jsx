@@ -16,7 +16,11 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
   const [pays, setPays] = useState([]);
   useEffect(() => {
     if (!invoice.linked_order_id) return;
-    supabase.from("order_deliveries").select("date, item_description, quantity").eq("order_id", invoice.linked_order_id).order("date").then(({ data }) => setDeliveries(data || []));
+    supabase.from("order_deliveries").select("date, item_description, quantity, invoice_id").eq("order_id", invoice.linked_order_id).order("date").then(({ data }) => {
+      // a part-delivery invoice lists only the dispatches it bills; older invoices list every dispatch of the order
+      const mine = (data || []).filter((d) => d.invoice_id && d.invoice_id === invoice.id);
+      setDeliveries(mine.length ? mine : (data || []).filter((d) => !d.invoice_id || d.invoice_id === invoice.id));
+    });
     supabase.from("order_payments").select("amount, payment_date, mode").eq("order_id", invoice.linked_order_id).order("payment_date").then(({ data }) => setPays(data || []));
   }, [invoice.linked_order_id]);
   const businessName = settings.business_name || "T&P Textiles";
