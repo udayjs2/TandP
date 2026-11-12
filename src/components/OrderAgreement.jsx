@@ -1,4 +1,5 @@
 import { useState } from "react";
+import PrintSheet from "./PrintSheet";
 import { X, FileText } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Modal, Field, inputCls, Btn } from "./ui";
@@ -157,22 +158,13 @@ function PrintAgreement({ agreement, order, settings, onClose }) {
   const businessAddress = settings?.address || "";
 
   return (
-    <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #print-agreement, #print-agreement * { visibility: visible; }
-          #print-agreement { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
-          .no-print { display: none !important; }
-          .page-break { page-break-before: always; }
-        }
-      `}</style>
+    <PrintSheet>
       <div className="no-print sticky top-0 flex justify-end gap-2 bg-stone-100 border-b border-stone-200 p-2">
         <Btn variant="ghost" onClick={onClose}><X size={14} /> Close</Btn>
         <Btn onClick={() => window.print()}><FileText size={14} /> Print / Download</Btn>
       </div>
 
-      <div id="print-agreement" className="max-w-2xl mx-auto p-8 text-[12px] leading-relaxed">
+      <div id="print-agreement" className="print-page max-w-2xl mx-auto p-8 text-[12px] leading-relaxed">
         {/* ===== PAGE 1 ===== */}
         <Letterhead businessName={businessName} businessAddress={businessAddress} settings={settings} />
 
@@ -383,7 +375,7 @@ function PrintAgreement({ agreement, order, settings, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </PrintSheet>
   );
 }
 

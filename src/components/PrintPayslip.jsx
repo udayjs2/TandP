@@ -1,18 +1,11 @@
 import { X, Receipt } from "lucide-react";
+import PrintSheet from "./PrintSheet";
 import { Btn } from "./ui";
 import { fmtMoney } from "../lib/helpers";
 
 export default function PrintPayslip({ employee, month, present, leaves, absent, paid, deductDays, perDay, attBonus, totalDays, entry, net, settings, onClose }) {
   return (
-    <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #print-payslip, #print-payslip * { visibility: visible; }
-          #print-payslip { position: absolute; top: 0; left: 0; width: 100%; padding: 24px; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
+    <PrintSheet>
       <div className="no-print sticky top-0 flex justify-end gap-2 bg-stone-100 border-b border-stone-200 p-2">
         <Btn variant="ghost" onClick={onClose}>
           <X size={14} /> Close preview
@@ -22,7 +15,7 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
         </Btn>
       </div>
 
-      <div id="print-payslip" className="max-w-2xl mx-auto p-8">
+      <div id="print-payslip" className="print-page max-w-2xl mx-auto p-8">
         <div className="flex justify-between items-start border-b border-stone-300 pb-4 mb-4">
           <div>
             <h1 className="text-xl font-bold">{settings.business_name || "T&P Textiles"}</h1>
@@ -128,6 +121,6 @@ export default function PrintPayslip({ employee, month, present, leaves, absent,
 
         <p className="text-xs text-stone-400 text-center">This is a computer-generated payslip.</p>
       </div>
-    </div>
+    </PrintSheet>
   );
 }

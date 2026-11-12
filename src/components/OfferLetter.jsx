@@ -1,4 +1,5 @@
 import { useState } from "react";
+import PrintSheet from "./PrintSheet";
 import { X, FileText } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Modal, Field, inputCls, Btn } from "./ui";
@@ -240,21 +241,13 @@ export function PrintOfferLetter({ letter, employeeName, onClose }) {
   ];
 
   return (
-    <div className="fixed inset-0 bg-white text-stone-900 z-50 overflow-auto">
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #print-offer, #print-offer * { visibility: visible; }
-          #print-offer { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; }
-          .no-print { display: none !important; }
-        }
-      `}</style>
+    <PrintSheet>
       <div className="no-print sticky top-0 flex justify-end gap-2 bg-stone-100 border-b border-stone-200 p-2">
         <Btn variant="ghost" onClick={onClose}><X size={14} /> Close</Btn>
         <Btn onClick={() => window.print()}><FileText size={14} /> Print</Btn>
       </div>
 
-      <div id="print-offer" className="max-w-2xl mx-auto p-8 text-[13px] leading-relaxed">
+      <div id="print-offer" className="print-page max-w-2xl mx-auto p-8 text-[13px] leading-relaxed">
         <div className="text-center border-b-2 border-stone-800 pb-3 mb-4">
           <img src="/logo-mark-navy.png" alt="" className="h-12 mx-auto mb-1" />
           <h1 className="text-xl font-extrabold">T&P TEXTILES</h1>
@@ -351,7 +344,7 @@ export function PrintOfferLetter({ letter, employeeName, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </PrintSheet>
   );
 }
 

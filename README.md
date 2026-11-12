@@ -1,3 +1,7 @@
+## v89 — Printing: invoices (and other documents) now print on as many A4 pages as needed
+
+No migration. The print preview used to be a scrolling box, so the browser printed only the part visible on screen (the same page repeated). Invoices, the order agreement, offer letters and payslips now print as real A4 paper: long invoices flow onto page 2, 3… with the item-table header repeated, rows are never cut in half, and the app's own screen is not printed. Normal invoices (about 5–8 lines with bank details) still fit one page. In the browser print dialog, set *Margins: None* and untick *Headers and footers* for a clean page.
+
 ## v88 — Output: vertical bar graphs, order-wise drill-down
 
 No migration. Output now opens with one vertical (column) chart of every order — Ordered / Cut / Stitched / Dispatched side by side — with the order number and customer under each group. Click an order's bars (or its row below) to open that order: chart titles carry the order name, with vertical bars per item, pieces cut by size, a progress-over-time line, an item statistics table and the cutting entries that were consolidated. The report page is always light (the KPI tiles no longer turn dark with the device's dark mode).
