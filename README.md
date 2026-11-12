@@ -1,3 +1,7 @@
+## v90 — Logo on the invoice
+
+No migration. The printed invoice letterhead now carries the T&P logo (public/logo-mark-navy.png) at the left, with the business name, address, phone and GSTIN centred beside it. To change the logo, replace that file.
+
 ## v89 — Printing: invoices (and other documents) now print on as many A4 pages as needed
 
 No migration. The print preview used to be a scrolling box, so the browser printed only the part visible on screen (the same page repeated). Invoices, the order agreement, offer letters and payslips now print as real A4 paper: long invoices flow onto page 2, 3… with the item-table header repeated, rows are never cut in half, and the app's own screen is not printed. Normal invoices (about 5–8 lines with bank details) still fit one page. In the browser print dialog, set *Margins: None* and untick *Headers and footers* for a clean page.
