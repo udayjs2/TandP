@@ -4,14 +4,14 @@ import { useRef, useState } from "react";
 // Cut = blue, Stitched = orange, Dispatched = aqua (validated for colour-blind separation).
 // Tokens swap for dark mode; ink for text, hairline grey for grid.
 export const VIZ_CSS = `
-.viz-root{--surface:#ffffff;--ink:#1c1917;--ink2:#57534e;--muted:#a8a29e;--grid:#ececea;--track:#e7e5e4;--cut:#2a78d6;--stitched:#eb6834;--dispatched:#1baf7a;--bad:#d1242f}
-@media (prefers-color-scheme: dark){:root:where(:not([data-theme="light"])) .viz-root{--surface:#1c1917;--ink:#f5f5f4;--ink2:#d6d3d1;--muted:#a8a29e;--grid:#33302d;--track:#3a3633;--cut:#3987e5;--stitched:#d95926;--dispatched:#199e70;--bad:#ff6b6b}}
-:root[data-theme="dark"] .viz-root{--surface:#1c1917;--ink:#f5f5f4;--ink2:#d6d3d1;--muted:#a8a29e;--grid:#33302d;--track:#3a3633;--cut:#3987e5;--stitched:#d95926;--dispatched:#199e70;--bad:#ff6b6b}
+.viz-root{--surface:#ffffff;--ink:#1c1917;--ink2:#57534e;--muted:#a8a29e;--grid:#ececea;--track:#e7e5e4;--cut:#2a78d6;--stitched:#eb6834;--dispatched:#1baf7a;--ordered:#a8a29e;--bad:#d1242f}
+:root[data-theme="dark"] .viz-root{--surface:#1c1917;--ink:#f5f5f4;--ink2:#d6d3d1;--muted:#a8a29e;--grid:#33302d;--track:#3a3633;--cut:#3987e5;--stitched:#d95926;--dispatched:#199e70;--ordered:#78716c;--bad:#ff6b6b}
 .viz-root{color:var(--ink)}
 .viz-tip{position:absolute;pointer-events:none;z-index:20;background:var(--ink);color:var(--surface);font-size:11px;line-height:1.35;padding:6px 8px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.18);white-space:nowrap;transform:translate(-50%,-100%)}
 `;
 
 export const STAGES = {
+  ordered: { label: "Ordered", color: "var(--ordered)" },
   cut: { label: "Cut", color: "var(--cut)" },
   stitched: { label: "Stitched", color: "var(--stitched)" },
   dispatched: { label: "Dispatched", color: "var(--dispatched)" },
@@ -181,6 +181,59 @@ export function Kpi({ label, value, sub, ratio, color }) {
           <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, ratio * 100))}%`, background: color }} />
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ---- Vertical grouped columns. groups: [{ key, label, sub?, values: {seriesKey: n} }], series: ["ordered","cut",...]
+// Bars <= 24px, 4px rounded tops, 2px gap, hover tooltip, optional value labels, click a group to select it.
+export function ColumnChart({ groups, series, height = 260, onSelect, selected, labels = true, slot: slot0 = 84, ariaLabel, minW = 880 }) {
+  const { ref, tip, show, hide } = useTip();
+  const L = 40, R = 10, T = 22, B = 44;
+  const slot = Math.max(slot0, Math.floor((minW - L - R) / Math.max(1, groups.length)));
+  const W = L + R + groups.length * slot;
+  const H = height;
+  const raw = Math.max(1, ...groups.flatMap((g) => series.map((k) => g.values[k] || 0)));
+  const step = raw <= 10 ? 2 : raw <= 25 ? 5 : raw <= 50 ? 10 : raw <= 100 ? 20 : raw <= 250 ? 50 : raw <= 500 ? 100 : raw <= 1000 ? 200 : raw <= 2500 ? 500 : raw <= 5000 ? 1000 : 2000;
+  const top = Math.ceil(raw / step) * step;
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const ticks = []; for (let v = 0; v <= top; v += step) ticks.push(v);
+  const bw = Math.min(24, (slot - 18) / series.length - 2);
+  const cluster = series.length * bw + (series.length - 1) * 2;
+  const trunc = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : t);
+  return (
+    <div ref={ref} className="relative overflow-x-auto" onMouseLeave={hide}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: W > 700 ? W : undefined }} role="img" aria-label={ariaLabel || "Column chart"} data-column-chart>
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--grid)" strokeWidth="1" />
+            <text x={L - 6} y={y(v) + 3.5} textAnchor="end" fontSize="10" fill="var(--muted)">{v >= 1000 ? `${v / 1000}k` : v}</text>
+          </g>
+        ))}
+        {groups.map((g, gi) => {
+          const cx = L + slot * gi + slot / 2, x0 = cx - cluster / 2, sel = selected === g.key;
+          return (
+            <g key={g.key} style={{ cursor: onSelect ? "pointer" : "default" }} onClick={() => onSelect?.(g.key)} data-group={g.key}
+              onMouseMove={(e) => show(e, <><b>{g.title || g.label}</b>{series.map((k) => <div key={k}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: STAGES[k].color, marginRight: 5 }} />{STAGES[k].label}: {nf(g.values[k] || 0)}</div>)}{onSelect && <div style={{ opacity: 0.7, marginTop: 2 }}>Click for details</div>}</>)}>
+              <rect x={L + slot * gi + 1} y={T - 6} width={slot - 2} height={H - T - B + 6} rx="6" fill={sel ? "var(--track)" : "transparent"} opacity={sel ? 0.45 : 1} />
+              {series.map((k, si) => {
+                const v = g.values[k] || 0, bh = Math.max(v > 0 ? 2 : 0, (H - T - B) * (v / top)), bx = x0 + si * (bw + 2), by = H - B - bh;
+                return (
+                  <g key={k}>
+                    {bh > 0 && <path d={`M${bx},${H - B} V${by + 4} Q${bx},${by} ${bx + 4},${by} H${bx + bw - 4} Q${bx + bw},${by} ${bx + bw},${by + 4} V${H - B} Z`} fill={STAGES[k].color} />}
+                    {labels && v > 0 && <text x={bx + bw / 2} y={by - 4} textAnchor="middle" fontSize="10" fill="var(--ink2)">{nf(v)}</text>}
+                  </g>
+                );
+              })}
+              <text x={cx} y={H - B + 15} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--ink)">{trunc(g.label, 11)}</text>
+              {g.sub && <text x={cx} y={H - B + 29} textAnchor="middle" fontSize="10" fill="var(--muted)">{trunc(g.sub, 13)}</text>}
+            </g>
+          );
+        })}
+        <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke="var(--muted)" strokeWidth="1" />
+      </svg>
+      <Tip tip={tip} />
     </div>
   );
 }

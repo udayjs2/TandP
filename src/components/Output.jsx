@@ -5,7 +5,7 @@ import { fetchAll } from "../lib/fetchAll";
 import { todayStr } from "../lib/helpers";
 import { Card, SearchBox, matchQ } from "./ui";
 import { sizeLabel } from "./Cutting";
-import { VIZ_CSS, STAGES, PIPELINE_LEGEND, Legend, PipelineBar, LeftToStitch, DailyTrend, Kpi } from "./OutputCharts";
+import { VIZ_CSS, STAGES, PIPELINE_LEGEND, Legend, PipelineBar, pipelineParts, ColumnChart, DailyTrend, Kpi } from "./OutputCharts";
 
 const nf = (n) => Number(n || 0).toLocaleString("en-IN");
 const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : 0);
@@ -48,6 +48,7 @@ export default function Output() {
   const [mode, setMode] = useState("cumulative");
   const [tblTrend, setTblTrend] = useState(false);
   const [tblRank, setTblRank] = useState(false);
+  const [tblOrders, setTblOrders] = useState(false);
 
   const load = async () => {
     try {
@@ -105,27 +106,30 @@ export default function Output() {
     return { ordered: s("ordered"), cut: s("cut"), stitched: s("stitched"), dispatched: s("dispatched"), open: shown.filter((o) => state(o) !== "match").length };
   }, [shown]);
 
-  const days = useMemo(() => {
-    const ids = new Set(shown.map((o) => o.id)); const list = lastDays(range); const idx = Object.fromEntries(list.map((d, i) => [d.date, i]));
-    raw.cuts.forEach((c) => { if (ids.has(c.order_id) && idx[c.cut_date] != null) list[idx[c.cut_date]].cut += Object.values(c.sizes || {}).reduce((t, v) => t + Number(v || 0), 0); });
+  // per-day cut / stitched / dispatched for a set of orders (cumulative = running totals incl. everything before the window)
+  const buildDays = (ids, n, cum) => {
+    const list = lastDays(n); const idx = Object.fromEntries(list.map((d, i) => [d.date, i]));
+    const sumSizes = (c) => Object.values(c.sizes || {}).reduce((t, v) => t + Number(v || 0), 0);
+    raw.cuts.forEach((c) => { if (ids.has(c.order_id) && idx[c.cut_date] != null) list[idx[c.cut_date]].cut += sumSizes(c); });
     raw.prog.forEach((p) => { if (ids.has(p.order_id) && idx[p.date] != null) list[idx[p.date]].stitched += Number(p.quantity || 0); });
     raw.dels.forEach((d) => { if (ids.has(d.order_id) && idx[d.date] != null) list[idx[d.date]].dispatched += Number(d.quantity || 0); });
-    if (mode === "cumulative") {
-      // running totals, starting from what was already done before the first day shown
+    if (cum) {
       const first = list[0].date, base = { cut: 0, stitched: 0, dispatched: 0 };
-      raw.cuts.forEach((c) => { if (ids.has(c.order_id) && c.cut_date < first) base.cut += Object.values(c.sizes || {}).reduce((t, v) => t + Number(v || 0), 0); });
+      raw.cuts.forEach((c) => { if (ids.has(c.order_id) && c.cut_date < first) base.cut += sumSizes(c); });
       raw.prog.forEach((p) => { if (ids.has(p.order_id) && p.date < first) base.stitched += Number(p.quantity || 0); });
       raw.dels.forEach((d) => { if (ids.has(d.order_id) && d.date < first) base.dispatched += Number(d.quantity || 0); });
       list.forEach((d) => { base.cut += d.cut; base.stitched += d.stitched; base.dispatched += d.dispatched; d.dCut = d.cut; d.dStitched = d.stitched; d.dDispatched = d.dispatched; d.cut = base.cut; d.stitched = base.stitched; d.dispatched = base.dispatched; });
     }
     return list;
-  }, [shown, raw, range, mode]);
+  };
+  const days = useMemo(() => buildDays(new Set(shown.map((o) => o.id)), range, mode === "cumulative"), [shown, raw, range, mode]);
   const periodTotals = days.reduce((a, d) => ({ cut: a.cut + (d.dCut ?? d.cut), stitched: a.stitched + (d.dStitched ?? d.stitched), dispatched: a.dispatched + (d.dDispatched ?? d.dispatched) }), { cut: 0, stitched: 0, dispatched: 0 });
 
-  const rank = useMemo(() => shown
-    .map((o) => ({ id: o.id, short: o.order_number, label: `${o.order_number} — ${o.customer_name}`, cut: o.cut, stitched: o.stitched, left: o.cut - o.stitched }))
-    .filter((r) => r.cut > 0).sort((a, b) => b.left - a.left).slice(0, 10), [shown]);
-
+  const chartGroups = useMemo(() => shown.slice(0, 12).reverse().map((o) => ({ key: o.id, label: o.order_number, sub: o.customer_name, title: `${o.order_number} — ${o.customer_name}`, values: { ordered: o.ordered, cut: o.cut, stitched: o.stitched, dispatched: o.dispatched } })), [shown]);
+  const pick = (id) => {
+    setOpen((p) => ({ ...p, [id]: true }));
+    setTimeout(() => document.getElementById(`order-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
   const th = "text-left text-[11px] uppercase font-medium px-2 py-1.5";
   const td = "px-2 py-1.5 tabular-nums";
 
@@ -156,11 +160,21 @@ export default function Output() {
             <Kpi label="Orders to reconcile" value={T.open} sub={T.open ? "stitched ≠ cut" : "all matched"} />
           </div>
 
+          <ChartCard
+            title="All orders — ordered vs cut vs stitched vs dispatched"
+            subtitle={`${shown.length > 12 ? "Latest 12 orders · " : ""}Click an order's bars to open its detailed graphs below`}
+            legend={<Legend items={["ordered", "cut", "stitched", "dispatched"].map((k) => ({ label: STAGES[k].label, color: STAGES[k].color }))} />}
+            showTable={tblOrders} setShowTable={setTblOrders}
+            table={<div className="max-h-72 overflow-auto"><table className="w-full text-xs"><thead className="text-stone-500"><tr><th className={th}>Order</th><th className={`${th} text-right`}>Ordered</th><th className={`${th} text-right`}>Cut</th><th className={`${th} text-right`}>Stitched</th><th className={`${th} text-right`}>Dispatched</th></tr></thead><tbody>{shown.map((o) => <tr key={o.id} className="border-t border-stone-100 cursor-pointer hover:bg-stone-50" onClick={() => pick(o.id)}><td className={td}>{o.order_number} — {o.customer_name}</td><td className={`${td} text-right`}>{o.ordered}</td><td className={`${td} text-right`}>{o.cut}</td><td className={`${td} text-right`}>{o.stitched}</td><td className={`${td} text-right`}>{o.dispatched}</td></tr>)}</tbody></table></div>}
+          >
+            <ColumnChart groups={chartGroups} series={["ordered", "cut", "stitched", "dispatched"]} onSelect={pick} labels={chartGroups.length <= 6} ariaLabel="Ordered, cut, stitched and dispatched pieces for each order" />
+          </ChartCard>
+
           <div className="grid lg:grid-cols-2 gap-4">
             <ChartCard
               title={mode === "cumulative" ? "Output to date" : "Daily output"}
               subtitle={`Last ${range} days${mode === "cumulative" ? " (running totals)" : ""} · cut ${nf(periodTotals.cut)} · stitched ${nf(periodTotals.stitched)} · dispatched ${nf(periodTotals.dispatched)}`}
-              legend={<Legend items={Object.values(STAGES).map((s) => ({ label: s.label, color: s.color }))} />}
+              legend={<Legend items={["cut", "stitched", "dispatched"].map((k) => ({ label: STAGES[k].label, color: STAGES[k].color }))} />}
               right={<div className="flex gap-1">{[["cumulative", "Total"], ["daily", "Daily"]].map(([m, l]) => <button key={m} onClick={() => setMode(m)} className={`text-[11px] px-2 py-1 rounded-md border ${mode === m ? "bg-stone-800 text-white border-stone-800" : "border-stone-200 hover:bg-stone-50"}`}>{l}</button>)}<span className="w-1" />{[14, 30, 60, 90].map((n) => <button key={n} onClick={() => setRange(n)} className={`text-[11px] px-2 py-1 rounded-md border ${range === n ? "bg-stone-800 text-white border-stone-800" : "border-stone-200 hover:bg-stone-50"}`}>{n}d</button>)}</div>}
               showTable={tblTrend} setShowTable={setTblTrend}
               table={(
@@ -172,94 +186,110 @@ export default function Output() {
             </ChartCard>
 
             <ChartCard
-              title="Left to stitch — by order"
-              subtitle="Bar length = pieces cut; filled part = stitched. Orders with most pieces still to stitch first."
-              legend={<Legend items={[{ label: "Stitched", color: STAGES.stitched.color }, { label: "Cut, still to stitch", color: STAGES.cut.color }]} />}
+              title="Production pipeline — all shown orders"
+              subtitle={`${nf(Math.max(T.ordered, T.cut))} pieces ordered`}
+              legend={<Legend items={PIPELINE_LEGEND} />}
               showTable={tblRank} setShowTable={setTblRank}
-              table={(
-                <div className="max-h-64 overflow-auto"><table className="w-full text-xs"><thead className="text-stone-500"><tr><th className={th}>Order</th><th className={`${th} text-right`}>Cut</th><th className={`${th} text-right`}>Stitched</th><th className={`${th} text-right`}>Left</th></tr></thead>
-                  <tbody>{rank.map((r) => <tr key={r.id} className="border-t border-stone-100"><td className={td}>{r.label}</td><td className={`${td} text-right`}>{r.cut}</td><td className={`${td} text-right`}>{r.stitched}</td><td className={`${td} text-right`}>{r.left}</td></tr>)}</tbody></table></div>
-              )}
+              table={<table className="w-full text-xs"><tbody>{pipelineParts(T).parts.map((p) => <tr key={p.key} className="border-t border-stone-100"><td className="px-2 py-1.5">{p.label}</td><td className="px-2 py-1.5 text-right tabular-nums">{nf(p.v)}</td><td className="px-2 py-1.5 text-right tabular-nums">{pct(p.v, pipelineParts(T).total)}%</td></tr>)}</tbody></table>}
             >
-              <LeftToStitch rows={rank} />
+              <PipelineBar data={T} height={22} name="All orders" />
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-4 text-xs">
+                {pipelineParts(T).parts.map((p) => (
+                  <div key={p.key} className="flex items-center justify-between border-b border-stone-100 pb-1">
+                    <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-[3px]" style={{ background: p.color }} />{p.label}</span>
+                    <span className="tabular-nums"><b>{nf(p.v)}</b> <span className="text-stone-400">· {pct(p.v, pipelineParts(T).total)}%</span></span>
+                  </div>
+                ))}
+              </div>
             </ChartCard>
           </div>
 
-          <Card className="p-4">
-            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
-              <div className="text-sm font-semibold">Production pipeline — all shown orders</div>
-              <div className="text-xs text-stone-500">{nf(Math.max(T.ordered, T.cut))} pieces ordered</div>
-            </div>
-            <PipelineBar data={T} height={20} name="All orders" />
-            <div className="mt-3"><Legend items={PIPELINE_LEGEND} /></div>
-          </Card>
         </>
       )}
 
       <div className="grid gap-3">
         {shown.map((o) => {
           const st = state(o), diff = o.stitched - o.cut, isOpen = !!open[o.id];
+          const title = `${o.order_number} — ${o.customer_name}`;
+          const itemGroups = o.items.map((i) => ({ key: i.item, label: i.item, title: `${title} · ${i.item}`, values: { ordered: i.ordered, cut: i.cut, stitched: i.stitched, dispatched: i.dispatched } }));
+          const sizeTotals = {}; o.items.forEach((i) => Object.entries(i.sizes).forEach(([sz, n]) => { sizeTotals[sz] = (sizeTotals[sz] || 0) + n; }));
+          const sizeGroups = Object.entries(sizeTotals).sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0)).map(([sz, n]) => ({ key: sz, label: sizeLabel(sz), title: `${title} · size ${sizeLabel(sz)}`, values: { cut: n } }));
+          const firstDate = [...o.entries.map((e) => e.date), ...raw.prog.filter((p) => p.order_id === o.id).map((p) => p.date)].filter(Boolean).sort()[0];
+          const span = firstDate ? Math.min(90, Math.max(14, Math.ceil((new Date(`${todayStr()}T12:00:00Z`) - new Date(`${firstDate}T12:00:00Z`)) / 86400000) + 2)) : 30;
           return (
-            <Card key={o.id} className="p-4" >
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="font-semibold text-sm">{o.order_number} — {o.customer_name}</div>
-                  <div className="text-xs text-stone-500">{o.items.length} item{o.items.length === 1 ? "" : "s"} · {o.entries.length} cutting entr{o.entries.length === 1 ? "y" : "ies"} consolidated</div>
-                </div>
-                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${st === "match" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-                  {st === "match" ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                  {st === "match" ? "Matched" : diff < 0 ? `${-diff} pcs left to stitch` : `${diff} pcs extra stitched`}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-4 gap-2 mt-3 text-center">
-                {[["Ordered", o.ordered, null, ""], ["Cut", o.cut, pct(o.cut, o.ordered), "of ordered"], ["Stitched", o.stitched, pct(o.stitched, o.cut), "of cut"], ["Dispatched", o.dispatched, pct(o.dispatched, o.stitched), "of stitched"]].map(([l, v, p, sub]) => (
-                  <div key={l} className="rounded-lg bg-stone-50 py-2">
-                    <div className="text-[11px] uppercase text-stone-400">{l}</div>
-                    <div className="text-lg font-semibold tabular-nums leading-tight">{nf(v)}</div>
-                    <div className="text-[11px] text-stone-500 h-4">{p != null ? `${p}% ${sub}` : ""}</div>
+            <Card key={o.id} className={`p-4 ${isOpen ? "ring-2 ring-indigo-200" : ""}`}>
+              <div id={`order-${o.id}`} style={{ scrollMarginTop: 12 }} />
+              <button type="button" className="w-full text-left" onClick={() => setOpen({ ...open, [o.id]: !isOpen })} aria-expanded={isOpen} data-order-header>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-stone-400">{isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</span>
+                    <div>
+                      <div className="font-semibold">{title}</div>
+                      <div className="text-xs text-stone-500">{o.items.length} item{o.items.length === 1 ? "" : "s"} · {o.entries.length} cutting entr{o.entries.length === 1 ? "y" : "ies"} consolidated · {isOpen ? "click to hide graphs" : "click to see graphs"}</div>
+                    </div>
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-3"><PipelineBar data={o} height={16} name={o.order_number} /></div>
-
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="text-stone-400"><tr><th className={th}>Item</th><th className={`${th} text-right`}>Ordered</th><th className={`${th} text-right`}>Cut</th><th className={`${th} text-right`}>Stitched</th><th className={`${th} text-right`}>Dispatched</th><th className={`${th} text-right`}>Stitched %</th><th className={`${th} w-1/4`}>Pipeline</th></tr></thead>
-                  <tbody>
-                    {o.items.map((i) => {
-                      const bad = i.cut !== i.stitched;
-                      return (
-                        <tr key={i.item} className="border-t border-stone-100">
-                          <td className={`${td} font-medium text-stone-700`}>{i.item}</td>
-                          <td className={`${td} text-right`}>{nf(i.ordered)}</td>
-                          <td className={`${td} text-right`}>{nf(i.cut)}</td>
-                          <td className={`${td} text-right font-semibold`} style={bad ? { color: "var(--bad)" } : undefined}>{nf(i.stitched)}</td>
-                          <td className={`${td} text-right`}>{nf(i.dispatched)}</td>
-                          <td className={`${td} text-right`}>{pct(i.stitched, i.cut)}%</td>
-                          <td className={td}><PipelineBar data={i} height={8} name={i.item} /></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <button className="mt-2 text-xs text-indigo-700 inline-flex items-center gap-1" onClick={() => setOpen({ ...open, [o.id]: !isOpen })}>
-                {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Size-wise cutting &amp; entries
-              </button>
-              {isOpen && (
-                <div className="mt-2 space-y-3 text-xs">
-                  {o.items.filter((i) => i.cut > 0).map((i) => (
-                    <div key={i.item}>
-                      <div className="font-medium text-stone-700 mb-1">{i.item} — cut {i.cut} · stitched {i.stitched}</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {Object.entries(i.sizes).map(([sz, n]) => <span key={sz} className="bg-stone-100 text-stone-700 rounded px-2 py-0.5">{sizeLabel(sz)}: <span className="font-mono">{n}</span></span>)}
-                      </div>
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${st === "match" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                    {st === "match" ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                    {st === "match" ? "Matched" : diff < 0 ? `${-diff} pcs left to stitch` : `${diff} pcs extra stitched`}
+                  </span>
+                </div>
+                <div className="grid grid-cols-4 gap-2 mt-3 text-center">
+                  {[["Ordered", o.ordered, null, ""], ["Cut", o.cut, pct(o.cut, o.ordered), "of ordered"], ["Stitched", o.stitched, pct(o.stitched, o.cut), "of cut"], ["Dispatched", o.dispatched, pct(o.dispatched, o.stitched), "of stitched"]].map(([l, v, p, sub]) => (
+                    <div key={l} className="rounded-lg bg-stone-50 py-2">
+                      <div className="text-[11px] uppercase text-stone-400">{l}</div>
+                      <div className="text-lg font-semibold tabular-nums leading-tight">{nf(v)}</div>
+                      <div className="text-[11px] text-stone-500 h-4">{p != null ? `${p}% ${sub}` : ""}</div>
                     </div>
                   ))}
+                </div>
+                <div className="mt-3"><PipelineBar data={o} height={12} name={o.order_number} /></div>
+              </button>
+
+              {isOpen && (
+                <div className="mt-4 space-y-4 border-t border-stone-100 pt-4" data-order-detail>
                   <div>
+                    <div className="text-sm font-semibold">{title}</div>
+                    <div className="text-xs text-stone-500 mb-2">Pieces by item — ordered vs cut vs stitched vs dispatched</div>
+                    <div style={{ maxWidth: Math.max(440, itemGroups.length * 200) }}><ColumnChart groups={itemGroups} series={["ordered", "cut", "stitched", "dispatched"]} slot={150} minW={440} height={250} ariaLabel={`${title} pieces by item`} /></div>
+                    <div className="mt-2"><Legend items={["ordered", "cut", "stitched", "dispatched"].map((k) => ({ label: STAGES[k].label, color: STAGES[k].color }))} /></div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-4">
+                    {sizeGroups.length > 0 && (
+                      <div>
+                        <div className="text-sm font-semibold">{title}</div>
+                        <div className="text-xs text-stone-500 mb-2">Pieces cut by size (all cutting entries added together)</div>
+                        <div style={{ maxWidth: Math.max(360, sizeGroups.length * 90) }}><ColumnChart groups={sizeGroups} series={["cut"]} slot={70} height={230} minW={360} ariaLabel={`${title} pieces cut by size`} /></div>
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-sm font-semibold">{title}</div>
+                      <div className="text-xs text-stone-500 mb-1">Progress over time (running totals)</div>
+                      <DailyTrend days={buildDays(new Set([o.id]), span, true)} height={230} />
+                      <div className="mt-2"><Legend items={["cut", "stitched", "dispatched"].map((k) => ({ label: STAGES[k].label, color: STAGES[k].color }))} /></div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-stone-400"><tr><th className={th}>Item</th><th className={`${th} text-right`}>Ordered</th><th className={`${th} text-right`}>Cut</th><th className={`${th} text-right`}>Stitched</th><th className={`${th} text-right`}>Dispatched</th><th className={`${th} text-right`}>Stitched %</th><th className={`${th} w-1/4`}>Pipeline</th></tr></thead>
+                      <tbody>
+                        {o.items.map((i) => (
+                          <tr key={i.item} className="border-t border-stone-100">
+                            <td className={`${td} font-medium text-stone-700`}>{i.item}</td>
+                            <td className={`${td} text-right`}>{nf(i.ordered)}</td>
+                            <td className={`${td} text-right`}>{nf(i.cut)}</td>
+                            <td className={`${td} text-right font-semibold`} style={i.cut !== i.stitched ? { color: "var(--bad)" } : undefined}>{nf(i.stitched)}</td>
+                            <td className={`${td} text-right`}>{nf(i.dispatched)}</td>
+                            <td className={`${td} text-right`}>{pct(i.stitched, i.cut)}%</td>
+                            <td className={td}><PipelineBar data={i} height={8} name={i.item} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="text-xs">
                     <div className="font-medium text-stone-700 mb-1">Cutting entries (added together above)</div>
                     {o.entries.map((e) => <div key={e.id} className="text-stone-500">{e.date} · {e.item} · {e.qty} pcs</div>)}
                   </div>

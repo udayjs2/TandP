@@ -1,3 +1,7 @@
+## v88 — Output: vertical bar graphs, order-wise drill-down
+
+No migration. Output now opens with one vertical (column) chart of every order — Ordered / Cut / Stitched / Dispatched side by side — with the order number and customer under each group. Click an order's bars (or its row below) to open that order: chart titles carry the order name, with vertical bars per item, pieces cut by size, a progress-over-time line, an item statistics table and the cutting entries that were consolidated. The report page is always light (the KPI tiles no longer turn dark with the device's dark mode).
+
 ## v87 — Output redesigned as a report
 
 No migration. Production Management → Output: KPI tiles (ordered / cut / stitched / dispatched with % of the previous stage, orders to reconcile), an *Output to date* line chart (running totals, or Daily; 14/30/60/90 days) with hover tooltips, a *Left to stitch — by order* ranked chart, one pipeline bar for all orders and one per order/item (dispatched · stitched awaiting dispatch · cut awaiting stitching · not cut yet), and an item statistics table inside every consolidated order card. Every chart has a Table view. Colours are fixed per stage (Cut blue, Stitched orange, Dispatched aqua), colour-blind checked, with a dark-mode set. Output now reads all progress rows (previously capped at 1000 by the database default).
