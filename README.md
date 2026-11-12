@@ -1,3 +1,7 @@
+## v86 — Output: one card + graph per order
+
+No migration. Production Management → Output now consolidates each order: all its approved cutting entries (across items and dates) are added together and shown once, with a bar chart of Ordered / Cut / Stitched / Dispatched per item, a progress bar, and an overview chart of cut vs stitched for every order at the top. Filters: All / Needs attention / Matched; search by order, customer or item. "Size-wise cutting & entries" expands the size breakdown and the list of cutting entries that were added up.
+
 ## v85 — Invoice each part delivery
 
 Run `migration_69.sql` (after 68).
