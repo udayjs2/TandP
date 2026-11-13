@@ -17,13 +17,23 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
   const [pays, setPays] = useState([]);
   useEffect(() => {
     if (!invoice.linked_order_id) return;
-    supabase.from("order_deliveries").select("date, item_description, quantity, invoice_id").eq("order_id", invoice.linked_order_id).order("date").then(({ data }) => {
-      // a part-delivery invoice lists only the dispatches it bills; older invoices list every dispatch of the order
-      const mine = (data || []).filter((d) => d.invoice_id && d.invoice_id === invoice.id);
-      setDeliveries(mine.length ? mine : (data || []).filter((d) => !d.invoice_id || d.invoice_id === invoice.id));
-    });
+    // Dispatch details are printed only when "Include previous dispatch details" is ticked on the invoice.
+    // Then: every dispatch of the order up to this invoice's own batch, each marked with the invoice that billed it.
+    if (!invoice.include_previous_dispatches) setDeliveries([]);
+    else {
+      Promise.all([
+        supabase.from("order_deliveries").select("date, item_description, quantity, invoice_id, created_at").eq("order_id", invoice.linked_order_id).order("date").order("created_at"),
+        supabase.from("invoices").select("id, invoice_number").eq("linked_order_id", invoice.linked_order_id),
+      ]).then(([{ data }, { data: invs }]) => {
+        const nums = Object.fromEntries((invs || []).map((x) => [x.id, x.invoice_number]));
+        const all = data || [];
+        const mine = all.filter((d) => d.invoice_id === invoice.id);
+        const upTo = mine.length ? mine.map((d) => d.date).sort().at(-1) : null;
+        setDeliveries(all.filter((d) => !upTo || d.date <= upTo || d.invoice_id === invoice.id).map((d) => ({ ...d, billedIn: d.invoice_id === invoice.id ? "This invoice" : d.invoice_id ? nums[d.invoice_id] || "—" : "Not billed" })));
+      });
+    }
     supabase.from("order_payments").select("amount, payment_date, mode").eq("order_id", invoice.linked_order_id).order("payment_date").then(({ data }) => setPays(data || []));
-  }, [invoice.linked_order_id]);
+  }, [invoice.linked_order_id, invoice.include_previous_dispatches]);
   const businessName = settings.business_name || "T&P Textiles";
 
   return (
@@ -143,12 +153,12 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
           <div className="mb-5">
             <div className="font-bold text-sm mb-1.5">DISPATCH DETAILS</div>
             <table className="w-full text-sm border border-stone-800 border-collapse">
-              <thead><tr className="bg-stone-50"><th className="border border-stone-800 text-left py-1.5 px-2">Dispatch</th><th className="border border-stone-800 text-left py-1.5 px-2">Date</th><th className="border border-stone-800 text-left py-1.5 px-2">Item</th><th className="border border-stone-800 text-right py-1.5 px-2">Qty</th></tr></thead>
+              <thead><tr className="bg-stone-50"><th className="border border-stone-800 text-left py-1.5 px-2">Dispatch</th><th className="border border-stone-800 text-left py-1.5 px-2">Date</th><th className="border border-stone-800 text-left py-1.5 px-2">Item</th><th className="border border-stone-800 text-left py-1.5 px-2">Billed in</th><th className="border border-stone-800 text-right py-1.5 px-2">Qty</th></tr></thead>
               <tbody>
                 {deliveries.map((d, k) => (
-                  <tr key={k}><td className="border border-stone-800 py-1.5 px-2">{k + 1}</td><td className="border border-stone-800 py-1.5 px-2">{d.date}</td><td className="border border-stone-800 py-1.5 px-2">{d.item_description}</td><td className="border border-stone-800 text-right py-1.5 px-2">{d.quantity}</td></tr>
+                  <tr key={k}><td className="border border-stone-800 py-1.5 px-2">{k + 1}</td><td className="border border-stone-800 py-1.5 px-2">{d.date}</td><td className="border border-stone-800 py-1.5 px-2">{d.item_description}</td><td className={`border border-stone-800 py-1.5 px-2 ${d.billedIn === "This invoice" ? "font-semibold" : ""}`}>{d.billedIn}</td><td className="border border-stone-800 text-right py-1.5 px-2">{d.quantity}</td></tr>
                 ))}
-                <tr><td colSpan={3} className="border border-stone-800 text-right py-1.5 px-2 font-semibold">Total dispatched</td><td className="border border-stone-800 text-right py-1.5 px-2 font-semibold">{deliveries.reduce((t, d) => t + Number(d.quantity || 0), 0)}</td></tr>
+                <tr><td colSpan={4} className="border border-stone-800 text-right py-1.5 px-2 font-semibold">Total dispatched so far</td><td className="border border-stone-800 text-right py-1.5 px-2 font-semibold">{deliveries.reduce((t, d) => t + Number(d.quantity || 0), 0)}</td></tr>
               </tbody>
             </table>
           </div>

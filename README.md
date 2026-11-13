@@ -1,3 +1,9 @@
+## v91 — Choose whether an invoice shows previous dispatch details
+
+Run `migration_70.sql` (after 69).
+
+In the invoice form, under the order's dispatches, a new checkbox **Include previous dispatch details on this invoice**. Unchecked (the default for new invoices): the printed invoice has no dispatch section — only the items being billed. Checked: the printed invoice adds a DISPATCH DETAILS table listing the order's dispatches up to this invoice's batch, each marked with the invoice that billed it ("This invoice" / INV-0001 …) and the running total dispatched. Invoices made before part-delivery billing keep their old behaviour (dispatch list printed).
+
 ## v90 — Logo on the invoice
 
 No migration. The printed invoice letterhead now carries the T&P logo (public/logo-mark-navy.png) at the left, with the business name, address, phone and GSTIN centred beside it. To change the logo, replace that file.

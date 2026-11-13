@@ -336,6 +336,7 @@ function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSa
     due_date: inv.due_date || "",
     status: inv.status || "Unpaid",
     advance_received: inv.advance_received || "",
+    include_previous_dispatches: !!inv.include_previous_dispatches,
     gst_type: inv.gst_type || "",
     customer_gstin: inv.customer_gstin || "",
     place_of_supply: inv.place_of_supply || "",
@@ -528,6 +529,15 @@ function InvoiceModal({ settings = {}, inv, invoices = [], orders, onClose, onSa
                   </tbody>
                 </table>
               </div>
+            )}
+            {deliveries.length > 0 && (
+              <label className="flex items-start gap-2 mt-2 pt-2 border-t border-stone-200 cursor-pointer" data-include-previous>
+                <input type="checkbox" className="mt-0.5" checked={!!f.include_previous_dispatches} onChange={(e) => setF({ ...f, include_previous_dispatches: e.target.checked })} />
+                <span>
+                  <span className="font-semibold text-stone-700">Include previous dispatch details on this invoice</span>
+                  <span className="block text-stone-500">Checked: the printed invoice lists the earlier dispatches of this order too ({deliveries.filter((d) => !pick[d.id]).length} other dispatch{deliveries.filter((d) => !pick[d.id]).length === 1 ? "" : "es"}), marking which invoice billed each. Unchecked: no dispatch details are printed — only the items on this invoice.</span>
+                </span>
+              </label>
             )}
             <button type="button" onClick={billWholeOrder} className="mt-2 font-medium text-indigo-700 hover:text-indigo-900">Bill the whole order instead (no dispatch)</button>
             {pays.length > 0 && (
