@@ -18,6 +18,10 @@ const CSS = `
   .print-page .mb-4 { margin-bottom: 7px !important; }
   .print-page .py-2 { padding-top: 4px !important; padding-bottom: 4px !important; }
   .print-page .py-1\.5 { padding-top: 3px !important; padding-bottom: 3px !important; }
+  .print-wrap { width: 100%; border-collapse: collapse; }
+  .print-wrap > thead { display: table-header-group; }
+  .print-wrap > thead > tr > td, .print-wrap > tbody > tr > td { padding: 0; }
+  .print-page .print-wrap > tbody > tr { break-inside: auto; page-break-inside: auto; }
   .print-page h2, .print-page h3 { break-after: avoid; }
 }
 `;
@@ -29,5 +33,15 @@ export default function PrintSheet({ children }) {
       {children}
     </div>,
     document.body
+  );
+}
+
+// Wraps a document so `header` (logo + letterhead) is repeated at the top of EVERY printed page.
+export function PrintFrame({ header, children }) {
+  return (
+    <table className="print-wrap w-full" style={{ borderCollapse: "collapse" }}>
+      <thead><tr><td>{header}</td></tr></thead>
+      <tbody><tr><td style={{ verticalAlign: "top" }}>{children}</td></tr></tbody>
+    </table>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import PrintSheet from "./PrintSheet";
+import PrintSheet, { PrintFrame } from "./PrintSheet";
 import { X, FileText } from "lucide-react";
 import { supabase } from "../supabaseClient";
 import { Modal, Field, inputCls, Btn } from "./ui";
@@ -248,11 +248,13 @@ export function PrintOfferLetter({ letter, employeeName, onClose }) {
       </div>
 
       <div id="print-offer" className="print-page max-w-2xl mx-auto p-8 text-[13px] leading-relaxed">
-        <div className="text-center border-b-2 border-stone-800 pb-3 mb-4">
-          <img src="/logo-mark-navy.png" alt="" className="h-12 mx-auto mb-1" />
+        <PrintFrame header={(
+        <div className="text-center border-b-2 border-stone-800 pb-3 mb-4 bg-white">
+          <img src="/logo-mark-navy.png" alt="" className="h-12 mx-auto mb-1" style={{ height: 48, width: "auto" }} />
           <h1 className="text-xl font-extrabold">T&P TEXTILES</h1>
           <p className="text-sm text-stone-600">GARMENTS MANUFACTURING UNIT</p>
         </div>
+        )}>
 
         <h2 className="text-center text-lg font-bold mb-1">ఉద్యోగ నియామక / ఆఫర్ లెటర్</h2>
         {!isStaff && <p className="text-center font-semibold mb-4">{typeInfo.te}</p>}
@@ -343,6 +345,7 @@ export function PrintOfferLetter({ letter, employeeName, onClose }) {
             </div>
           </div>
         </div>
+        </PrintFrame>
       </div>
     </PrintSheet>
   );

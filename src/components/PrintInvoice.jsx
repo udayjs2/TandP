@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import PrintSheet from "./PrintSheet";
+import PrintSheet, { PrintFrame } from "./PrintSheet";
 import { Btn } from "./ui";
 import { fmtMoney, gstBreakup } from "../lib/helpers";
 
@@ -48,8 +48,8 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
       </div>
 
       <div id="print-invoice" className="print-page max-w-2xl mx-auto"><div className="p-8 print-tight border border-stone-800">
-        {/* Letterhead */}
-        <div className="border-b-2 border-stone-800 pb-3 mb-3 grid grid-cols-[96px_1fr_96px] items-center gap-2" data-letterhead>
+        <PrintFrame header={(
+                <div className="border-b-2 border-stone-800 pb-3 mb-3 bg-white grid grid-cols-[96px_1fr_96px] items-center gap-2" data-letterhead>
           <img src="/logo-mark-navy.png" alt="T&P" className="h-14 w-auto object-contain" data-invoice-logo />
           <div className="text-center">
             <h1 className="text-2xl font-extrabold tracking-wide uppercase">{businessName}</h1>
@@ -62,6 +62,7 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
           </div>
           <div />
         </div>
+        )}>
 
         <h2 className="text-center text-lg font-bold uppercase tracking-wide mb-4">{hasGst ? "Tax Invoice" : "Pro Forma Invoice"}</h2>
 
@@ -214,6 +215,7 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
         <div className="flex justify-end avoid-break">
           <div className="text-right text-sm font-bold">For {businessName}</div>
         </div>
+        </PrintFrame>
       </div>
       </div>
     </PrintSheet>
