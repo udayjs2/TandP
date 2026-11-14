@@ -1,5 +1,7 @@
 ## v92 — Logo + header on every printed page (no migration)
 - New `PrintFrame` (PrintSheet.jsx): a repeating table header, so the T&P logo and letterhead print at the top of **every A4 page**.
+- Letterhead (`PrintHeader`) now matches the offer-letter header: boxed, logo left, centred name/address/Mobile|GSTIN, thick navy bar.
+- Every printed page has a double-line navy border and a bottom margin, so text no longer runs into the page edge.
 - Offer letter and Tax Invoice now use it; the offer letter's top header prints fully and its layout follows A4 (210×297 mm, 8/10 mm margins).
 
 ## v91 — Choose whether an invoice shows previous dispatch details

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { X, Receipt } from "lucide-react";
 import { supabase } from "../supabaseClient";
-import PrintSheet, { PrintFrame } from "./PrintSheet";
+import PrintSheet, { PrintFrame, PrintHeader } from "./PrintSheet";
 import { Btn } from "./ui";
 import { fmtMoney, gstBreakup } from "../lib/helpers";
 
@@ -47,22 +47,8 @@ export default function PrintInvoice({ invoice, settings, onClose }) {
         </Btn>
       </div>
 
-      <div id="print-invoice" className="print-page max-w-2xl mx-auto"><div className="p-8 print-tight border border-stone-800">
-        <PrintFrame header={(
-                <div className="border-b-2 border-stone-800 pb-3 mb-3 bg-white grid grid-cols-[96px_1fr_96px] items-center gap-2" data-letterhead>
-          <img src="/logo-mark-navy.png" alt="T&P" className="h-14 w-auto object-contain" data-invoice-logo />
-          <div className="text-center">
-            <h1 className="text-2xl font-extrabold tracking-wide uppercase">{businessName}</h1>
-            {settings.address && <p className="text-sm text-stone-700 mt-1">{settings.address}</p>}
-            <p className="text-sm text-stone-700 mt-0.5">
-              {settings.phone && <>Mobile: {settings.phone}</>}
-              {settings.phone && settings.gstin && "  |  "}
-              {settings.gstin && <>GSTIN: {settings.gstin}</>}
-            </p>
-          </div>
-          <div />
-        </div>
-        )}>
+      <div id="print-invoice" className="print-page max-w-2xl mx-auto"><div>
+        <PrintFrame header={<PrintHeader name={businessName} address={settings.address} phone={settings.phone} gstin={settings.gstin} />}>
 
         <h2 className="text-center text-lg font-bold uppercase tracking-wide mb-4">{hasGst ? "Tax Invoice" : "Pro Forma Invoice"}</h2>
 
